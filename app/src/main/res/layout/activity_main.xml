@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
+
+    <!-- ViewPager2 now fills the entire screen initially -->
+    <!-- Content inside your ViewPager's fragments will be pushed up by the bottom bar -->
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/viewPager"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:paddingBottom="56dp"/> <!-- IMPORTANT: Add padding for the bottom bar height. Adjust 56dp if tab bar height is different. -->
+    <!-- This ensures content isn't hidden by the bottom tab bar. -->
+
+    <!-- This AppBarLayout will now act as the container for your bottom tab bar -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/bottom_tab_bar_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="?attr/colorSurface"
+    app:elevation="4dp"> <!-- Added: Optional elevation for shadow -->
+
+    <!-- TabLayout is NOW INSIDE the AppBarLayout that's anchored to the bottom -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tabLayout"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+    app:tabMode="fixed"
+    app:tabGravity="fill"
+    app:tabIndicatorHeight="0dp"
+    app:tabIconTint="@color/bottom_tab_item_selector"
+    app:tabTextColor="@color/black"/>
+    <!--
+        You will need to create res/color/bottom_tab_item_selector.xml
+        Example:
+        <selector xmlns:android="http://schemas.android.com/apk/res/android">
+            <item android:color="?attr/colorPrimary" android:state_selected="true"/>
+            <item android:color="?attr/colorOnSurfaceVariant" android:state_selected="false"/>
+        </selector>
+    -->
+</com.google.android.material.appbar.AppBarLayout>
+
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>

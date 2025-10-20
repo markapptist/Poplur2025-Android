@@ -1,0 +1,33 @@
+<!-- Your existing fragment_home.xml, snippet provided for context -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:paddingTop="?attr/actionBarSize"
+    tools:context=".HomeFragment"> <!-- Or your main activity -->
+
+    <!-- Title of the Home Fragment -->
+<TextView
+android:id="@+id/homeTitle"
+android:layout_width="wrap_content"
+android:layout_height="wrap_content"
+android:text="Timeline"
+android:textSize="24sp"
+android:fontFamily="sans-serif-medium"
+android:layout_margin="16dp"
+android:textColor="?android:attr/textColorPrimary" />
+
+<androidx.recyclerview.widget.RecyclerView
+android:id="@+id/rv_timeline"
+android:layout_width="match_parent"
+android:layout_height="0dp"
+android:layout_weight="1"
+app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+tools:listitem="@layout/item_post_timeline" />
+
+    <!-- A Button to represent an action or interaction -->
+    <!-- ... Your existing button or other elements ... -->
+
+    </LinearLayout>

@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">Poplur2025</string>
+    <string name="checking_login_status">Checking Login Status...</string>
+    <string name="email">Email</string>
+    <string name="password">Password</string>
+    <string name="login">Login</string>
+    <string name="title_activity_map">Map Activity</string>
+        <!-- ... other strings ... -->
+        <string name="profile_picture_desc">Profile Picture</string>
+        <string name="name_label">Name:</string>
+        <string name="email_label">Email:</string>
+        <string name="logout_button_text">Logout</string>
+
+    <!-- TODO: Remove or change this placeholder text -->
+    <string name="hello_blank_fragment">Hello blank fragment</string>
+</resources>
