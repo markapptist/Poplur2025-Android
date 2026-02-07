@@ -1,116 +1,82 @@
-
 plugins {
-    alias(libs.plugins.kotlin.android)
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
-    alias(libs.plugins.android.application) // Apply the plugin here
-    alias(libs.plugins.kotlin.parcelize)
-    id("org.jetbrains.kotlin.plugin.compose") version "2.0.0" // this version matches your Kotlin version
-
 }
 
 android {
-    namespace = "com.example.poplur2025"
-    compileSdk = 36
+    namespace = "com.poplur.app"
+    compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.poplur2025"
-        minSdk = 24
+        applicationId = "com.poplur.app"
+        minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables {
-            useSupportLibrary = true
-        }
+        // Maps API key is injected via manifest placeholder.
+        manifestPlaceholders["MAPS_API_KEY"] = "REPLACE_WITH_MAPS_API_KEY"
     }
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
-    }
-    kotlinOptions {
-        jvmTarget = "1.8"
-    }
     buildFeatures {
         compose = true
-        viewBinding = true
-        dataBinding = true
     }
+
     composeOptions {
-        kotlinCompilerExtensionVersion = "2.0.0"
+        kotlinCompilerExtensionVersion = "1.5.15"
     }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
-    buildToolsVersion = "35.0.0"
 }
 
 dependencies {
-    implementation("com.google.android.gms:play-services-wearable:18.1.0")
-// Check for the latest version
-    implementation("androidx.fragment:fragment-ktx:1.8.9")
-    implementation("androidx.glance:glance-appwidget:1.1.0") // Or the latest version
-    implementation("androidx.glance:glance-material3:1.1.0") // Or the latest version, if using Material 3 components
-    implementation("androidx.navigation:navigation-fragment-ktx:2.3.5")
-    implementation(platform("com.google.firebase:firebase-bom:34.0.0")) // Or latest BOM
-    implementation(libs.firebase.auth)
+    val bom = platform("com.google.firebase:firebase-bom:33.5.1")
+    implementation(bom)
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-storage-ktx")
 
-    implementation("androidx.viewpager2:viewpager2:1.0.0")
-    implementation("com.google.android.material:material:1.4.0")
-// For TabLayout
-    implementation("com.google.android.gms:play-services-maps:17.0.0")
-    implementation(libs.firebase.storage)
-// For Maps
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.activity:activity-compose:1.10.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
 
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4") // Or the latest version
-    implementation("com.google.android.gms:play-services-maps:19.2.0")
-    implementation(libs.play.services.maps.v1700)
-    implementation(libs.firebase.core.v2100)
-    implementation(platform(libs.firebase.bom))
-    // Other dependencies
-    implementation(libs.androidx.appcompat.v141)
-    implementation(libs.androidx.lifecycle.runtime.ktx.v231)
-    implementation(libs.picasso)
+    implementation("androidx.compose.ui:ui:1.7.8")
+    implementation("androidx.compose.ui:ui-tooling-preview:1.7.8")
+    implementation("androidx.compose.material3:material3:1.3.1")
+    debugImplementation("androidx.compose.ui:ui-tooling:1.7.8")
 
-    implementation(libs.play.services.maps)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("androidx.navigation:navigation-compose:2.8.6")
 
-    // Add this to ensure Firebase libraries match in versions (use Firebase BOM)
-    implementation(libs.firebase.firestore)
-    implementation(libs.firebase.auth)
-    implementation(libs.firebase.core)
-    implementation(platform(libs.firebase.bom)) // Make sure 'libs.firebase.bom' correctly points to your BOM definition in libs.versions.toml
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.analytics)
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.activity.compose)
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.ui)
-    implementation(libs.androidx.ui.graphics)
-    implementation(libs.androidx.ui.tooling.preview)
-    implementation(libs.androidx.material3)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.play.services.maps)
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.ui.test.junit4)
-    debugImplementation(libs.androidx.ui.tooling)
-    debugImplementation(libs.androidx.ui.test.manifest)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // Images
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // Location
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+
+    // Maps Compose
+    implementation("com.google.maps.android:maps-compose:4.4.1")
+    implementation("com.google.android.gms:play-services-maps:18.2.0")
+
+    // CameraX
+    val camerax = "1.4.1"
+    implementation("androidx.camera:camera-core:$camerax")
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-video:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
+
+    // Networking (YouTube)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.code.gson:gson:2.11.0")
 }
-

@@ -1,22 +1,16 @@
 pluginManagement {
     repositories {
-        google ()
+        google()
         mavenCentral()
         gradlePluginPortal()
     }
 }
-
-
-
-
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
     }
 }
-
 rootProject.name = "Poplur2025"
 include(":app")
- 
