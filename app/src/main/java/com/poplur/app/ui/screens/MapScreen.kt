@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
@@ -41,8 +42,8 @@ fun MapScreen() {
         Circle(
             center = start,
             radius = 250.0,
-            fillColor = 0x33007AFF,
-            strokeColor = 0x66007AFF,
+            fillColor = Color(0x33007AFF),
+            strokeColor = Color(0x66007AFF),
             strokeWidth = 2f
         )
     }

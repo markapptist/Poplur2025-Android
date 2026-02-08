@@ -2,32 +2,29 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
-    namespace = "com.poplur.app"
+    namespace = "com.example.poplur2025"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.poplur.app"
+        applicationId = "com.example.poplur2025"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
         // Maps API key is injected via manifest placeholder.
-        manifestPlaceholders["MAPS_API_KEY"] = "REPLACE_WITH_MAPS_API_KEY"
+        manifestPlaceholders["MAPS_API_KEY"] = "AIzaSyDgMYA1YisgbpEGyl0Nj8VGoorbqmfAkG0"
     }
 
     buildFeatures {
         compose = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.15"
-    }
-
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = "1.8"
     }
 
     packaging {
@@ -52,6 +49,7 @@ dependencies {
     implementation("androidx.compose.ui:ui:1.7.8")
     implementation("androidx.compose.ui:ui-tooling-preview:1.7.8")
     implementation("androidx.compose.material3:material3:1.3.1")
+    implementation("androidx.compose.material:material-icons-extended-android:1.7.0-alpha01")
     debugImplementation("androidx.compose.ui:ui-tooling:1.7.8")
 
     implementation("androidx.navigation:navigation-compose:2.8.6")
@@ -79,4 +77,6 @@ dependencies {
     // Networking (YouTube)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.11.0")
+    implementation("com.google.android.material:material:1.13.0")
+    implementation("com.google.guava:guava:33.0.0-android")
 }

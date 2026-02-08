@@ -14,6 +14,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.poplur.app.data.models.DMMessage
 import com.poplur.app.ui.vm.MessagesViewModel
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ThreadScreen(
     threadId: String,
