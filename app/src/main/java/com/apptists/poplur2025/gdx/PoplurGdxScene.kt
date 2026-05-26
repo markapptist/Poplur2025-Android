@@ -15,10 +15,13 @@ class PoplurGdxScene(private val scene: String) : ApplicationAdapter() {
     private lateinit var batch: SpriteBatch
     private lateinit var font: BitmapFont
     private var time = 0f
-    override fun create() { shapes = ShapeRenderer(); batch = SpriteBatch(); font = BitmapFont() }
+    override fun create() { 
+        Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
+        shapes = ShapeRenderer(); batch = SpriteBatch(); font = BitmapFont() 
+    }
     override fun render() {
         time += Gdx.graphics.deltaTime
-        Gdx.gl.glClearColor(0.03f, 0.03f, 0.05f, 1f); Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
+        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
         val w = Gdx.graphics.width.toFloat(); val h = Gdx.graphics.height.toFloat(); val cx = w/2f; val base = h*0.22f
         shapes.begin(ShapeRenderer.ShapeType.Filled)
         for (i in 0 until 11) {

@@ -1,23 +1,32 @@
 package com.apptists.poplur2025.gdx
 
-import android.content.Intent
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.badlogic.gdx.backends.android.AndroidApplicationConfiguration
+import com.badlogic.gdx.backends.android.AndroidFragmentApplication
+
+class LibGdxFragment(private val scene: String) : AndroidFragmentApplication() {
+    override fun onCreateView(inflater: android.view.LayoutInflater, container: android.view.ViewGroup?, saved: android.os.Bundle?): android.view.View? {
+        val config = AndroidApplicationConfiguration().apply {
+            r = 8; g = 8; b = 8; a = 8
+        }
+        return initializeForView(PoplurGdxScene(scene), config)
+    }
+}
 
 @Composable
 fun LibGdxSceneView(scene: String, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("LibGDX $scene scene")
-            Button(onClick = {
-                context.startActivity(Intent(context, LibGdxSceneActivity::class.java).putExtra("scene", scene))
-            }) { Text("Open animated LibGDX layer") }
-        }
-    }
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { context ->
+            val fragment = LibGdxFragment(scene)
+            val container = androidx.fragment.app.FragmentContainerView(context).apply {
+                id = android.view.View.generateViewId()
+            }
+            val activity = context as androidx.fragment.app.FragmentActivity
+            activity.supportFragmentManager.beginTransaction().replace(container.id, fragment).commit()
+            container
+        },
+        modifier = modifier
+    )
 }
