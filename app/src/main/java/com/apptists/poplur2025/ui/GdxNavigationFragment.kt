@@ -10,10 +10,10 @@ import com.badlogic.gdx.backends.android.AndroidFragmentApplication
 class GdxNavigationFragment(private val onTabSelected: (Int) -> Unit) : AndroidFragmentApplication() {
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val config = AndroidApplicationConfiguration().apply {
-            useAccelerometer = false
-            useCompass = false
+            useAccelerometer = false; useCompass = false
             r = 8; g = 8; b = 8; a = 8
         }
-        return initializeForView(CubeNavigationAdapter(onTabSelected), config)
+        // Use the new CombinedGdxAdapter
+        return initializeForView(CombinedGdxAdapter(onTabSelected), config)
     }
 }
