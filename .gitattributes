@@ -1,1 +1,2 @@
 shine_light.webm filter=lfs diff=lfs merge=lfs -text
+*.hprof filter=lfs diff=lfs merge=lfs -text
