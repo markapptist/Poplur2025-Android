@@ -1,82 +1,82 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.google.gms.google-services")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.gms.google-services")
 }
 
-android {
-    namespace = "com.example.poplur2025"
-    compileSdk = 35
+val natives by configurations.creating
 
-    defaultConfig {
-        applicationId = "com.example.poplur2025"
-        minSdk = 26
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
-        // Maps API key is injected via manifest placeholder.
-        manifestPlaceholders["MAPS_API_KEY"] = "AIzaSyDgMYA1YisgbpEGyl0Nj8VGoorbqmfAkG0"
+android { namespace = "com.apptists.poplur2025"; compileSdk = 35
+    defaultConfig { applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "1.0" }
+    buildFeatures { compose = true; buildConfig = true }
+    packaging { resources.excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*") }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
-
-    buildFeatures {
-        compose = true
-    }
-
     kotlinOptions {
-        jvmTarget = "1.8"
-    }
-
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
+        jvmTarget = "17"
     }
 }
 
 dependencies {
-    val bom = platform("com.google.firebase:firebase-bom:33.5.1")
-    implementation(bom)
+    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.navigation:navigation-compose:2.8.5")
+    implementation("androidx.core:core-ktx:1.15.0")
+
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
 
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.activity:activity-compose:1.10.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
-
-    implementation("androidx.compose.ui:ui:1.7.8")
-    implementation("androidx.compose.ui:ui-tooling-preview:1.7.8")
-    implementation("androidx.compose.material3:material3:1.3.1")
-    implementation("androidx.compose.material:material-icons-extended-android:1.7.0-alpha01")
-    debugImplementation("androidx.compose.ui:ui-tooling:1.7.8")
-
-    implementation("androidx.navigation:navigation-compose:2.8.6")
-
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-
-    // Images
-    implementation("io.coil-kt:coil-compose:2.7.0")
-
-    // Location
+    implementation("com.google.android.gms:play-services-maps:19.0.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("com.google.android.gms:play-services-ads:23.6.0")
 
-    // Maps Compose
-    implementation("com.google.maps.android:maps-compose:4.4.1")
-    implementation("com.google.android.gms:play-services-maps:18.2.0")
+    implementation("androidx.camera:camera-core:1.4.1")
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
+    implementation("com.google.mlkit:object-detection:17.0.2")
+    implementation("com.google.mlkit:face-detection:16.1.7")
 
-    // CameraX
-    val camerax = "1.4.1"
-    implementation("androidx.camera:camera-core:$camerax")
-    implementation("androidx.camera:camera-camera2:$camerax")
-    implementation("androidx.camera:camera-lifecycle:$camerax")
-    implementation("androidx.camera:camera-video:$camerax")
-    implementation("androidx.camera:camera-view:$camerax")
+    implementation("com.android.billingclient:billing-ktx:7.1.1")
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-ui:1.5.1")
 
-    // Networking (YouTube)
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.google.code.gson:gson:2.11.0")
-    implementation("com.google.android.material:material:1.13.0")
-    implementation("com.google.guava:guava:33.0.0-android")
+    implementation("com.badlogicgames.gdx:gdx:1.13.1")
+    implementation("com.badlogicgames.gdx:gdx-backend-android:1.13.1")
+    natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-armeabi-v7a")
+    natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-arm64-v8a")
+    natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-x86")
+    natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-x86_64")
+}
+
+tasks.register<Copy>("copyNatives") {
+    natives.files.forEach { file ->
+        val outputDir = when {
+            file.name.contains("arm64-v8a") -> "arm64-v8a"
+            file.name.contains("armeabi-v7a") -> "armeabi-v7a"
+            file.name.contains("x86_64") -> "x86_64"
+            file.name.contains("x86") -> "x86"
+            else -> null
+        }
+        if (outputDir != null) {
+            from(zipTree(file)) {
+                include("*.so")
+                into(outputDir)
+            }
+        }
+    }
+    into("src/main/jniLibs")
+}
+
+project.afterEvaluate {
+    tasks.findByName("preBuild")?.dependsOn(tasks.getByName("copyNatives"))
 }

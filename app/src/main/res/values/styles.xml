@@ -1,0 +1,3 @@
+<resources>
+<style name="Theme.Poplur" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:windowLightStatusBar">true</item><item name="android:fontFamily">sans</item></style>
+</resources>
