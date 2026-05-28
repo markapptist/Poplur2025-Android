@@ -7,8 +7,6 @@ import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.PerspectiveCamera
 import com.badlogic.gdx.graphics.VertexAttributes.Usage
-import com.badlogic.gdx.graphics.g2d.BitmapFont
-import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.g3d.Environment
 import com.badlogic.gdx.graphics.g3d.Material
 import com.badlogic.gdx.graphics.g3d.Model
@@ -17,11 +15,8 @@ import com.badlogic.gdx.graphics.g3d.ModelInstance
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute
 import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder
-import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import com.badlogic.gdx.math.Quaternion
 import com.badlogic.gdx.math.Vector3
-import kotlin.math.abs
-import kotlin.math.sin
 
 class CombinedGdxAdapter(private val onTabSelected: (Int) -> Unit) : ApplicationAdapter() {
     private var cam: PerspectiveCamera? = null
@@ -33,11 +28,6 @@ class CombinedGdxAdapter(private val onTabSelected: (Int) -> Unit) : Application
     private var currentRotation = 0f
     private var isDragging = false
     private var lastX = 0f
-
-    private var shapes: ShapeRenderer? = null
-    private var batch: SpriteBatch? = null
-    private var font: BitmapFont? = null
-    private var time = 0f
 
     override fun create() {
         Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
@@ -52,7 +42,6 @@ class CombinedGdxAdapter(private val onTabSelected: (Int) -> Unit) : Application
         
         modelBatch = ModelBatch()
         
-        // Create a cube with different colored faces
         val modelBuilder = ModelBuilder()
         modelBuilder.begin()
         
@@ -80,21 +69,15 @@ class CombinedGdxAdapter(private val onTabSelected: (Int) -> Unit) : Application
         env.add(DirectionalLight().set(0.8f, 0.8f, 0.8f, -1f, -0.8f, -0.2f))
         environment = env
 
-        shapes = ShapeRenderer()
-        batch = SpriteBatch()
-        font = BitmapFont()
-
         Gdx.input.inputProcessor = object : InputAdapter() {
             override fun touchDown(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
                 isDragging = true; lastX = screenX.toFloat(); return true
             }
             override fun touchUp(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
                 isDragging = false
-                // Snap to nearest 90 degrees
                 val snap = Math.round(currentRotation / 90f)
                 targetRotation = (snap * 90).toFloat()
                 
-                // Trigger tab change in Compose
                 val tabIndex = (((snap % 4) + 4) % 4).toInt()
                 Gdx.app.postRunnable { onTabSelected(tabIndex) }
                 return true
@@ -119,46 +102,14 @@ class CombinedGdxAdapter(private val onTabSelected: (Int) -> Unit) : Application
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
 
         instance?.let { inst ->
-            // Rotate the cube around the Y axis based on drag
             inst.transform.set(Vector3.Zero, Quaternion().setEulerAngles(currentRotation, 0f, 0f))
             modelBatch?.let { b ->
                 b.begin(cam); b.render(inst, environment); b.end()
             }
         }
-
-        if (GdxState.isSceneActive) {
-            renderScene()
-        }
-    }
-
-    private fun renderScene() {
-        time += Gdx.graphics.deltaTime
-        val s = shapes ?: return
-        val b = batch ?: return
-        val f = font ?: return
-        val h = Gdx.graphics.height.toFloat()
-        val w = Gdx.graphics.width.toFloat()
-        val cx = w / 2f
-        val base = h * 0.22f
-        
-        s.begin(ShapeRenderer.ShapeType.Filled)
-        for (i in 0 until 11) {
-            val height = (h * 0.12f) + abs(sin(time * 1.6f + i * .45f)) * h * .52f
-            val x = cx - 220 + i * 44
-            s.color = Color(0.2f + i * .035f, 0.7f, 1f, 0.8f) // Slight transparency
-            s.rect(x, base, 30f, height)
-        }
-        s.color = Color(1f, .88f, .18f, 0.9f)
-        s.circle(cx + sin(time) * 150f, h * .72f, 26f)
-        s.end()
-
-        b.begin()
-        f.color = Color.WHITE
-        f.draw(b, "Scene: ${GdxState.currentScene.uppercase()}", 40f, h - 40f)
-        b.end()
     }
 
     override fun dispose() {
-        modelBatch?.dispose(); model?.dispose(); shapes?.dispose(); batch?.dispose(); font?.dispose()
+        modelBatch?.dispose(); model?.dispose()
     }
 }
