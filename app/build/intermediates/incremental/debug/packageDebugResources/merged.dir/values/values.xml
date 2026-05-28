@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Poplur</string>
+    <string name="gcm_defaultSenderId" translatable="false">REPLACE_WITH_FIREBASE_PROJECT_NUMBER</string>
+    <string name="google_api_key" translatable="false">REPLACE_WITH_ANDROID_FIREBASE_WEB_API_KEY</string>
+    <string name="google_app_id" translatable="false">REPLACE_WITH_ANDROID_FIREBASE_APP_ID</string>
+    <string name="google_crash_reporting_api_key" translatable="false">REPLACE_WITH_ANDROID_FIREBASE_WEB_API_KEY</string>
+    <string name="google_storage_bucket" translatable="false">poplur2025-android.appspot.com</string>
+    <string name="project_id" translatable="false">poplur2025-android</string>
+    <style name="Theme.Poplur" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:windowLightStatusBar">true</item><item name="android:fontFamily">sans</item></style>
+</resources>

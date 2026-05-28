@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.apptists.poplur2025.app-mergeDebugResources-82:/values-v18/values-v18.xml",
+            "map": [
+                {
+                    "source": "/Users/matrix/.gradle/caches/9.4.1/transforms/b65991850b6b8040bd4cd05a600e7d12/transformed/appcompat-1.6.1/res/values-v18/values-v18.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "48",
+                        "endOffsets": "99"
+                    }
+                }
+            ]
+        }
+    ]
+}
