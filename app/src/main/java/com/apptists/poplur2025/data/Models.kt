@@ -19,15 +19,21 @@ data class Post(
     val id: String = "",
     val userId: String = "",
     val username: String = "",
+    val displayName: String = "",
+    val userPostsCount: Int = 0,
     val caption: String = "",
     val mediaUrl: String? = null,
     val videoUrl: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    val locationName: String = "",
     val createdAt: Timestamp? = null,
     val likes: Int = 0,
     val comments: Int = 0,
-    val detectedObjects: List<String> = emptyList()
+    val detectedObjects: List<String> = emptyList(),
+    val radius: Int = 0,
+    val totalRadius: Int = 0,
+    val radiusChange: Int = 0 // positive for up, negative for down
 )
 
 data class ChatUser(val id: String, val name: String, val avatarUrl: String? = null)

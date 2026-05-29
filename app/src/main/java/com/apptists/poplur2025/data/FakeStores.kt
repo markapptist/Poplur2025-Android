@@ -2,9 +2,57 @@ package com.apptists.poplur2025.data
 
 object DemoPostStore {
     val posts = listOf(
-        Post("1", "u1", "mark", "Casino energy in Las Vegas", latitude = 36.1699, longitude = -115.1398, likes = 991, comments = 44, detectedObjects = listOf("building", "nightlife")),
-        Post("2", "u2", "mia", "Best food spot downtown", latitude = 43.6532, longitude = -79.3832, likes = 611, comments = 31, detectedObjects = listOf("food", "restaurant")),
-        Post("3", "u3", "jay", "Tech lab preview", latitude = 37.7749, longitude = -122.4194, likes = 820, comments = 19, detectedObjects = listOf("computer", "person"))
+        Post(
+            id = "1", 
+            userId = "u1", 
+            username = "food_u", 
+            displayName = "User food_u", 
+            userPostsCount = 12,
+            caption = "Casino energy in Las Vegas", 
+            latitude = 36.1699, 
+            longitude = -115.1398, 
+            locationName = "35.6301, 139.6239",
+            likes = 991, 
+            comments = 44, 
+            detectedObjects = listOf("building", "nightlife"),
+            radius = 2065,
+            totalRadius = 3959,
+            radiusChange = 100
+        ),
+        Post(
+            id = "2", 
+            userId = "u2", 
+            username = "mia", 
+            displayName = "Mia", 
+            userPostsCount = 45,
+            caption = "Best food spot downtown", 
+            latitude = 43.6532, 
+            longitude = -79.3832, 
+            locationName = "Toronto, ON",
+            likes = 611, 
+            comments = 31, 
+            detectedObjects = listOf("food", "restaurant"),
+            radius = 1200,
+            totalRadius = 2500,
+            radiusChange = -50
+        ),
+        Post(
+            id = "3", 
+            userId = "u3", 
+            username = "jay", 
+            displayName = "Jay", 
+            userPostsCount = 8,
+            caption = "Tech lab preview", 
+            latitude = 37.7749, 
+            longitude = -122.4194, 
+            locationName = "San Francisco, CA",
+            likes = 820, 
+            comments = 19, 
+            detectedObjects = listOf("computer", "person"),
+            radius = 800,
+            totalRadius = 1500,
+            radiusChange = 20
+        )
     )
     val dominance = listOf(
         CityDominance("Toronto", "mia", 88, 43.6532, -79.3832),
