@@ -1,9 +1,9 @@
 -- Merging decision tree log ---
 manifest
-ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:1:1-26:12
-INJECTED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:1:1-26:12
-INJECTED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:1:1-26:12
-INJECTED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:1:1-26:12
+ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:1:1-27:12
+INJECTED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:1:1-27:12
+INJECTED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:1:1-27:12
+INJECTED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:1:1-27:12
 MERGED from [androidx.navigation:navigation-common:2.8.5] /Users/matrix/.gradle/caches/9.4.1/transforms/df06f8f872af3ccd811f1607b5aaad4a/transformed/navigation-common-2.8.5/AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.navigation:navigation-runtime:2.8.5] /Users/matrix/.gradle/caches/9.4.1/transforms/3f8e2e92ecf2c00a154bf1d6fd60d236/transformed/navigation-runtime-2.8.5/AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.navigation:navigation-common-ktx:2.8.5] /Users/matrix/.gradle/caches/9.4.1/transforms/df3ddbe8af6804fea7d3fb4a8a65cb72/transformed/navigation-common-ktx-2.8.5/AndroidManifest.xml:2:1-7:12
@@ -209,8 +209,42 @@ MERGED from [com.google.android.datatransport:transport-backend-cct:3.1.8] /User
 MERGED from [com.google.android.datatransport:transport-backend-cct:3.1.8] /Users/matrix/.gradle/caches/9.4.1/transforms/0129dfe79d94b70d37f8b9e5461a484b/transformed/transport-backend-cct-3.1.8/AndroidManifest.xml:25:5-67
 	android:name
 		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:9:22-64
+uses-permission#android.permission.ACCESS_NETWORK_STATE
+ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:10:5-78
+MERGED from [com.google.mlkit:object-detection:17.0.2] /Users/matrix/.gradle/caches/9.4.1/transforms/6ffca2e68e23ab115be1f6f9eded8f73/transformed/object-detection-17.0.2/AndroidManifest.xml:7:5-79
+MERGED from [com.google.mlkit:object-detection:17.0.2] /Users/matrix/.gradle/caches/9.4.1/transforms/6ffca2e68e23ab115be1f6f9eded8f73/transformed/object-detection-17.0.2/AndroidManifest.xml:7:5-79
+MERGED from [com.google.mlkit:vision-internal-vkp:18.2.3] /Users/matrix/.gradle/caches/9.4.1/transforms/fbee6ce62a71a73098c000588e4b728d/transformed/vision-internal-vkp-18.2.3/AndroidManifest.xml:7:5-79
+MERGED from [com.google.mlkit:vision-internal-vkp:18.2.3] /Users/matrix/.gradle/caches/9.4.1/transforms/fbee6ce62a71a73098c000588e4b728d/transformed/vision-internal-vkp-18.2.3/AndroidManifest.xml:7:5-79
+MERGED from [com.google.android.gms:play-services-maps:19.0.0] /Users/matrix/.gradle/caches/9.4.1/transforms/33647dc8bd5cffcc65b5435172d28867/transformed/play-services-maps-19.0.0/AndroidManifest.xml:23:5-79
+MERGED from [com.google.android.gms:play-services-maps:19.0.0] /Users/matrix/.gradle/caches/9.4.1/transforms/33647dc8bd5cffcc65b5435172d28867/transformed/play-services-maps-19.0.0/AndroidManifest.xml:23:5-79
+MERGED from [com.google.firebase:firebase-storage:21.0.1] /Users/matrix/.gradle/caches/9.4.1/transforms/d64d04b57e9f2a7a0f92543b3dbbaa63/transformed/firebase-storage-21.0.1/AndroidManifest.xml:23:5-79
+MERGED from [com.google.firebase:firebase-storage:21.0.1] /Users/matrix/.gradle/caches/9.4.1/transforms/d64d04b57e9f2a7a0f92543b3dbbaa63/transformed/firebase-storage-21.0.1/AndroidManifest.xml:23:5-79
+MERGED from [com.google.firebase:firebase-firestore:25.1.1] /Users/matrix/.gradle/caches/9.4.1/transforms/d9f4155375a6155c465441b89d3b11db/transformed/firebase-firestore-25.1.1/AndroidManifest.xml:10:5-79
+MERGED from [com.google.firebase:firebase-firestore:25.1.1] /Users/matrix/.gradle/caches/9.4.1/transforms/d9f4155375a6155c465441b89d3b11db/transformed/firebase-firestore-25.1.1/AndroidManifest.xml:10:5-79
+MERGED from [com.google.firebase:firebase-auth:23.1.0] /Users/matrix/.gradle/caches/9.4.1/transforms/7fc53dcee559dfd2375ab0d360224f5c/transformed/firebase-auth-23.1.0/AndroidManifest.xml:26:5-79
+MERGED from [com.google.firebase:firebase-auth:23.1.0] /Users/matrix/.gradle/caches/9.4.1/transforms/7fc53dcee559dfd2375ab0d360224f5c/transformed/firebase-auth-23.1.0/AndroidManifest.xml:26:5-79
+MERGED from [com.google.android.recaptcha:recaptcha:18.5.1] /Users/matrix/.gradle/caches/9.4.1/transforms/84d96dc063faef36a9f6ef3ec44b5858/transformed/recaptcha-18.5.1/AndroidManifest.xml:8:5-79
+MERGED from [com.google.android.recaptcha:recaptcha:18.5.1] /Users/matrix/.gradle/caches/9.4.1/transforms/84d96dc063faef36a9f6ef3ec44b5858/transformed/recaptcha-18.5.1/AndroidManifest.xml:8:5-79
+MERGED from [com.google.android.gms:play-services-ads-lite:23.6.0] /Users/matrix/.gradle/caches/9.4.1/transforms/436343c1b1627e8cf2fa77b4b6fd9741/transformed/play-services-ads-lite-23.6.0/AndroidManifest.xml:25:5-79
+MERGED from [com.google.android.gms:play-services-ads-lite:23.6.0] /Users/matrix/.gradle/caches/9.4.1/transforms/436343c1b1627e8cf2fa77b4b6fd9741/transformed/play-services-ads-lite-23.6.0/AndroidManifest.xml:25:5-79
+MERGED from [androidx.work:work-runtime:2.7.0] /Users/matrix/.gradle/caches/9.4.1/transforms/e7ce308ad12d375ac3a89c3506a7af26/transformed/work-runtime-2.7.0/AndroidManifest.xml:26:5-79
+MERGED from [androidx.work:work-runtime:2.7.0] /Users/matrix/.gradle/caches/9.4.1/transforms/e7ce308ad12d375ac3a89c3506a7af26/transformed/work-runtime-2.7.0/AndroidManifest.xml:26:5-79
+MERGED from [androidx.media3:media3-exoplayer:1.5.1] /Users/matrix/.gradle/caches/9.4.1/transforms/0e1d66275ac1c6559c76405b665f4f20/transformed/media3-exoplayer-1.5.1/AndroidManifest.xml:22:5-79
+MERGED from [androidx.media3:media3-exoplayer:1.5.1] /Users/matrix/.gradle/caches/9.4.1/transforms/0e1d66275ac1c6559c76405b665f4f20/transformed/media3-exoplayer-1.5.1/AndroidManifest.xml:22:5-79
+MERGED from [androidx.media3:media3-common:1.5.1] /Users/matrix/.gradle/caches/9.4.1/transforms/35b38033faae94199c935af9bf8a2b62/transformed/media3-common-1.5.1/AndroidManifest.xml:22:5-79
+MERGED from [androidx.media3:media3-common:1.5.1] /Users/matrix/.gradle/caches/9.4.1/transforms/35b38033faae94199c935af9bf8a2b62/transformed/media3-common-1.5.1/AndroidManifest.xml:22:5-79
+MERGED from [com.google.android.gms:play-services-measurement-sdk-api:20.1.2] /Users/matrix/.gradle/caches/9.4.1/transforms/f779e2f8cd05046337aad5dee55d0f73/transformed/play-services-measurement-sdk-api-20.1.2/AndroidManifest.xml:24:5-79
+MERGED from [com.google.android.gms:play-services-measurement-sdk-api:20.1.2] /Users/matrix/.gradle/caches/9.4.1/transforms/f779e2f8cd05046337aad5dee55d0f73/transformed/play-services-measurement-sdk-api-20.1.2/AndroidManifest.xml:24:5-79
+MERGED from [com.google.android.datatransport:transport-backend-cct:3.1.8] /Users/matrix/.gradle/caches/9.4.1/transforms/0129dfe79d94b70d37f8b9e5461a484b/transformed/transport-backend-cct-3.1.8/AndroidManifest.xml:24:5-79
+MERGED from [com.google.android.datatransport:transport-backend-cct:3.1.8] /Users/matrix/.gradle/caches/9.4.1/transforms/0129dfe79d94b70d37f8b9e5461a484b/transformed/transport-backend-cct-3.1.8/AndroidManifest.xml:24:5-79
+MERGED from [com.google.android.datatransport:transport-runtime:3.1.8] /Users/matrix/.gradle/caches/9.4.1/transforms/dd4348f786ff49281d01bb6976866c9f/transformed/transport-runtime-3.1.8/AndroidManifest.xml:22:5-79
+MERGED from [com.google.android.datatransport:transport-runtime:3.1.8] /Users/matrix/.gradle/caches/9.4.1/transforms/dd4348f786ff49281d01bb6976866c9f/transformed/transport-runtime-3.1.8/AndroidManifest.xml:22:5-79
+MERGED from [io.grpc:grpc-android:1.62.2] /Users/matrix/.gradle/caches/9.4.1/transforms/8918f6e0559522dc15c816651409883b/transformed/grpc-android-1.62.2/AndroidManifest.xml:7:5-79
+MERGED from [io.grpc:grpc-android:1.62.2] /Users/matrix/.gradle/caches/9.4.1/transforms/8918f6e0559522dc15c816651409883b/transformed/grpc-android-1.62.2/AndroidManifest.xml:7:5-79
+	android:name
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:10:22-76
 queries
-ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:11:5-14:15
+ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:12:5-15:15
 MERGED from [com.android.billingclient:billing:7.1.1] /Users/matrix/.gradle/caches/9.4.1/transforms/f8a460dbac91b139adc1f73b6c9100fd/transformed/billing-7.1.1/AndroidManifest.xml:12:5-19:15
 MERGED from [com.android.billingclient:billing:7.1.1] /Users/matrix/.gradle/caches/9.4.1/transforms/f8a460dbac91b139adc1f73b6c9100fd/transformed/billing-7.1.1/AndroidManifest.xml:12:5-19:15
 MERGED from [com.google.android.gms:play-services-maps:19.0.0] /Users/matrix/.gradle/caches/9.4.1/transforms/33647dc8bd5cffcc65b5435172d28867/transformed/play-services-maps-19.0.0/AndroidManifest.xml:30:5-34:15
@@ -218,16 +252,16 @@ MERGED from [com.google.android.gms:play-services-maps:19.0.0] /Users/matrix/.gr
 MERGED from [com.google.android.gms:play-services-ads-lite:23.6.0] /Users/matrix/.gradle/caches/9.4.1/transforms/436343c1b1627e8cf2fa77b4b6fd9741/transformed/play-services-ads-lite-23.6.0/AndroidManifest.xml:35:5-68:15
 MERGED from [com.google.android.gms:play-services-ads-lite:23.6.0] /Users/matrix/.gradle/caches/9.4.1/transforms/436343c1b1627e8cf2fa77b4b6fd9741/transformed/play-services-ads-lite-23.6.0/AndroidManifest.xml:35:5-68:15
 package#com.google.android.gms
-ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:12:9-58
-	android:name
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:12:18-55
-package#com.google.android.gsf
 ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:13:9-58
 	android:name
 		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:13:18-55
+package#com.google.android.gsf
+ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:14:9-58
+	android:name
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:14:18-55
 application
-ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:16:5-25:19
-INJECTED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:16:5-25:19
+ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:17:5-26:19
+INJECTED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:17:5-26:19
 MERGED from [androidx.camera:camera-camera2:1.4.1] /Users/matrix/.gradle/caches/9.4.1/transforms/680d558afff5c09c0aa8ea0239dd6921/transformed/camera-camera2-1.4.1/AndroidManifest.xml:23:5-34:19
 MERGED from [androidx.camera:camera-camera2:1.4.1] /Users/matrix/.gradle/caches/9.4.1/transforms/680d558afff5c09c0aa8ea0239dd6921/transformed/camera-camera2-1.4.1/AndroidManifest.xml:23:5-34:19
 MERGED from [androidx.camera:camera-core:1.4.1] /Users/matrix/.gradle/caches/9.4.1/transforms/79216f19aa1c05e39710998f2d35c549/transformed/camera-core-1.4.1/AndroidManifest.xml:23:5-34:19
@@ -327,41 +361,41 @@ MERGED from [com.google.android.play:core-common:2.0.3] /Users/matrix/.gradle/ca
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.15.0] /Users/matrix/.gradle/caches/9.4.1/transforms/e9d3b97f7f7ba6aeafbbaf5fec061337/transformed/core-1.15.0/AndroidManifest.xml:28:18-86
 	android:label
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:16:107-129
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:17:107-129
 	android:allowBackup
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:16:44-70
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:17:44-70
 	android:theme
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:16:71-106
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:17:71-106
 	android:name
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:16:18-43
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:17:18-43
 meta-data#com.google.android.gms.ads.APPLICATION_ID
-ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:17:9-133
+ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:18:9-133
 	android:value
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:17:77-131
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:18:77-131
 	android:name
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:17:20-76
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:18:20-76
 meta-data#com.google.android.geo.API_KEY
-ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:18:9-116
+ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:19:9-123
 	android:value
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:18:66-114
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:19:66-121
 	android:name
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:18:20-65
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:19:20-65
 activity#com.apptists.poplur2025.MainActivity
-ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:19:9-24:20
+ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:20:9-25:20
 	android:exported
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:19:48-71
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:20:48-71
 	android:name
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:19:19-47
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:20:19-47
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:20:13-23:29
+ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:21:13-24:29
 action#android.intent.action.MAIN
-ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:21:17-68
+ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:22:17-68
 	android:name
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:21:25-66
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:22:25-66
 category#android.intent.category.LAUNCHER
-ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:22:17-76
+ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:23:17-76
 	android:name
-		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:22:27-74
+		ADDED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml:23:27-74
 uses-sdk
 INJECTED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from /Users/matrix/Documents/Poplur2025-Android/app/src/main/AndroidManifest.xml
@@ -682,38 +716,6 @@ ADDED from [androidx.camera:camera-camera2:1.4.1] /Users/matrix/.gradle/caches/9
 		ADDED from [androidx.camera:camera-camera2:1.4.1] /Users/matrix/.gradle/caches/9.4.1/transforms/680d558afff5c09c0aa8ea0239dd6921/transformed/camera-camera2-1.4.1/AndroidManifest.xml:32:17-86
 	android:name
 		ADDED from [androidx.camera:camera-camera2:1.4.1] /Users/matrix/.gradle/caches/9.4.1/transforms/680d558afff5c09c0aa8ea0239dd6921/transformed/camera-camera2-1.4.1/AndroidManifest.xml:31:17-103
-uses-permission#android.permission.ACCESS_NETWORK_STATE
-ADDED from [com.google.mlkit:object-detection:17.0.2] /Users/matrix/.gradle/caches/9.4.1/transforms/6ffca2e68e23ab115be1f6f9eded8f73/transformed/object-detection-17.0.2/AndroidManifest.xml:7:5-79
-MERGED from [com.google.mlkit:vision-internal-vkp:18.2.3] /Users/matrix/.gradle/caches/9.4.1/transforms/fbee6ce62a71a73098c000588e4b728d/transformed/vision-internal-vkp-18.2.3/AndroidManifest.xml:7:5-79
-MERGED from [com.google.mlkit:vision-internal-vkp:18.2.3] /Users/matrix/.gradle/caches/9.4.1/transforms/fbee6ce62a71a73098c000588e4b728d/transformed/vision-internal-vkp-18.2.3/AndroidManifest.xml:7:5-79
-MERGED from [com.google.android.gms:play-services-maps:19.0.0] /Users/matrix/.gradle/caches/9.4.1/transforms/33647dc8bd5cffcc65b5435172d28867/transformed/play-services-maps-19.0.0/AndroidManifest.xml:23:5-79
-MERGED from [com.google.android.gms:play-services-maps:19.0.0] /Users/matrix/.gradle/caches/9.4.1/transforms/33647dc8bd5cffcc65b5435172d28867/transformed/play-services-maps-19.0.0/AndroidManifest.xml:23:5-79
-MERGED from [com.google.firebase:firebase-storage:21.0.1] /Users/matrix/.gradle/caches/9.4.1/transforms/d64d04b57e9f2a7a0f92543b3dbbaa63/transformed/firebase-storage-21.0.1/AndroidManifest.xml:23:5-79
-MERGED from [com.google.firebase:firebase-storage:21.0.1] /Users/matrix/.gradle/caches/9.4.1/transforms/d64d04b57e9f2a7a0f92543b3dbbaa63/transformed/firebase-storage-21.0.1/AndroidManifest.xml:23:5-79
-MERGED from [com.google.firebase:firebase-firestore:25.1.1] /Users/matrix/.gradle/caches/9.4.1/transforms/d9f4155375a6155c465441b89d3b11db/transformed/firebase-firestore-25.1.1/AndroidManifest.xml:10:5-79
-MERGED from [com.google.firebase:firebase-firestore:25.1.1] /Users/matrix/.gradle/caches/9.4.1/transforms/d9f4155375a6155c465441b89d3b11db/transformed/firebase-firestore-25.1.1/AndroidManifest.xml:10:5-79
-MERGED from [com.google.firebase:firebase-auth:23.1.0] /Users/matrix/.gradle/caches/9.4.1/transforms/7fc53dcee559dfd2375ab0d360224f5c/transformed/firebase-auth-23.1.0/AndroidManifest.xml:26:5-79
-MERGED from [com.google.firebase:firebase-auth:23.1.0] /Users/matrix/.gradle/caches/9.4.1/transforms/7fc53dcee559dfd2375ab0d360224f5c/transformed/firebase-auth-23.1.0/AndroidManifest.xml:26:5-79
-MERGED from [com.google.android.recaptcha:recaptcha:18.5.1] /Users/matrix/.gradle/caches/9.4.1/transforms/84d96dc063faef36a9f6ef3ec44b5858/transformed/recaptcha-18.5.1/AndroidManifest.xml:8:5-79
-MERGED from [com.google.android.recaptcha:recaptcha:18.5.1] /Users/matrix/.gradle/caches/9.4.1/transforms/84d96dc063faef36a9f6ef3ec44b5858/transformed/recaptcha-18.5.1/AndroidManifest.xml:8:5-79
-MERGED from [com.google.android.gms:play-services-ads-lite:23.6.0] /Users/matrix/.gradle/caches/9.4.1/transforms/436343c1b1627e8cf2fa77b4b6fd9741/transformed/play-services-ads-lite-23.6.0/AndroidManifest.xml:25:5-79
-MERGED from [com.google.android.gms:play-services-ads-lite:23.6.0] /Users/matrix/.gradle/caches/9.4.1/transforms/436343c1b1627e8cf2fa77b4b6fd9741/transformed/play-services-ads-lite-23.6.0/AndroidManifest.xml:25:5-79
-MERGED from [androidx.work:work-runtime:2.7.0] /Users/matrix/.gradle/caches/9.4.1/transforms/e7ce308ad12d375ac3a89c3506a7af26/transformed/work-runtime-2.7.0/AndroidManifest.xml:26:5-79
-MERGED from [androidx.work:work-runtime:2.7.0] /Users/matrix/.gradle/caches/9.4.1/transforms/e7ce308ad12d375ac3a89c3506a7af26/transformed/work-runtime-2.7.0/AndroidManifest.xml:26:5-79
-MERGED from [androidx.media3:media3-exoplayer:1.5.1] /Users/matrix/.gradle/caches/9.4.1/transforms/0e1d66275ac1c6559c76405b665f4f20/transformed/media3-exoplayer-1.5.1/AndroidManifest.xml:22:5-79
-MERGED from [androidx.media3:media3-exoplayer:1.5.1] /Users/matrix/.gradle/caches/9.4.1/transforms/0e1d66275ac1c6559c76405b665f4f20/transformed/media3-exoplayer-1.5.1/AndroidManifest.xml:22:5-79
-MERGED from [androidx.media3:media3-common:1.5.1] /Users/matrix/.gradle/caches/9.4.1/transforms/35b38033faae94199c935af9bf8a2b62/transformed/media3-common-1.5.1/AndroidManifest.xml:22:5-79
-MERGED from [androidx.media3:media3-common:1.5.1] /Users/matrix/.gradle/caches/9.4.1/transforms/35b38033faae94199c935af9bf8a2b62/transformed/media3-common-1.5.1/AndroidManifest.xml:22:5-79
-MERGED from [com.google.android.gms:play-services-measurement-sdk-api:20.1.2] /Users/matrix/.gradle/caches/9.4.1/transforms/f779e2f8cd05046337aad5dee55d0f73/transformed/play-services-measurement-sdk-api-20.1.2/AndroidManifest.xml:24:5-79
-MERGED from [com.google.android.gms:play-services-measurement-sdk-api:20.1.2] /Users/matrix/.gradle/caches/9.4.1/transforms/f779e2f8cd05046337aad5dee55d0f73/transformed/play-services-measurement-sdk-api-20.1.2/AndroidManifest.xml:24:5-79
-MERGED from [com.google.android.datatransport:transport-backend-cct:3.1.8] /Users/matrix/.gradle/caches/9.4.1/transforms/0129dfe79d94b70d37f8b9e5461a484b/transformed/transport-backend-cct-3.1.8/AndroidManifest.xml:24:5-79
-MERGED from [com.google.android.datatransport:transport-backend-cct:3.1.8] /Users/matrix/.gradle/caches/9.4.1/transforms/0129dfe79d94b70d37f8b9e5461a484b/transformed/transport-backend-cct-3.1.8/AndroidManifest.xml:24:5-79
-MERGED from [com.google.android.datatransport:transport-runtime:3.1.8] /Users/matrix/.gradle/caches/9.4.1/transforms/dd4348f786ff49281d01bb6976866c9f/transformed/transport-runtime-3.1.8/AndroidManifest.xml:22:5-79
-MERGED from [com.google.android.datatransport:transport-runtime:3.1.8] /Users/matrix/.gradle/caches/9.4.1/transforms/dd4348f786ff49281d01bb6976866c9f/transformed/transport-runtime-3.1.8/AndroidManifest.xml:22:5-79
-MERGED from [io.grpc:grpc-android:1.62.2] /Users/matrix/.gradle/caches/9.4.1/transforms/8918f6e0559522dc15c816651409883b/transformed/grpc-android-1.62.2/AndroidManifest.xml:7:5-79
-MERGED from [io.grpc:grpc-android:1.62.2] /Users/matrix/.gradle/caches/9.4.1/transforms/8918f6e0559522dc15c816651409883b/transformed/grpc-android-1.62.2/AndroidManifest.xml:7:5-79
-	android:name
-		ADDED from [com.google.mlkit:object-detection:17.0.2] /Users/matrix/.gradle/caches/9.4.1/transforms/6ffca2e68e23ab115be1f6f9eded8f73/transformed/object-detection-17.0.2/AndroidManifest.xml:7:22-76
 service#com.google.mlkit.common.internal.MlKitComponentDiscoveryService
 ADDED from [com.google.mlkit:object-detection:17.0.2] /Users/matrix/.gradle/caches/9.4.1/transforms/6ffca2e68e23ab115be1f6f9eded8f73/transformed/object-detection-17.0.2/AndroidManifest.xml:11:9-17:19
 MERGED from [com.google.mlkit:vision-internal-vkp:18.2.3] /Users/matrix/.gradle/caches/9.4.1/transforms/fbee6ce62a71a73098c000588e4b728d/transformed/vision-internal-vkp-18.2.3/AndroidManifest.xml:11:9-17:19

@@ -30,6 +30,8 @@ class GdxNavigationFragment() : AndroidFragmentApplication() {
         
         val view = initializeForView(adapter, config)
         
+        view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        
         if (view is GLSurfaceView) {
             view.setZOrderOnTop(true)
             view.holder.setFormat(PixelFormat.TRANSLUCENT)

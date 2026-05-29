@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 
     <queries>
         <package android:name="com.google.android.gms" />
@@ -15,7 +16,7 @@
 
     <application android:name=".PoplurApp" android:allowBackup="true" android:theme="@style/Theme.Poplur" android:label="Poplur">
         <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-2086359936541081~4441297400"/>
-        <meta-data android:name="com.google.android.geo.API_KEY" android:value="YOUR_ANDROID_GOOGLE_MAPS_API_KEY"/>
+        <meta-data android:name="com.google.android.geo.API_KEY" android:value="AIzaSyDgMYA1YisgbpEGyl0Nj8VGoorbqmfAkG0"/>
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
