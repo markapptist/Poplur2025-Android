@@ -3,13 +3,31 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.gms.google-services")
+    id("com.github.triplet.play")
 }
 
 val natives by configurations.creating
 
-android { namespace = "com.apptists.poplur2025"; compileSdk = 37
-    defaultConfig { applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "1.0" }
-    buildFeatures { compose = true; buildConfig = true }
+android { namespace = "com.apptists.poplur2025"; compileSdk = 36
+    defaultConfig { applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 36; versionCode = 1; versionName = "1.0" }
+    
+    signingConfigs {
+        create("release") {
+            storeFile = file(project.findProperty("RELEASE_STORE_FILE") ?: "../keystore/release.jks")
+            storePassword = project.findProperty("RELEASE_STORE_PASSWORD") as String?
+            keyAlias = project.findProperty("RELEASE_KEY_ALIAS") as String?
+            keyPassword = project.findProperty("RELEASE_KEY_PASSWORD") as String?
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
     packaging { resources.excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*") }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -18,6 +36,12 @@ android { namespace = "com.apptists.poplur2025"; compileSdk = 37
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+play {
+    serviceAccountCredentials.set(file("../play-services-key.json"))
+    defaultToAppBundles.set(true)
+    track.set("internal")
 }
 
 dependencies {
