@@ -67,7 +67,9 @@ attr actionOverflowButtonStyle
 attr actionOverflowMenuStyle
 attr actionProviderClass
 attr actionViewClass
+attr activityAction
 attr activityChooserViewStyle
+attr activityName
 attr adSize
 attr adSizes
 attr adUnitId
@@ -80,7 +82,9 @@ attr alertDialogTheme
 attr allowStacking
 attr alpha
 attr alphabeticModifiers
+attr alwaysExpand
 attr ambientEnabled
+attr animationBackgroundColor
 attr animation_enabled
 attr argType
 attr arrowHeadLength
@@ -131,6 +135,7 @@ attr checkMarkTintMode
 attr checkboxStyle
 attr checkedTextViewStyle
 attr circleCrop
+attr clearTop
 attr closeIcon
 attr closeItemLayout
 attr collapseContentDescription
@@ -171,6 +176,8 @@ attr divider
 attr dividerHorizontal
 attr dividerPadding
 attr dividerVertical
+attr dragRangeMaxRatio
+attr dragRangeMinRatio
 attr drawableBottomCompat
 attr drawableEndCompat
 attr drawableLeftCompat
@@ -187,6 +194,9 @@ attr editTextBackground
 attr editTextColor
 attr editTextStyle
 attr elevation
+attr embeddingDividerColor
+attr embeddingDividerType
+attr embeddingDividerWidthDp
 attr emojiCompatEnabled
 attr enterAnim
 attr exitAnim
@@ -197,6 +207,9 @@ attr fastScrollHorizontalTrackDrawable
 attr fastScrollVerticalThumbDrawable
 attr fastScrollVerticalTrackDrawable
 attr fastforward_icon
+attr finishPrimaryWithPlaceholder
+attr finishPrimaryWithSecondary
+attr finishSecondaryWithPrimary
 attr firstBaselineToTopHeight
 attr font
 attr fontFamily
@@ -233,6 +246,7 @@ attr image_display_mode
 attr implementationMode
 attr indeterminateProgressStyle
 attr initialActivityCount
+attr isDraggingToFullscreenAllowed
 attr isLightTheme
 attr itemPadding
 attr keep_content_on_player_reset
@@ -289,6 +303,7 @@ attr panelBackground
 attr panelMenuListTheme
 attr panelMenuListWidth
 attr pause_icon
+attr placeholderActivityName
 attr play_icon
 attr played_ad_marker_color
 attr played_color
@@ -303,6 +318,7 @@ attr popupTheme
 attr popupWindowStyle
 attr preserveIconSpacing
 attr previous_icon
+attr primaryActivityName
 attr progressBarPadding
 attr progressBarStyle
 attr queryBackground
@@ -332,6 +348,8 @@ attr scrubber_enabled_size
 attr searchHintIcon
 attr searchIcon
 attr searchViewStyle
+attr secondaryActivityAction
+attr secondaryActivityName
 attr seekBarStyle
 attr selectableItemBackground
 attr selectableItemBackgroundBorderless
@@ -357,11 +375,22 @@ attr spanCount
 attr spinBars
 attr spinnerDropDownItemStyle
 attr spinnerStyle
+attr splitChangeAnimation
+attr splitCloseAnimation
+attr splitLayoutDirection
+attr splitMaxAspectRatioInLandscape
+attr splitMaxAspectRatioInPortrait
+attr splitMinHeightDp
+attr splitMinSmallestWidthDp
+attr splitMinWidthDp
+attr splitOpenAnimation
+attr splitRatio
 attr splitTrack
 attr srcCompat
 attr stackFromEnd
 attr startDestination
 attr state_above_anchor
+attr stickyPlaceholder
 attr subMenuArrow
 attr submitBackground
 attr subtitle
@@ -376,6 +405,7 @@ attr switchMinWidth
 attr switchPadding
 attr switchStyle
 attr switchTextAppearance
+attr tag
 attr targetPackage
 attr textAllCaps
 attr textAppearanceLargePopupMenu
@@ -528,6 +558,7 @@ color foreground_material_dark
 color foreground_material_light
 color highlighted_text_material_dark
 color highlighted_text_material_light
+color ic_launcher_background
 color material_blue_grey_800
 color material_blue_grey_900
 color material_blue_grey_950
@@ -1012,17 +1043,24 @@ id action_text
 id actions
 id activity_chooser_view_content
 id add
+id adjacent
 id adjust_height
 id adjust_width
 id alertTitle
 id all
 id always
+id alwaysAllow
+id alwaysDisallow
+id androidx_compose_ui_view_compose_view_context
 id androidx_compose_ui_view_composition_context
+id androidx_window_activity_scope
 id async
 id auto
+id auto_clear_focus_behavior_tag
 id beginning
 id blocking
 id bottom
+id bottomToTop
 id browser_actions_header_text
 id browser_actions_menu_item_icon
 id browser_actions_menu_item_text
@@ -1037,6 +1075,7 @@ id checked
 id chronometer
 id collapseActionView
 id compatible
+id compose_prefetch_scheduler
 id compose_view_saveable_id_tag
 id consume_window_insets_tag
 id content
@@ -1048,6 +1087,7 @@ id decor_content_parent
 id default_activity_button
 id dialog_button
 id disableHome
+id draggable
 id edit_query
 id edit_text_id
 id end
@@ -1112,11 +1152,14 @@ id fit
 id fitCenter
 id fitEnd
 id fitStart
+id fixed
 id fixed_height
 id fixed_width
 id follow_system
 id forever
 id fragment_container_view_tag
+id ghost_view
+id ghost_view_holder
 id group_divider
 id hide_graphics_layer_in_inspector_tag
 id hide_ime_id
@@ -1134,12 +1177,15 @@ id inspection_slot_table_set
 id is_pooling_container_tag
 id italic
 id item_touch_helper_previous_elevation
+id jumpCut
 id layout
 id light
 id line1
 id line3
 id listMode
 id list_item
+id locale
+id ltr
 id media_actions
 id media_controller_compat_view_tag
 id message
@@ -1159,6 +1205,7 @@ id offline_dialog_text
 id on
 id one
 id parentPanel
+id parent_matrix
 id performance
 id pooling_container_listener_holder_tag
 id progress_circular
@@ -1167,7 +1214,10 @@ id radio
 id report_drawn
 id right_icon
 id right_side
+id rtl
 id satellite
+id save_non_transition_alpha
+id save_overlay_view
 id screen
 id scrollIndicatorDown
 id scrollIndicatorUp
@@ -1199,16 +1249,19 @@ id status_bar_latest_event_content
 id submenuarrow
 id submit_area
 id surface_view
+id systemDefault
 id tabMode
 id tag_accessibility_actions
 id tag_accessibility_clickable_spans
 id tag_accessibility_heading
 id tag_accessibility_pane_title
+id tag_compat_insets_dispatch
 id tag_on_apply_window_listener
 id tag_on_receive_content_listener
 id tag_on_receive_content_mime_types
 id tag_screen_reader_focusable
 id tag_state_description
+id tag_system_bar_state_monitor
 id tag_transition_group
 id tag_unhandled_key_event_manager
 id tag_unhandled_key_listeners
@@ -1225,12 +1278,23 @@ id titleDividerNoCustom
 id title_template
 id top
 id topPanel
+id topToBottom
+id transition_clip
+id transition_current_scene
+id transition_image_transform
+id transition_layout_save
+id transition_pause_alpha
+id transition_position
+id transition_scene_layoutid_cache
+id transition_transform
 id unchecked
 id uniform
 id up
 id useLogo
 id video_decoder_gl_surface_view
+id view_tree_disjoint_parent
 id view_tree_lifecycle_owner
+id view_tree_navigation_event_dispatcher_owner
 id view_tree_on_back_pressed_dispatcher_owner
 id view_tree_saved_state_registry_owner
 id view_tree_view_model_store_owner
@@ -1321,6 +1385,9 @@ layout select_dialog_item_material
 layout select_dialog_multichoice_material
 layout select_dialog_singlechoice_material
 layout support_simple_spinner_dropdown_item
+mipmap ic_launcher
+mipmap ic_launcher_foreground
+mipmap ic_launcher_round
 plurals exo_controls_fastforward_by_amount_description
 plurals exo_controls_rewind_by_amount_description
 raw com_android_billingclient_heterodyne_info
@@ -1355,6 +1422,8 @@ string abc_shareactionprovider_share_with_application
 string abc_toolbar_collapse_description
 string android_credentials_TYPE_PASSWORD_CREDENTIAL
 string androidx_credentials_TYPE_PUBLIC_KEY_CREDENTIAL
+string androidx_compose_foundation_autofill
+string androidx_compose_ui_autofill
 string androidx_startup
 string app_name
 string call_notification_answer_action
@@ -1490,10 +1559,15 @@ string m3c_dialog
 string m3c_dropdown_menu_collapsed
 string m3c_dropdown_menu_expanded
 string m3c_dropdown_menu_toggle
+string m3c_floating_toolbar_collapse
+string m3c_floating_toolbar_expand
 string m3c_search_bar_search
 string m3c_snackbar_dismiss
+string m3c_snackbar_pane_title
 string m3c_suggestions_available
+string m3c_time_input_dialog_title
 string m3c_time_picker_am
+string m3c_time_picker_dialog_title
 string m3c_time_picker_hour
 string m3c_time_picker_hour_24h_suffix
 string m3c_time_picker_hour_selection
@@ -1505,8 +1579,12 @@ string m3c_time_picker_minute_suffix
 string m3c_time_picker_minute_text_field
 string m3c_time_picker_period_toggle_description
 string m3c_time_picker_pm
+string m3c_time_picker_toggle_keyboard
+string m3c_time_picker_toggle_touch
 string m3c_tooltip_long_press_label
 string m3c_tooltip_pane_description
+string m3c_wide_navigation_rail_close_rail
+string m3c_wide_navigation_rail_pane_title
 string native_body
 string native_headline
 string native_media_view
@@ -1535,6 +1613,7 @@ string s6
 string s7
 string search_menu_title
 string selected
+string snackbar_pane_title
 string state_empty
 string state_off
 string state_on
@@ -1741,7 +1820,6 @@ style ExoStyledControls_TimeText
 style ExoStyledControls_TimeText_Duration
 style ExoStyledControls_TimeText_Position
 style ExoStyledControls_TimeText_Separator
-style FloatingDialogTheme
 style FloatingDialogWindowTheme
 style Platform_AppCompat
 style Platform_AppCompat_Light
@@ -1947,7 +2025,9 @@ styleable ActionMenuItemView android_minWidth
 styleable ActionMenuView
 styleable ActionMode background backgroundSplit closeItemLayout height subtitleTextStyle titleTextStyle
 styleable ActivityChooserView expandActivityOverflowButtonDrawable initialActivityCount
+styleable ActivityFilter activityAction activityName
 styleable ActivityNavigator android_name action data dataPattern targetPackage
+styleable ActivityRule alwaysExpand tag
 styleable AdsAttrs adSize adSizes adUnitId
 styleable AlertDialog android_layout buttonIconDimen buttonPanelSideLayout listItemLayout listLayout multiChoiceItemLayout showTitle singleChoiceItemLayout
 styleable AnimatedStateListDrawableCompat android_dither android_visible android_variablePadding android_constantSize android_enterFadeDuration android_exitFadeDuration
@@ -1966,9 +2046,11 @@ styleable CheckedTextView android_checkMark checkMarkCompat checkMarkTint checkM
 styleable ColorStateListItem android_color android_alpha android_lStar alpha lStar
 styleable CompoundButton android_button buttonCompat buttonTint buttonTintMode
 styleable DefaultTimeBar ad_marker_color ad_marker_width bar_gravity bar_height buffered_color played_ad_marker_color played_color scrubber_color scrubber_disabled_size scrubber_dragged_size scrubber_drawable scrubber_enabled_size touch_target_height unplayed_color
+styleable DividerAttributes dragRangeMaxRatio dragRangeMinRatio embeddingDividerColor embeddingDividerType embeddingDividerWidthDp isDraggingToFullscreenAllowed
 styleable DrawerArrowToggle arrowHeadLength arrowShaftLength barLength color drawableSize gapBetweenBars spinBars thickness
 styleable FontFamily fontProviderAuthority fontProviderCerts fontProviderFallbackQuery fontProviderFetchStrategy fontProviderFetchTimeout fontProviderPackage fontProviderQuery fontProviderSystemFontFamily
 styleable FontFamilyFont android_font android_fontWeight android_fontStyle android_ttcIndex android_fontVariationSettings font fontStyle fontVariationSettings fontWeight ttcIndex
+styleable FontFamilyProviderFallback fontProviderQuery fontProviderSystemFontFamily fontVariationSettings
 styleable Fragment android_name android_id android_tag
 styleable FragmentContainerView android_name android_tag
 styleable GradientColor android_startColor android_endColor android_type android_centerX android_centerY android_gradientRadius android_tileMode android_centerColor android_startX android_startY android_endX android_endY
@@ -1999,6 +2081,9 @@ styleable RecyclerView android_orientation android_clipToPadding android_descend
 styleable SearchView android_focusable android_maxWidth android_inputType android_imeOptions closeIcon commitIcon defaultQueryHint goIcon iconifiedByDefault layout queryBackground queryHint searchHintIcon searchIcon submitBackground suggestionRowLayout voiceIcon
 styleable SignInButton buttonSize colorScheme scopeUris
 styleable Spinner android_entries android_popupBackground android_prompt android_dropDownWidth popupTheme
+styleable SplitPairFilter primaryActivityName secondaryActivityAction secondaryActivityName
+styleable SplitPairRule animationBackgroundColor clearTop finishPrimaryWithSecondary finishSecondaryWithPrimary splitChangeAnimation splitCloseAnimation splitLayoutDirection splitMaxAspectRatioInLandscape splitMaxAspectRatioInPortrait splitMinHeightDp splitMinSmallestWidthDp splitMinWidthDp splitOpenAnimation splitRatio tag
+styleable SplitPlaceholderRule animationBackgroundColor finishPrimaryWithPlaceholder placeholderActivityName splitChangeAnimation splitCloseAnimation splitLayoutDirection splitMaxAspectRatioInLandscape splitMaxAspectRatioInPortrait splitMinHeightDp splitMinSmallestWidthDp splitMinWidthDp splitOpenAnimation splitRatio stickyPlaceholder tag
 styleable StateListDrawable android_dither android_visible android_variablePadding android_constantSize android_enterFadeDuration android_exitFadeDuration
 styleable StateListDrawableItem android_drawable
 styleable SwitchCompat android_textOn android_textOff android_thumb showText splitTrack switchMinWidth switchPadding switchTextAppearance thumbTextPadding thumbTint thumbTintMode track trackTint trackTintMode

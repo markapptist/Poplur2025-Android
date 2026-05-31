@@ -12,7 +12,6 @@ import com.badlogic.gdx.backends.android.AndroidFragmentApplication
 class GdxNavigationFragment() : AndroidFragmentApplication() {
     var onTabSelected: ((Int) -> Unit)? = null
 
-    // Secondary constructor for convenient initialization
     constructor(onTabSelected: (Int) -> Unit) : this() {
         this.onTabSelected = onTabSelected
     }
@@ -30,11 +29,14 @@ class GdxNavigationFragment() : AndroidFragmentApplication() {
         
         val view = initializeForView(adapter, config)
         
-        view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        // Remove any default background that might cause an "outline" or "box" effect
+        view.setBackgroundColor(0)
+        view.background = null
         
         if (view is GLSurfaceView) {
             view.setZOrderOnTop(true)
             view.holder.setFormat(PixelFormat.TRANSLUCENT)
+            view.setBackgroundColor(0)
         }
         
         return view

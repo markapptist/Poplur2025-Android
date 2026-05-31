@@ -1,10 +1,10 @@
 {
     "logs": [
         {
-            "outputFile": "com.apptists.poplur2025.app-mergeDebugResources-82:/values-v30/values-v30.xml",
+            "outputFile": "com.apptists.poplur2025.app-mergeDebugResources-74:/values-v30/values-v30.xml",
             "map": [
                 {
-                    "source": "/Users/matrix/.gradle/caches/9.4.1/transforms/cc297ca54c68ad2f11c8e71575bf526c/transformed/material3-release/res/values-v30/values-v30.xml",
+                    "source": "/Users/matrix/.gradle/caches/9.4.1/transforms/8d5c7c4693f902d145b9fb4f0d5eee87/transformed/material3/res/values-v30/values-v30.xml",
                     "from": {
                         "startLines": "2",
                         "startColumns": "4",

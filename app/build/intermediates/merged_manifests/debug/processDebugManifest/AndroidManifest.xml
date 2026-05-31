@@ -84,7 +84,9 @@
         android:appComponentFactory="androidx.core.app.CoreComponentFactory"
         android:debuggable="true"
         android:extractNativeLibs="false"
+        android:icon="@mipmap/ic_launcher"
         android:label="Poplur"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:testOnly="true"
         android:theme="@style/Theme.Poplur" >
         <meta-data
@@ -103,6 +105,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <meta-data
+            android:name="com.google.android.play.billingclient.version"
+            android:value="7.1.1" />
+
+        <activity
+            android:name="com.android.billingclient.api.ProxyBillingActivity"
+            android:configChanges="keyboard|keyboardHidden|screenLayout|screenSize|orientation"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity
+            android:name="com.android.billingclient.api.ProxyBillingActivityV2"
+            android:configChanges="keyboard|keyboardHidden|screenLayout|screenSize|orientation"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <service
             android:name="androidx.camera.core.impl.MetadataHolderService"
@@ -132,21 +149,6 @@
                 android:name="com.google.firebase.components:com.google.mlkit.common.internal.CommonComponentRegistrar"
                 android:value="com.google.firebase.components.ComponentRegistrar" />
         </service>
-
-        <meta-data
-            android:name="com.google.android.play.billingclient.version"
-            android:value="7.1.1" />
-
-        <activity
-            android:name="com.android.billingclient.api.ProxyBillingActivity"
-            android:configChanges="keyboard|keyboardHidden|screenLayout|screenSize|orientation"
-            android:exported="false"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-        <activity
-            android:name="com.android.billingclient.api.ProxyBillingActivityV2"
-            android:configChanges="keyboard|keyboardHidden|screenLayout|screenSize|orientation"
-            android:exported="false"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <provider
             android:name="com.google.mlkit.common.internal.MlKitInitProvider"
@@ -278,7 +280,11 @@
             android:authorities="com.apptists.poplur2025.firebaseinitprovider"
             android:directBootAware="true"
             android:exported="false"
-            android:initOrder="100" /> <!-- Include the AdActivity and InAppPurchaseActivity configChanges and themes. -->
+            android:initOrder="100" />
+
+        <uses-library
+            android:name="android.ext.adservices"
+            android:required="false" /> <!-- Include the AdActivity and InAppPurchaseActivity configChanges and themes. -->
         <activity
             android:name="com.google.android.gms.ads.AdActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
@@ -423,7 +429,10 @@
         </receiver>
 
         <uses-library
-            android:name="android.ext.adservices"
+            android:name="androidx.window.extensions"
+            android:required="false" />
+        <uses-library
+            android:name="androidx.window.sidecar"
             android:required="false" />
 
         <meta-data
