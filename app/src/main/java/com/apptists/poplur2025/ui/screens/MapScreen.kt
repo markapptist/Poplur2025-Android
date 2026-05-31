@@ -2,6 +2,7 @@ package com.apptists.poplur2025.ui.screens
 
 import android.annotation.SuppressLint
 import android.os.Bundle
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -20,9 +21,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import com.google.android.gms.maps.MapView
 import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.GoogleMapOptions
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.GoogleMap
-import com.google.android.gms.maps.MapsInitializer
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.location.LocationProvider
 
@@ -31,19 +33,36 @@ import com.apptists.poplur2025.location.LocationProvider
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     
-    // Initialize Maps with the latest renderer early
-    LaunchedEffect(Unit) {
-        MapsInitializer.initialize(context, MapsInitializer.Renderer.LATEST) { }
+    // Times Square, NY Spoofed Location
+    val spoofedLat = 40.758896
+    val spoofedLng = -73.985130
+    val initialLocation = LatLng(spoofedLat, spoofedLng)
+
+    // OPTIMIZATION: Use a persistent MapView to avoid re-inflation costs
+    val mapView = remember { 
+        MapView(context, GoogleMapOptions()
+            .camera(CameraPosition.fromLatLngZoom(initialLocation, 19f))
+            .mapType(GoogleMap.MAP_TYPE_HYBRID) // Stay HYBRID as requested, but pre-set it
+            .liteMode(false)
+            .compassEnabled(false) // Disable unused UI elements for speed
+            .mapToolbarEnabled(false)
+            .tiltGesturesEnabled(true)
+        ) 
     }
-
-    // Use remember for MapView and handle its lifecycle more robustly
-    val mapView = remember { MapView(context) }
     val locationProvider = remember { LocationProvider(context) }
+    var mapInstance by remember { mutableStateOf<GoogleMap?>(null) }
 
+    // Sync MapView lifecycle
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_CREATE -> mapView.onCreate(Bundle())
+                Lifecycle.Event.ON_CREATE -> {
+                    try {
+                        mapView.onCreate(Bundle())
+                    } catch (e: Exception) {
+                        Log.e("MapScreen", "Error in MapView.onCreate", e)
+                    }
+                }
                 Lifecycle.Event.ON_START -> mapView.onStart()
                 Lifecycle.Event.ON_RESUME -> mapView.onResume()
                 Lifecycle.Event.ON_PAUSE -> mapView.onPause()
@@ -53,9 +72,10 @@ import com.apptists.poplur2025.location.LocationProvider
             }
         }
         
-        // Manually trigger initial lifecycle states if needed
         val currentState = lifecycleOwner.lifecycle.currentState
-        if (currentState.isAtLeast(Lifecycle.State.CREATED)) mapView.onCreate(Bundle())
+        if (currentState.isAtLeast(Lifecycle.State.CREATED)) {
+            try { mapView.onCreate(Bundle()) } catch (e: Exception) {}
+        }
         if (currentState.isAtLeast(Lifecycle.State.STARTED)) mapView.onStart()
         if (currentState.isAtLeast(Lifecycle.State.RESUMED)) mapView.onResume()
 
@@ -65,27 +85,28 @@ import com.apptists.poplur2025.location.LocationProvider
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
-        // 1. Map View (Hybrid mode + High Zoom)
+    // Config Logic - map camera is already set by GoogleMapOptions
+    LaunchedEffect(mapInstance) {
+        mapInstance?.let { map ->
+            Log.d("MapScreen", "Configuring Map Instance Settings")
+            map.isMyLocationEnabled = true
+            map.uiSettings.isMyLocationButtonEnabled = false
+            
+            // Background check for real location (optional, doesn't block)
+            locationProvider.lastLocation { lat, lng ->
+                if (lat != null && lng != null) {
+                    Log.d("MapScreen", "Real location found: $lat, $lng")
+                }
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = { 
                 mapView.apply {
                     getMapAsync { map ->
-                        map.mapType = GoogleMap.MAP_TYPE_HYBRID
-                        map.isMyLocationEnabled = true
-                        map.uiSettings.isMyLocationButtonEnabled = false
-                        map.uiSettings.isTiltGesturesEnabled = true
-                        
-                        // Start with a zoomed in view
-                        val toronto = LatLng(43.6532, -79.3832)
-                        map.moveCamera(CameraUpdateFactory.newLatLngZoom(toronto, 18f))
-                        
-                        // Try to move to actual current location and zoom in tight
-                        locationProvider.lastLocation { lat, lng ->
-                            if (lat != null && lng != null) {
-                                map.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(lat, lng), 19f))
-                            }
-                        }
+                        mapInstance = map
                     }
                 }
             },
