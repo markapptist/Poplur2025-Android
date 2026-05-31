@@ -19,3 +19,18 @@ app/build/
 *.aab
 *.apk
 mapping.txt
+
+# Android build files
+.gradle/
+build/
+app/build/
+**/build/
+
+# Android release files
+*.apk
+*.aab
+*.ap_
+mapping.txt
+
+# Local machine config
+local.properties
