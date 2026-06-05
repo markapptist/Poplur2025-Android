@@ -298,13 +298,22 @@ class CombinedGdxAdapter(
             }
             localBatch.end()
 
+            val facePixmap = Pixmap.createFromFrameBuffer(0, 0, size, size)
             fbo.end()
-            val tex = fbo.colorBufferTexture
+
+            val uprightPixmap = Pixmap(size, size, Pixmap.Format.RGBA8888)
+            for (y in 0 until size) {
+                uprightPixmap.drawPixmap(facePixmap, 0, size - y - 1, size, 1, 0, y, size, 1)
+            }
+            val tex = Texture(uprightPixmap)
             tex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
             
             // Cleanup temporary renderers
             localSR.dispose()
             localBatch.dispose()
+            facePixmap.dispose()
+            uprightPixmap.dispose()
+            fbo.dispose()
 
             return tex
         } catch (e: Exception) {
