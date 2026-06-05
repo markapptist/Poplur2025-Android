@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -499,6 +500,12 @@ private fun LoginLineField(
     }
 }
 
+private fun Dp.safeCoerceIn(minimumValue: Dp, maximumValue: Dp): Dp {
+    val lower = minOf(minimumValue, maximumValue)
+    val upper = maxOf(minimumValue, maximumValue)
+    return coerceIn(lower, upper)
+}
+
 private class AuthLayoutMetrics(
     screenWidth: androidx.compose.ui.unit.Dp,
     screenHeight: androidx.compose.ui.unit.Dp,
@@ -522,9 +529,9 @@ private class AuthLayoutMetrics(
     }
 
     val logoSize = (screenWidth * 0.46f).coerceIn(186.dp, 232.dp)
-    val ticketHeight = screenHeight - ticketTopInset - ticketBottomInset
-    val welcomeLogoTop = (ticketTopInset + (ticketHeight * 0.145f)).coerceIn(ticketTopInset + 38.dp, ticketTopInset + 82.dp)
-    val welcomeButtonTop = (ticketTopInset + (ticketHeight * 0.655f)).coerceIn(
+    val ticketHeight = (screenHeight - ticketTopInset - ticketBottomInset).coerceAtLeast(1.dp)
+    val welcomeLogoTop = (ticketTopInset + (ticketHeight * 0.145f)).safeCoerceIn(ticketTopInset + 38.dp, ticketTopInset + 82.dp)
+    val welcomeButtonTop = (ticketTopInset + (ticketHeight * 0.655f)).safeCoerceIn(
         ticketTopInset + (ticketHeight * 0.54f),
         ticketTopInset + ticketHeight - 146.dp
     )
@@ -542,11 +549,11 @@ private class AuthLayoutMetrics(
     val submitButtonHeight = (screenHeight * 0.102f).coerceIn(88.dp, 106.dp)
     val fieldGap = (screenHeight * 0.028f).coerceIn(22.dp, 30.dp)
     val fieldHeight = (58.dp * scale).coerceIn(52.dp, 64.dp)
-    val submitButtonTop = (ticketTopInset + ticketHeight - submitButtonHeight - (ticketHeight * 0.075f)).coerceIn(
+    val submitButtonTop = (ticketTopInset + ticketHeight - submitButtonHeight - (ticketHeight * 0.075f)).safeCoerceIn(
         ticketTopInset + (ticketHeight * 0.68f),
         ticketTopInset + ticketHeight - submitButtonHeight - 34.dp
     )
-    val loginFieldsTop = (submitButtonTop - (fieldHeight * 2f) - fieldGap - (ticketHeight * 0.06f)).coerceIn(
+    val loginFieldsTop = (submitButtonTop - (fieldHeight * 2f) - fieldGap - (ticketHeight * 0.06f)).safeCoerceIn(
         ticketTopInset + (ticketHeight * 0.52f),
         submitButtonTop - (fieldHeight * 2f) - fieldGap - 22.dp
     )
