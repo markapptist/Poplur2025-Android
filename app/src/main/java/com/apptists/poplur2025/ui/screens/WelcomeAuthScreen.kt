@@ -291,19 +291,24 @@ private fun LoginTicketContent(
             }
         }
 
-        Column(
-            Modifier
-                .fillMaxSize()
+        WelcomeLogo(
+            logoBitmap = logoBitmap,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = layout.loginLogoTop)
+                .size(layout.logoSize)
+        )
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
                 .padding(
                     start = layout.formHorizontalInset,
                     end = layout.formHorizontalInset,
-                    top = layout.loginLogoTop,
-                    bottom = layout.loginBottomInset
-                ),
-            horizontalAlignment = Alignment.CenterHorizontally
+                    top = layout.loginFieldsTop
+                )
+                .fillMaxWidth()
         ) {
-            WelcomeLogo(logoBitmap, Modifier.size(layout.logoSize))
-            Spacer(Modifier.weight(1f))
             LoginFields(
                 email = email,
                 password = password,
@@ -312,32 +317,38 @@ private fun LoginTicketContent(
                 onEmailChange = onEmailChange,
                 onPasswordChange = onPasswordChange
             )
-            Spacer(Modifier.height(layout.submitTopGap))
-            Button(
-                onClick = onSubmit,
-                enabled = !loading,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(layout.submitButtonHeight),
-                shape = RoundedCornerShape(layout.submitButtonHeight / 2f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White,
-                    contentColor = Color.Black,
-                    disabledContainerColor = Color.White.copy(alpha = 0.75f),
-                    disabledContentColor = Color.Black.copy(alpha = 0.55f)
-                ),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp, pressedElevation = 1.dp)
-            ) {
-                Text(
-                    when (mode) {
-                        AuthMode.Login -> if (loading) "Signing In" else "Sign In"
-                        AuthMode.SignUp -> if (loading) "Creating" else "Create"
-                        AuthMode.Welcome -> "Sign In"
-                    },
-                    fontWeight = FontWeight.Black,
-                    fontSize = layout.submitButtonTextSize.sp
+        }
+
+        Button(
+            onClick = onSubmit,
+            enabled = !loading,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(
+                    start = layout.formHorizontalInset,
+                    end = layout.formHorizontalInset,
+                    top = layout.submitButtonTop
                 )
-            }
+                .fillMaxWidth()
+                .height(layout.submitButtonHeight),
+            shape = RoundedCornerShape(layout.submitButtonHeight / 2f),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.White,
+                contentColor = Color.Black,
+                disabledContainerColor = Color.White.copy(alpha = 0.75f),
+                disabledContentColor = Color.Black.copy(alpha = 0.55f)
+            ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp, pressedElevation = 1.dp)
+        ) {
+            Text(
+                when (mode) {
+                    AuthMode.Login -> if (loading) "Signing In" else "Sign In"
+                    AuthMode.SignUp -> if (loading) "Creating" else "Create"
+                    AuthMode.Welcome -> "Sign In"
+                },
+                fontWeight = FontWeight.Black,
+                fontSize = layout.submitButtonTextSize.sp
+            )
         }
     }
 }
@@ -528,13 +539,19 @@ private class AuthLayoutMetrics(
 
     val formHorizontalInset = (screenWidth * 0.122f).coerceIn(44.dp, 58.dp)
     val loginLogoTop = (screenHeight * 0.202f).coerceIn(184.dp, 218.dp)
-    val loginBottomInset = (screenHeight * 0.082f).coerceIn(74.dp, 94.dp)
-    val submitTopGap = (34.dp * scale).coerceIn(28.dp, 38.dp)
     val submitButtonHeight = (screenHeight * 0.102f).coerceIn(88.dp, 106.dp)
-    val submitButtonTextSize = (30f * scale).coerceIn(28f, 34f)
-
     val fieldGap = (screenHeight * 0.028f).coerceIn(22.dp, 30.dp)
     val fieldHeight = (58.dp * scale).coerceIn(52.dp, 64.dp)
+    val submitButtonTop = (ticketTopInset + ticketHeight - submitButtonHeight - (ticketHeight * 0.075f)).coerceIn(
+        ticketTopInset + (ticketHeight * 0.68f),
+        ticketTopInset + ticketHeight - submitButtonHeight - 34.dp
+    )
+    val loginFieldsTop = (submitButtonTop - (fieldHeight * 2f) - fieldGap - (ticketHeight * 0.06f)).coerceIn(
+        ticketTopInset + (ticketHeight * 0.52f),
+        submitButtonTop - (fieldHeight * 2f) - fieldGap - 22.dp
+    )
+    val submitButtonTextSize = (30f * scale).coerceIn(28f, 34f)
+
     val fieldLeadingWidth = (56.dp * scale).coerceIn(50.dp, 62.dp)
     val fieldIconSize = (34.dp * scale).coerceIn(30.dp, 38.dp)
     val fieldTextSize = (34f * scale).coerceIn(30f, 38f)
