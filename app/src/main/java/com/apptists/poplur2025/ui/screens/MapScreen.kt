@@ -52,7 +52,7 @@ fun MapScreen(isVisible: Boolean = true) {
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
     }
     // Start as wide as Google Maps allows, then fly into the user's location.
-    val globeView = LatLng(20.0, -35.0)
+    val globeView = LatLng(18.0, -98.0)
     val fallbackLocation = LatLng(40.758896, -73.985130)
     var selectedCoordinate by remember { mutableStateOf<LatLng?>(null) }
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
@@ -103,10 +103,12 @@ fun MapScreen(isVisible: Boolean = true) {
     LaunchedEffect(mapInstance, hasLocationPermission) {
         mapInstance?.let { map ->
             map.mapType = GoogleMap.MAP_TYPE_HYBRID
+            map.isBuildingsEnabled = true
             map.isMyLocationEnabled = hasLocationPermission
             map.uiSettings.isMyLocationButtonEnabled = false
             map.uiSettings.isMapToolbarEnabled = false
             map.uiSettings.isCompassEnabled = false
+            map.uiSettings.isZoomControlsEnabled = false
             
             map.setMinZoomPreference(0.0f)
             map.setMaxZoomPreference(20.0f)
@@ -115,7 +117,7 @@ fun MapScreen(isVisible: Boolean = true) {
                     CameraUpdateFactory.newCameraPosition(
                         CameraPosition.Builder()
                             .target(globeView)
-                            .zoom(0.0f)
+                            .zoom(1.15f)
                             .tilt(0.0f)
                             .bearing(0.0f)
                             .build()
@@ -163,17 +165,40 @@ fun MapScreen(isVisible: Boolean = true) {
         val map = mapInstance
         val location = userLocation
         if (isVisible && map != null && location != null && !hasZoomedToLocation) {
-            delay(1400)
+            map.moveCamera(
+                CameraUpdateFactory.newCameraPosition(
+                    CameraPosition.Builder()
+                        .target(globeView)
+                        .zoom(1.15f)
+                        .tilt(0.0f)
+                        .bearing(0.0f)
+                        .build()
+                )
+            )
+            delay(1150)
             map.animateCamera(
                 CameraUpdateFactory.newCameraPosition(
                     CameraPosition.Builder()
                         .target(location)
-                        .zoom(18.5f)
-                        .tilt(67.5f)
+                        .zoom(7.0f)
+                        .tilt(0.0f)
                         .bearing(0.0f)
                         .build()
                 ),
-                5200,
+                1900,
+                null
+            )
+            delay(2050)
+            map.animateCamera(
+                CameraUpdateFactory.newCameraPosition(
+                    CameraPosition.Builder()
+                        .target(location)
+                        .zoom(18.8f)
+                        .tilt(67.5f)
+                        .bearing(22.0f)
+                        .build()
+                ),
+                3600,
                 null
             )
             hasZoomedToLocation = true
