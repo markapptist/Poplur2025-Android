@@ -1,6 +1,9 @@
 package com.apptists.poplur2025.ui.screens
 
 import android.graphics.BitmapFactory
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -15,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -22,6 +26,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -51,10 +56,19 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
     }
     val confettiContainerId = remember { android.view.View.generateViewId() }
     var showConfetti by remember { mutableStateOf(false) }
+    var welcomeAnimationStarted by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         delay(900)
         showConfetti = true
+    }
+
+    LaunchedEffect(mode) {
+        welcomeAnimationStarted = false
+        if (mode == AuthMode.Welcome) {
+            delay(80)
+            welcomeAnimationStarted = true
+        }
     }
 
     BoxWithConstraints(
@@ -101,6 +115,22 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
             modifier = Modifier
                 .align(Alignment.Center)
                 .zIndex(1f)
+                .then(
+                    if (mode == AuthMode.Welcome) {
+                        val ticketProgress by animateFloatAsState(
+                            targetValue = if (welcomeAnimationStarted) 1f else 0f,
+                            animationSpec = tween(durationMillis = 520),
+                            label = "welcomeTicket"
+                        )
+                        Modifier.graphicsLayer {
+                            transformOrigin = TransformOrigin(0.5f, 0f)
+                            scaleY = 0.46f + (0.54f * ticketProgress)
+                            alpha = 0.68f + (0.32f * ticketProgress)
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
                 .fillMaxWidth()
                 .fillMaxHeight()
                 .statusBarsPadding()
@@ -118,6 +148,7 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
                 WelcomeTicketContent(
                     logoBitmap = logoBitmap,
                     layout = authLayout,
+                    animationStarted = welcomeAnimationStarted,
                     onSignIn = { mode = AuthMode.Login }
                 )
             }
@@ -162,8 +193,20 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
 private fun WelcomeTicketContent(
     logoBitmap: androidx.compose.ui.graphics.ImageBitmap?,
     layout: AuthLayoutMetrics,
+    animationStarted: Boolean,
     onSignIn: () -> Unit
 ) {
+    val logoProgress by animateFloatAsState(
+        targetValue = if (animationStarted) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.68f, stiffness = 135f),
+        label = "welcomeLogo"
+    )
+    val buttonProgress by animateFloatAsState(
+        targetValue = if (animationStarted) 1f else 0f,
+        animationSpec = tween(durationMillis = 420, delayMillis = 260),
+        label = "welcomeButton"
+    )
+
     Box(
         Modifier
             .fillMaxSize()
@@ -176,6 +219,12 @@ private fun WelcomeTicketContent(
                 .align(Alignment.TopCenter)
                 .padding(top = layout.welcomeLogoTop)
                 .size(layout.logoSize)
+                .graphicsLayer {
+                    alpha = logoProgress
+                    scaleX = 0.82f + (0.18f * logoProgress)
+                    scaleY = 0.82f + (0.18f * logoProgress)
+                    translationY = (1f - logoProgress) * 36f
+                }
         )
 
         Button(
@@ -184,7 +233,13 @@ private fun WelcomeTicketContent(
                 .align(Alignment.TopCenter)
                 .padding(top = layout.welcomeButtonTop)
                 .width(layout.welcomeButtonWidth)
-                .height(layout.welcomeButtonHeight),
+                .height(layout.welcomeButtonHeight)
+                .graphicsLayer {
+                    alpha = buttonProgress
+                    scaleX = 0.88f + (0.12f * buttonProgress)
+                    scaleY = 0.88f + (0.12f * buttonProgress)
+                    translationY = (1f - buttonProgress) * 28f
+                },
             shape = RoundedCornerShape(layout.welcomeButtonHeight / 2f),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color.White,
@@ -456,8 +511,12 @@ private class AuthLayoutMetrics(
     }
 
     val logoSize = (screenWidth * 0.46f).coerceIn(186.dp, 232.dp)
-    val welcomeLogoTop = (screenHeight * 0.178f).coerceIn(138.dp, 174.dp)
-    val welcomeButtonTop = (screenHeight * 0.624f).coerceIn(548.dp, 612.dp)
+    val ticketHeight = screenHeight - ticketTopInset - ticketBottomInset
+    val welcomeLogoTop = (ticketTopInset + (ticketHeight * 0.145f)).coerceIn(ticketTopInset + 38.dp, ticketTopInset + 82.dp)
+    val welcomeButtonTop = (ticketTopInset + (ticketHeight * 0.655f)).coerceIn(
+        ticketTopInset + (ticketHeight * 0.54f),
+        ticketTopInset + ticketHeight - 146.dp
+    )
     val welcomeButtonWidth = (screenWidth * 0.34f).coerceIn(172.dp, 206.dp)
     val welcomeButtonHeight = (64.dp * scale).coerceIn(58.dp, 70.dp)
     val welcomeButtonTextSize = (22f * scale).coerceIn(20f, 24f)
