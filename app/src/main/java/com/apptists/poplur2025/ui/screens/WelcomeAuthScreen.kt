@@ -57,11 +57,19 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
         showConfetti = true
     }
 
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .background(Color.White)
     ) {
+        val authLayout = remember(maxWidth, maxHeight, mode) {
+            AuthLayoutMetrics(
+                screenWidth = maxWidth,
+                screenHeight = maxHeight,
+                mode = mode
+            )
+        }
+
         if (showConfetti && mode == AuthMode.Welcome) {
             AndroidView(
                 factory = { ctx ->
@@ -98,10 +106,10 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .padding(
-                    start = 28.dp,
-                    end = 28.dp,
-                    top = if (mode == AuthMode.Welcome) 92.dp else 172.dp,
-                    bottom = if (mode == AuthMode.Welcome) 92.dp else 72.dp
+                    start = authLayout.ticketHorizontalInset,
+                    end = authLayout.ticketHorizontalInset,
+                    top = authLayout.ticketTopInset,
+                    bottom = authLayout.ticketBottomInset
                 )
         )
 
@@ -109,14 +117,8 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
             Box(Modifier.fillMaxSize().zIndex(2f)) {
                 WelcomeTicketContent(
                     logoBitmap = logoBitmap,
-                    onSignIn = { mode = AuthMode.Login },
-                    onGoogleSignIn = {
-                        authViewModel.signInWithGoogle(context) { ok, msg ->
-                            if (!ok && msg != null) {
-                                android.util.Log.e("Auth", "Google Sign-In failed: $msg")
-                            }
-                        }
-                    }
+                    layout = authLayout,
+                    onSignIn = { mode = AuthMode.Login }
                 )
             }
         } else {
@@ -128,6 +130,7 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
                     error = error,
                     loading = loading,
                     mode = mode,
+                    layout = authLayout,
                     onEmailChange = { email = it },
                     onPasswordChange = { password = it },
                     onBack = {
@@ -158,50 +161,39 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
 @Composable
 private fun WelcomeTicketContent(
     logoBitmap: androidx.compose.ui.graphics.ImageBitmap?,
-    onSignIn: () -> Unit,
-    onGoogleSignIn: () -> Unit
+    layout: AuthLayoutMetrics,
+    onSignIn: () -> Unit
 ) {
-    Column(
+    Box(
         Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 36.dp, vertical = 92.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(70.dp))
-        WelcomeLogo(logoBitmap, Modifier.size(214.dp))
-        Spacer(Modifier.weight(1f))
+        WelcomeLogo(
+            logoBitmap = logoBitmap,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = layout.welcomeLogoTop)
+                .size(layout.logoSize)
+        )
+
         Button(
             onClick = onSignIn,
             modifier = Modifier
-                .width(220.dp)
-                .height(66.dp),
-            shape = RoundedCornerShape(34.dp),
+                .align(Alignment.TopCenter)
+                .padding(top = layout.welcomeButtonTop)
+                .width(layout.welcomeButtonWidth)
+                .height(layout.welcomeButtonHeight),
+            shape = RoundedCornerShape(layout.welcomeButtonHeight / 2f),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color.White,
                 contentColor = Color.Black
             ),
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 10.dp, pressedElevation = 4.dp)
         ) {
-            Text("Sign In", fontWeight = FontWeight.Black, fontSize = 22.sp)
+            Text("Sign In", fontWeight = FontWeight.Black, fontSize = layout.welcomeButtonTextSize.sp)
         }
-        Spacer(Modifier.height(16.dp))
-        Button(
-            onClick = onGoogleSignIn,
-            modifier = Modifier
-                .width(220.dp)
-                .height(66.dp),
-            shape = RoundedCornerShape(34.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF4285F4),
-                contentColor = Color.White
-            ),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 10.dp, pressedElevation = 4.dp)
-        ) {
-            Text("Google Sign In", fontWeight = FontWeight.Black, fontSize = 18.sp)
-        }
-        Spacer(Modifier.height(40.dp))
     }
 }
 
@@ -213,6 +205,7 @@ private fun LoginTicketContent(
     error: String?,
     loading: Boolean,
     mode: AuthMode,
+    layout: AuthLayoutMetrics,
     onEmailChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onBack: () -> Unit,
@@ -227,40 +220,51 @@ private fun LoginTicketContent(
         Surface(
             onClick = onBack,
             modifier = Modifier
-                .padding(start = 28.dp, top = 74.dp)
-                .size(68.dp)
-                .shadow(24.dp, RoundedCornerShape(34.dp)),
-            shape = RoundedCornerShape(34.dp),
+                .padding(start = layout.backButtonStart, top = layout.backButtonTop)
+                .size(layout.backButtonSize)
+                .shadow(24.dp, RoundedCornerShape(layout.backButtonSize / 2f)),
+            shape = RoundedCornerShape(layout.backButtonSize / 2f),
             color = Color.White.copy(alpha = 0.96f)
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.Black, modifier = Modifier.size(38.dp))
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.Black,
+                    modifier = Modifier.size(layout.backIconSize)
+                )
             }
         }
 
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(start = 46.dp, end = 46.dp, top = 208.dp, bottom = 86.dp),
+                .padding(
+                    start = layout.formHorizontalInset,
+                    end = layout.formHorizontalInset,
+                    top = layout.loginLogoTop,
+                    bottom = layout.loginBottomInset
+                ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            WelcomeLogo(logoBitmap, Modifier.size(218.dp))
+            WelcomeLogo(logoBitmap, Modifier.size(layout.logoSize))
             Spacer(Modifier.weight(1f))
             LoginFields(
                 email = email,
                 password = password,
                 error = error,
+                layout = layout,
                 onEmailChange = onEmailChange,
                 onPasswordChange = onPasswordChange
             )
-            Spacer(Modifier.height(34.dp))
+            Spacer(Modifier.height(layout.submitTopGap))
             Button(
                 onClick = onSubmit,
                 enabled = !loading,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(104.dp),
-                shape = RoundedCornerShape(58.dp),
+                    .height(layout.submitButtonHeight),
+                shape = RoundedCornerShape(layout.submitButtonHeight / 2f),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color.White,
                     contentColor = Color.Black,
@@ -276,7 +280,7 @@ private fun LoginTicketContent(
                         AuthMode.Welcome -> "Sign In"
                     },
                     fontWeight = FontWeight.Black,
-                    fontSize = 30.sp
+                    fontSize = layout.submitButtonTextSize.sp
                 )
             }
         }
@@ -336,6 +340,7 @@ private fun LoginFields(
     email: String,
     password: String,
     error: String?,
+    layout: AuthLayoutMetrics,
     onEmailChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit
 ) {
@@ -344,20 +349,22 @@ private fun LoginFields(
             value = email,
             onValueChange = onEmailChange,
             placeholder = "E-Mail",
-            leading = { Text("@", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Black) }
+            layout = layout,
+            leading = { Text("@", color = Color.White, fontSize = layout.fieldTextSize.sp, fontWeight = FontWeight.Black) }
         )
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(layout.fieldGap))
         LoginLineField(
             value = password,
             onValueChange = onPasswordChange,
             placeholder = "Password",
+            layout = layout,
             visualTransformation = PasswordVisualTransformation(),
-            leading = { Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(34.dp)) },
+            leading = { Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(layout.fieldIconSize)) },
             trailing = {
                 Text(
                     "FORGOT",
                     color = Color.White,
-                    fontSize = 17.sp,
+                    fontSize = layout.forgotTextSize.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 2.sp
                 )
@@ -379,6 +386,7 @@ private fun LoginLineField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
+    layout: AuthLayoutMetrics,
     leading: @Composable () -> Unit,
     trailing: (@Composable () -> Unit)? = null,
     visualTransformation: VisualTransformation = VisualTransformation.None
@@ -387,10 +395,10 @@ private fun LoginLineField(
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(58.dp),
+                .height(layout.fieldHeight),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(Modifier.width(56.dp), contentAlignment = Alignment.CenterStart) { leading() }
+            Box(Modifier.width(layout.fieldLeadingWidth), contentAlignment = Alignment.CenterStart) { leading() }
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
@@ -398,7 +406,7 @@ private fun LoginLineField(
                 visualTransformation = visualTransformation,
                 textStyle = LocalTextStyle.current.copy(
                     color = Color.White,
-                    fontSize = 34.sp,
+                    fontSize = layout.fieldTextSize.sp,
                     fontWeight = FontWeight.Black
                 ),
                 modifier = Modifier.weight(1f),
@@ -408,7 +416,7 @@ private fun LoginLineField(
                             Text(
                                 placeholder,
                                 color = Color.White.copy(alpha = 0.36f),
-                                fontSize = 34.sp,
+                                fontSize = layout.fieldTextSize.sp,
                                 fontWeight = FontWeight.Black
                             )
                         }
@@ -423,6 +431,55 @@ private fun LoginLineField(
         }
         HorizontalDivider(color = Color.White.copy(alpha = 0.86f), thickness = 2.dp)
     }
+}
+
+private class AuthLayoutMetrics(
+    screenWidth: androidx.compose.ui.unit.Dp,
+    screenHeight: androidx.compose.ui.unit.Dp,
+    mode: AuthMode
+) {
+    private val compactWidth = screenWidth.coerceAtMost(430.dp)
+    private val widthScale = compactWidth / 430.dp
+    private val heightScale = screenHeight / 932.dp
+    private val scale = widthScale.coerceAtMost(heightScale).coerceIn(0.86f, 1.18f)
+
+    val ticketHorizontalInset = (screenWidth * 0.074f).coerceIn(24.dp, 44.dp)
+    val ticketTopInset = if (mode == AuthMode.Welcome) {
+        (screenHeight * 0.123f).coerceIn(88.dp, 132.dp)
+    } else {
+        (screenHeight * 0.171f).coerceIn(150.dp, 188.dp)
+    }
+    val ticketBottomInset = if (mode == AuthMode.Welcome) {
+        (screenHeight * 0.123f).coerceIn(88.dp, 132.dp)
+    } else {
+        (screenHeight * 0.096f).coerceIn(72.dp, 108.dp)
+    }
+
+    val logoSize = (screenWidth * 0.46f).coerceIn(186.dp, 232.dp)
+    val welcomeLogoTop = (screenHeight * 0.178f).coerceIn(138.dp, 174.dp)
+    val welcomeButtonTop = (screenHeight * 0.624f).coerceIn(548.dp, 612.dp)
+    val welcomeButtonWidth = (screenWidth * 0.34f).coerceIn(172.dp, 206.dp)
+    val welcomeButtonHeight = (64.dp * scale).coerceIn(58.dp, 70.dp)
+    val welcomeButtonTextSize = (22f * scale).coerceIn(20f, 24f)
+
+    val backButtonStart = (screenWidth * 0.068f).coerceIn(24.dp, 34.dp)
+    val backButtonTop = (screenHeight * 0.073f).coerceIn(66.dp, 84.dp)
+    val backButtonSize = (68.dp * scale).coerceIn(60.dp, 74.dp)
+    val backIconSize = (38.dp * scale).coerceIn(34.dp, 42.dp)
+
+    val formHorizontalInset = (screenWidth * 0.122f).coerceIn(44.dp, 58.dp)
+    val loginLogoTop = (screenHeight * 0.202f).coerceIn(184.dp, 218.dp)
+    val loginBottomInset = (screenHeight * 0.082f).coerceIn(74.dp, 94.dp)
+    val submitTopGap = (34.dp * scale).coerceIn(28.dp, 38.dp)
+    val submitButtonHeight = (screenHeight * 0.102f).coerceIn(88.dp, 106.dp)
+    val submitButtonTextSize = (30f * scale).coerceIn(28f, 34f)
+
+    val fieldGap = (screenHeight * 0.028f).coerceIn(22.dp, 30.dp)
+    val fieldHeight = (58.dp * scale).coerceIn(52.dp, 64.dp)
+    val fieldLeadingWidth = (56.dp * scale).coerceIn(50.dp, 62.dp)
+    val fieldIconSize = (34.dp * scale).coerceIn(30.dp, 38.dp)
+    val fieldTextSize = (34f * scale).coerceIn(30f, 38f)
+    val forgotTextSize = (17f * scale).coerceIn(15f, 19f)
 }
 
 @Composable
