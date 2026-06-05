@@ -113,7 +113,7 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
                     onGoogleSignIn = {
                         authViewModel.signInWithGoogle(context) { ok, msg ->
                             if (!ok && msg != null) {
-                                // Handle error or show toast
+                                android.util.Log.e("Auth", "Google Sign-In failed: $msg")
                             }
                         }
                     }
@@ -166,11 +166,11 @@ private fun WelcomeTicketContent(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 36.dp, vertical = 86.dp),
+            .padding(horizontal = 36.dp, vertical = 92.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(74.dp))
-        WelcomeLogo(logoBitmap, Modifier.size(206.dp))
+        Spacer(Modifier.height(70.dp))
+        WelcomeLogo(logoBitmap, Modifier.size(214.dp))
         Spacer(Modifier.weight(1f))
         Button(
             onClick = onSignIn,
@@ -227,10 +227,10 @@ private fun LoginTicketContent(
         Surface(
             onClick = onBack,
             modifier = Modifier
-                .padding(start = 28.dp, top = 72.dp)
-                .size(72.dp)
-                .shadow(24.dp, RoundedCornerShape(36.dp)),
-            shape = RoundedCornerShape(36.dp),
+                .padding(start = 28.dp, top = 74.dp)
+                .size(68.dp)
+                .shadow(24.dp, RoundedCornerShape(34.dp)),
+            shape = RoundedCornerShape(34.dp),
             color = Color.White.copy(alpha = 0.96f)
         ) {
             Box(contentAlignment = Alignment.Center) {
@@ -241,10 +241,10 @@ private fun LoginTicketContent(
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(start = 46.dp, end = 46.dp, top = 210.dp, bottom = 104.dp),
+                .padding(start = 46.dp, end = 46.dp, top = 208.dp, bottom = 86.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            WelcomeLogo(logoBitmap, Modifier.size(222.dp))
+            WelcomeLogo(logoBitmap, Modifier.size(218.dp))
             Spacer(Modifier.weight(1f))
             LoginFields(
                 email = email,
@@ -259,8 +259,8 @@ private fun LoginTicketContent(
                 enabled = !loading,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(92.dp),
-                shape = RoundedCornerShape(54.dp),
+                    .height(104.dp),
+                shape = RoundedCornerShape(58.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color.White,
                     contentColor = Color.Black,
@@ -276,7 +276,7 @@ private fun LoginTicketContent(
                         AuthMode.Welcome -> "Sign In"
                     },
                     fontWeight = FontWeight.Black,
-                    fontSize = 32.sp
+                    fontSize = 30.sp
                 )
             }
         }
