@@ -1,99 +1,216 @@
 package com.apptists.poplur2025.ui
 
+import android.media.MediaPlayer
 import android.opengl.GLSurfaceView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.data.AppTab
+import com.apptists.poplur2025.data.FakeChatStore
 import com.apptists.poplur2025.ui.screens.*
+import kotlin.random.Random
 
-@Composable fun PoplurRoot() {
+@Composable
+fun PoplurRoot(authViewModel: AuthViewModel = viewModel()) {
+    val context = LocalContext.current
+    val isSignedIn by authViewModel.isSignedIn.collectAsState()
+    if (!isSignedIn) {
+        WelcomeAuthScreen(authViewModel)
+        return
+    }
+
     var tab by remember { mutableStateOf(AppTab.Feed) }
+    var currentPostIndex by remember { mutableIntStateOf(Random.nextInt(1000000)) }
+    var showingMessages by remember { mutableStateOf(false) }
+    
+    var logoFragment by remember { mutableStateOf<LogoAnimationFragment?>(null) }
+
+    val mediaPlayer = remember {
+        MediaPlayer().apply {
+            try {
+                val afd = context.assets.openFd("pop.mp3")
+                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                afd.close()
+                // Use prepareAsync to avoid blocking the main thread during composition
+                prepareAsync()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { mediaPlayer.release() }
+    }
+
+    val playPopSound = {
+        try {
+            if (mediaPlayer.isPlaying) {
+                mediaPlayer.pause()
+            }
+            mediaPlayer.seekTo(0)
+            mediaPlayer.start()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     val containerId = remember { android.view.View.generateViewId() }
-    
-    // Track which heavy screens have been initialized to allow for fast cold start
-    // but maintain persistence once loaded.
-    var mapInitialized by remember { mutableStateOf(false) }
+    val logoContainerId = remember { android.view.View.generateViewId() }
     var cameraInitialized by remember { mutableStateOf(false) }
-    
-    if (tab == AppTab.Map) mapInitialized = true
     if (tab == AppTab.Camera) cameraInitialized = true
 
     val onTabChange: (Int) -> Unit = { index ->
         tab = when (index) {
-            0 -> AppTab.Feed
-            1 -> AppTab.Profile
-            2 -> AppTab.Map
-            3 -> AppTab.Camera
+            0 -> AppTab.Camera
+            1 -> AppTab.Feed
+            2 -> AppTab.Profile
+            3 -> AppTab.Map
             else -> AppTab.Feed
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
-        // 1. App Content (Optimized persistence: only load heavy screens when first visited)
-        Box(Modifier.fillMaxSize()) {
-            // Feed Screen (Loads immediately, very light)
-            FeedScreen() 
-            
-            // Profile Screen (Light enough to keep persistent)
-            Box(Modifier.fillMaxSize().alpha(if (tab == AppTab.Profile) 1f else 0f).zIndex(if (tab == AppTab.Profile) 1f else 0f)) {
-                ProfileScreen()
-            }
+    // Trigger logo pop on launch or when switching back to Feed
+    LaunchedEffect(tab) {
+        if (tab == AppTab.Feed) {
+            logoFragment?.triggerLogoPop()
+        }
+    }
 
-            // Map Screen (Heaviest, deferred until first visit)
-            if (mapInitialized) {
-                Box(Modifier.fillMaxSize().alpha(if (tab == AppTab.Map) 1f else 0f).zIndex(if (tab == AppTab.Map) 2f else 0f)) {
-                    MapScreen()
-                }
+    val onVerticalSwipe: (Boolean) -> Unit = { isUp ->
+        if (tab == AppTab.Feed) {
+            if (isUp) currentPostIndex++ else currentPostIndex--
+            playPopSound()
+            logoFragment?.triggerLogoPop()
+        }
+    }
+
+    val onLongPressCube: () -> Unit = {
+        if (tab == AppTab.Feed) {
+            showingMessages = true
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        // Content Layer (Lowest Z-Index)
+        Box(Modifier.fillMaxSize().zIndex(0f)) {
+            if (tab == AppTab.Feed) Box(Modifier.fillMaxSize().zIndex(1f)) {
+                FeedScreen(
+                    currentPostIndex = currentPostIndex,
+                    onIndexChange = { newIndex ->
+                        currentPostIndex = newIndex
+                        playPopSound()
+                        logoFragment?.triggerLogoPop()
+                    }
+                )
             }
-            
-            // Camera Screen (Heavy/Privacy, deferred until first visit)
-            if (cameraInitialized) {
-                Box(Modifier.fillMaxSize().alpha(if (tab == AppTab.Camera) 1f else 0f).zIndex(if (tab == AppTab.Camera) 1f else 0f)) {
-                    CameraScreen()
-                }
-            }
+            if (tab == AppTab.Profile) Box(Modifier.fillMaxSize().zIndex(2f)) { ProfileScreen(authViewModel = authViewModel) }
+            if (tab == AppTab.Map) Box(Modifier.fillMaxSize().zIndex(3f)) { MapScreen(isVisible = true) }
+            if (cameraInitialized) Box(Modifier.fillMaxSize().alpha(if (tab == AppTab.Camera) 1f else 0f).zIndex(if (tab == AppTab.Camera) 3f else 0f)) { CameraScreen() }
         }
 
-        // 2. Global Persistent Navigation Cube (Always in FRONT)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 60.dp)
-                .zIndex(10f),
-            contentAlignment = Alignment.BottomCenter
-        ) {
+        // 3D/GL Overlay Layer (Higher Z-Index)
+        Box(Modifier.fillMaxSize().zIndex(10f)) {
+            // 1. Full-Screen Logo Animation Overlay (Temporarily disabled to fix black screen)
+            /*
             AndroidView(
-                factory = { context ->
-                    FragmentContainerView(context).apply {
-                        id = containerId
+                factory = { ctx ->
+                    FragmentContainerView(ctx).apply {
+                        id = logoContainerId
                         setBackgroundColor(0)
                         background = null
-                        val activity = context as? FragmentActivity
-                        val fragment = GdxNavigationFragment(onTabChange)
-                        activity?.supportFragmentManager?.beginTransaction()?.replace(id, fragment)?.commit()
+                        // Make it pass-through for touches
+                        isClickable = false
+                        isFocusable = false
+                        isEnabled = false
+                        
+                        val activity = ctx as? FragmentActivity
+                        val fragment = LogoAnimationFragment()
+                        logoFragment = fragment
+                        activity?.supportFragmentManager?.beginTransaction()
+                            ?.replace(id, fragment)
+                            ?.commit()
                     }
                 },
-                modifier = Modifier.size(80.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .alpha(if (logoFragment != null) 1f else 0f), // Only show when fragment is ready
                 update = { view ->
                     view.setBackgroundColor(0)
                     view.background = null
-                    val activity = view.context as? FragmentActivity
-                    val fragment = activity?.supportFragmentManager?.findFragmentById(view.id)
-                    val glView = fragment?.view as? GLSurfaceView
-                    glView?.let {
-                        it.setZOrderOnTop(true)
-                        it.holder.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
-                    }
                 }
             )
+            */
+
+            // 2. The Cube Container - FIXED 200dp x 200dp AT BOTTOM
+            Box(
+                modifier = Modifier.fillMaxSize().padding(bottom = 8.dp),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                AndroidView(
+                    factory = { ctx ->
+                        FragmentContainerView(ctx).apply {
+                            id = containerId
+                            setBackgroundColor(0)
+                            background = null
+                            val activity = ctx as? FragmentActivity
+                            activity?.supportFragmentManager?.beginTransaction()
+                                ?.replace(id, GdxNavigationFragment(1, onVerticalSwipe, onLongPressCube, onTabChange))
+                                ?.commit()
+                        }
+                    },
+                    modifier = Modifier.size(200.dp),
+                    update = { view ->
+                        view.setBackgroundColor(0)
+                        view.background = null
+                    }
+                )
+            }
+        }
+
+        if (showingMessages) {
+            MessageTimelineOverlay(onDismiss = { showingMessages = false })
+        }
+    }
+}
+
+@Composable
+fun MessageTimelineOverlay(onDismiss: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.8f))
+            .padding(top = 100.dp)
+            .zIndex(100f)
+    ) {
+        Column(Modifier.fillMaxSize().padding(24.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Messages", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                TextButton(onClick = onDismiss) { Text("Close", color = Color.White) }
+            }
+            Spacer(Modifier.height(16.dp))
+            FakeChatStore.threads.forEach { thread ->
+                Column(Modifier.padding(vertical = 12.dp)) {
+                    Text(thread.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(thread.lastMessage, color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+            }
         }
     }
 }

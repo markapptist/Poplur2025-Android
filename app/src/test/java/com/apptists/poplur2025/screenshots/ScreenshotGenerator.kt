@@ -1,6 +1,11 @@
 package com.apptists.poplur2025.screenshots
 
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.apptists.poplur2025.ui.screens.HomeScreen
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -22,7 +27,14 @@ class ScreenshotGenerator {
     @Test
     fun captureHomeScreen() {
         composeTestRule.setContent {
-            HomeScreen(onOpenCamera = {}, onOpenMap = {})
+            MaterialTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color(0xFF121212) // Dark background for white text
+                ) {
+                    HomeScreen(onOpenCamera = {}, onOpenMap = {})
+                }
+            }
         }
         composeTestRule.onRoot().captureRoboImage("screenshots/home_screen.png")
     }

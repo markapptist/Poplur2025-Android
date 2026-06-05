@@ -1,59 +1,59 @@
 package com.apptists.poplur2025.data
 
 object DemoPostStore {
-    val posts = listOf(
-        Post(
-            id = "1", 
-            userId = "u1", 
-            username = "food_u", 
-            displayName = "User food_u", 
-            userPostsCount = 12,
-            caption = "Casino energy in Las Vegas", 
-            latitude = 36.1699, 
-            longitude = -115.1398, 
-            locationName = "35.6301, 139.6239",
-            likes = 991, 
-            comments = 44, 
-            detectedObjects = listOf("building", "nightlife"),
-            radius = 2065,
-            totalRadius = 3959,
-            radiusChange = 100
-        ),
-        Post(
-            id = "2", 
-            userId = "u2", 
-            username = "mia", 
-            displayName = "Mia", 
-            userPostsCount = 45,
-            caption = "Best food spot downtown", 
-            latitude = 43.6532, 
-            longitude = -79.3832, 
-            locationName = "Toronto, ON",
-            likes = 611, 
-            comments = 31, 
-            detectedObjects = listOf("food", "restaurant"),
-            radius = 1200,
-            totalRadius = 2500,
-            radiusChange = -50
-        ),
-        Post(
-            id = "3", 
-            userId = "u3", 
-            username = "jay", 
-            displayName = "Jay", 
-            userPostsCount = 8,
-            caption = "Tech lab preview", 
-            latitude = 37.7749, 
-            longitude = -122.4194, 
-            locationName = "San Francisco, CA",
-            likes = 820, 
-            comments = 19, 
-            detectedObjects = listOf("computer", "person"),
-            radius = 800,
-            totalRadius = 1500,
-            radiusChange = 20
-        )
+    private val videoUrls = listOf(
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
     )
+
+    private val userNames = listOf("mark", "mia", "jay", "food_u", "sky_high", "pixel_art", "traveler", "coder", "gamer", "chef", "vibe_check", "tech_wiz", "nature_lover", "urban_explorer", "fitness_junkie")
+    private val displayNames = listOf("Mark", "Mia", "Jay", "Foodie", "Sky High", "Pixel Artist", "World Traveler", "Code Master", "Gamer Pro", "Chef Extra", "Vibe Queen", "Tech Wiz", "Forest Dweller", "City Slicker", "Fitness Pro")
+    private val cities = listOf("Toronto, ON", "Las Vegas, NV", "San Francisco, CA", "New York, NY", "London, UK", "Tokyo, JP", "Paris, FR", "Berlin, DE", "Sydney, AU", "Dubai, UAE", "Seoul, KR", "Mumbai, IN", "Rio, BR", "Cairo, EG", "Rome, IT")
+
+    private val staticPosts: List<Post> = (0 until 200).map { i ->
+        val isVideo = i % 8 != 0 // Higher percentage of videos
+        Post(
+            id = "post_$i",
+            userId = "u${i % 15}",
+            username = userNames[i % 15],
+            displayName = displayNames[i % 15],
+            userPostsCount = 10 + (i * 2),
+            caption = if (isVideo) "Epic shot #$i" else "Captured moment #$i",
+            videoUrl = if (isVideo) videoUrls[i % videoUrls.size] else null,
+            mediaUrl = "https://picsum.photos/seed/poplur_v2_$i/1080/1920",
+            latitude = 30.0 + (i * 0.05),
+            longitude = -100.0 + (i * 0.05),
+            locationName = cities[i % cities.size],
+            likes = 50 + i * 12,
+            comments = 5 + i,
+            radius = 200 + i * 15,
+            totalRadius = 1000 + i * 40,
+            radiusChange = if (i % 3 == 0) i * 3 else -i
+        )
+    }
+
+    /**
+     * Infinite virtual store. Returns a post for any index by wrapping around the static pool.
+     */
+    fun getPostForIndex(index: Int): Post {
+        val positiveIndex = if (index < 0) {
+            (staticPosts.size + (index % staticPosts.size)) % staticPosts.size
+        } else {
+            index % staticPosts.size
+        }
+        return staticPosts[positiveIndex]
+    }
+
+    val posts: List<Post> get() = staticPosts
+
     val dominance = listOf(
         CityDominance("Toronto", "mia", 88, 43.6532, -79.3832),
         CityDominance("Las Vegas", "mark", 97, 36.1699, -115.1398),

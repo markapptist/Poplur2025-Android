@@ -11,8 +11,14 @@ import com.badlogic.gdx.backends.android.AndroidFragmentApplication
 
 class GdxNavigationFragment() : AndroidFragmentApplication() {
     var onTabSelected: ((Int) -> Unit)? = null
+    var onVerticalSwipe: ((Boolean) -> Unit)? = null
+    var onLongPress: (() -> Unit)? = null
+    var initialTabIndex: Int = 1
 
-    constructor(onTabSelected: (Int) -> Unit) : this() {
+    constructor(initialTabIndex: Int, onVerticalSwipe: ((Boolean) -> Unit)? = null, onLongPress: (() -> Unit)? = null, onTabSelected: (Int) -> Unit) : this() {
+        this.initialTabIndex = initialTabIndex
+        this.onVerticalSwipe = onVerticalSwipe
+        this.onLongPress = onLongPress
         this.onTabSelected = onTabSelected
     }
 
@@ -20,23 +26,25 @@ class GdxNavigationFragment() : AndroidFragmentApplication() {
         val config = AndroidApplicationConfiguration().apply {
             useAccelerometer = false
             useCompass = false
+            useImmersiveMode = false
             r = 8; g = 8; b = 8; a = 8
         }
         
-        val adapter = CombinedGdxAdapter { index ->
-            onTabSelected?.invoke(index)
+        val adapter = CombinedGdxAdapter(initialTabIndex, 
+            onVerticalSwipe = { isUp -> activity?.runOnUiThread { onVerticalSwipe?.invoke(isUp) } },
+            onLongPress = { activity?.runOnUiThread { onLongPress?.invoke() } }
+        ) { index ->
+            activity?.runOnUiThread { onTabSelected?.invoke(index) }
         }
         
         val view = initializeForView(adapter, config)
         
-        // Remove any default background that might cause an "outline" or "box" effect
         view.setBackgroundColor(0)
         view.background = null
         
         if (view is GLSurfaceView) {
             view.setZOrderOnTop(true)
             view.holder.setFormat(PixelFormat.TRANSLUCENT)
-            view.setBackgroundColor(0)
         }
         
         return view

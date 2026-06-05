@@ -4,12 +4,14 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.gms.google-services")
     id("com.github.triplet.play")
+    id("io.github.takahirom.roborazzi")
 }
 
 val natives by configurations.creating
 
-android { namespace = "com.apptists.poplur2025"; compileSdk = 36
-    defaultConfig { applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 36; versionCode = 1; versionName = "1.0" }
+android { namespace = "com.apptists.poplur2025"
+    compileSdk = 36;
+    defaultConfig { applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "1.0" }
     
     signingConfigs {
         create("release") {
@@ -29,6 +31,13 @@ android { namespace = "com.apptists.poplur2025"; compileSdk = 36
         }
     }
     packaging { resources.excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*") }
+    
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -70,11 +79,12 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
     implementation("com.google.mlkit:object-detection:17.0.2")
-    implementation("com.google.mlkit:face-detection:16.1.7")
 
     implementation("com.android.billingclient:billing-ktx:7.1.1")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
+
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
     implementation("com.badlogicgames.gdx:gdx:1.13.1")
     implementation("com.badlogicgames.gdx:gdx-backend-android:1.13.1")
@@ -82,6 +92,13 @@ dependencies {
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-arm64-v8a")
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-x86")
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-x86_64")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.63.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.63.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.63.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
 }
 
 tasks.register<Copy>("copyNatives") {

@@ -1,20 +1,21 @@
 {
   "project_info": {
-    "project_number": "REPLACE_WITH_FIREBASE_PROJECT_NUMBER",
-    "project_id": "poplur2025-android",
-    "storage_bucket": "poplur2025-android.appspot.com"
+    "project_number": "440480901104",
+    "project_id": "poplur2025",
+    "storage_bucket": "poplur2025.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "REPLACE_WITH_ANDROID_FIREBASE_APP_ID",
+        "mobilesdk_app_id": "1:440480901104:android:d1ec34c59249c1fd8c1f35",
         "android_client_info": {
           "package_name": "com.apptists.poplur2025"
         }
       },
+      "oauth_client": [],
       "api_key": [
         {
-          "current_key": "REPLACE_WITH_ANDROID_FIREBASE_WEB_API_KEY"
+          "current_key": "AIzaSyDbDM14RX9pIBk4NB-paCArt_7UZBt6OYM"
         }
       ],
       "services": {

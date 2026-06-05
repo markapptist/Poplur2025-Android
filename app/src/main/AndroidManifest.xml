@@ -16,6 +16,7 @@
 
     <application android:name=".PoplurApp"
         android:allowBackup="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Poplur"
         android:label="Poplur"
         android:icon="@mipmap/ic_launcher"
