@@ -4,12 +4,11 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,6 +29,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
 import com.apptists.poplur2025.auth.AuthViewModel
@@ -62,58 +62,6 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
             .fillMaxSize()
             .background(Color.White)
     ) {
-        TicketPanel(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth()
-                .fillMaxHeight()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(
-                    start = 28.dp,
-                    end = 28.dp,
-                    top = if (mode == AuthMode.Welcome) 92.dp else 172.dp,
-                    bottom = if (mode == AuthMode.Welcome) 92.dp else 72.dp
-                )
-        )
-
-        if (mode == AuthMode.Welcome) {
-            WelcomeTicketContent(
-                logoBitmap = logoBitmap,
-                onSignIn = { mode = AuthMode.Login }
-            )
-        } else {
-            LoginTicketContent(
-                logoBitmap = logoBitmap,
-                email = email,
-                password = password,
-                error = error,
-                loading = loading,
-                mode = mode,
-                onEmailChange = { email = it },
-                onPasswordChange = { password = it },
-                onBack = {
-                    error = null
-                    mode = AuthMode.Welcome
-                },
-                onSubmit = {
-                    loading = true
-                    error = null
-                    if (mode == AuthMode.Login) {
-                        authViewModel.signIn(email, password) { ok, msg ->
-                            loading = false
-                            if (!ok) error = msg
-                        }
-                    } else {
-                        authViewModel.signUp(email, password) { ok, msg ->
-                            loading = false
-                            if (!ok) error = msg
-                        }
-                    }
-                }
-            )
-        }
-
         if (showConfetti && mode == AuthMode.Welcome) {
             AndroidView(
                 factory = { ctx ->
@@ -131,12 +79,78 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
                             ?.commit()
                     }
                 },
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(0f),
                 update = { view ->
                     view.setBackgroundColor(0)
                     view.background = null
                 }
             )
+        }
+
+        TicketPanel(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .zIndex(1f)
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(
+                    start = 28.dp,
+                    end = 28.dp,
+                    top = if (mode == AuthMode.Welcome) 92.dp else 172.dp,
+                    bottom = if (mode == AuthMode.Welcome) 92.dp else 72.dp
+                )
+        )
+
+        if (mode == AuthMode.Welcome) {
+            Box(Modifier.fillMaxSize().zIndex(2f)) {
+                WelcomeTicketContent(
+                    logoBitmap = logoBitmap,
+                    onSignIn = { mode = AuthMode.Login },
+                    onGoogleSignIn = {
+                        authViewModel.signInWithGoogle(context) { ok, msg ->
+                            if (!ok && msg != null) {
+                                // Handle error or show toast
+                            }
+                        }
+                    }
+                )
+            }
+        } else {
+            Box(Modifier.fillMaxSize().zIndex(2f)) {
+                LoginTicketContent(
+                    logoBitmap = logoBitmap,
+                    email = email,
+                    password = password,
+                    error = error,
+                    loading = loading,
+                    mode = mode,
+                    onEmailChange = { email = it },
+                    onPasswordChange = { password = it },
+                    onBack = {
+                        error = null
+                        mode = AuthMode.Welcome
+                    },
+                    onSubmit = {
+                        loading = true
+                        error = null
+                        if (mode == AuthMode.Login) {
+                            authViewModel.signIn(email, password) { ok, msg ->
+                                loading = false
+                                if (!ok) error = msg
+                            }
+                        } else {
+                            authViewModel.signUp(email, password) { ok, msg ->
+                                loading = false
+                                if (!ok) error = msg
+                            }
+                        }
+                    }
+                )
+            }
         }
     }
 }
@@ -144,7 +158,8 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
 @Composable
 private fun WelcomeTicketContent(
     logoBitmap: androidx.compose.ui.graphics.ImageBitmap?,
-    onSignIn: () -> Unit
+    onSignIn: () -> Unit,
+    onGoogleSignIn: () -> Unit
 ) {
     Column(
         Modifier
@@ -160,7 +175,7 @@ private fun WelcomeTicketContent(
         Button(
             onClick = onSignIn,
             modifier = Modifier
-                .width(188.dp)
+                .width(220.dp)
                 .height(66.dp),
             shape = RoundedCornerShape(34.dp),
             colors = ButtonDefaults.buttonColors(
@@ -170,6 +185,21 @@ private fun WelcomeTicketContent(
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 10.dp, pressedElevation = 4.dp)
         ) {
             Text("Sign In", fontWeight = FontWeight.Black, fontSize = 22.sp)
+        }
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = onGoogleSignIn,
+            modifier = Modifier
+                .width(220.dp)
+                .height(66.dp),
+            shape = RoundedCornerShape(34.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF4285F4),
+                contentColor = Color.White
+            ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 10.dp, pressedElevation = 4.dp)
+        ) {
+            Text("Google Sign In", fontWeight = FontWeight.Black, fontSize = 18.sp)
         }
         Spacer(Modifier.height(40.dp))
     }
@@ -204,7 +234,7 @@ private fun LoginTicketContent(
             color = Color.White.copy(alpha = 0.96f)
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.Black, modifier = Modifier.size(38.dp))
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.Black, modifier = Modifier.size(38.dp))
             }
         }
 
