@@ -28,8 +28,10 @@ import com.mapbox.geojson.Point
 import com.mapbox.maps.CameraOptions
 import com.mapbox.maps.MapView
 import com.mapbox.maps.Style
+import com.mapbox.maps.extension.style.expressions.generated.Expression
 import com.mapbox.maps.extension.style.atmosphere.generated.atmosphere
 import com.mapbox.maps.extension.style.layers.generated.circleLayer
+import com.mapbox.maps.extension.style.layers.generated.fillExtrusionLayer
 import com.mapbox.maps.extension.style.layers.properties.generated.ProjectionName
 import com.mapbox.maps.extension.style.projection.generated.projection
 import com.mapbox.maps.extension.style.sources.generated.geoJsonSource
@@ -171,6 +173,19 @@ fun MapScreen(isVisible: Boolean = true) {
                         style(Style.STANDARD_SATELLITE) {
                             +atmosphere { }
                             +projection(ProjectionName.GLOBE)
+                            +fillExtrusionLayer(BUILDING_LAYER_ID, MAPBOX_COMPOSITE_SOURCE_ID) {
+                                sourceLayer(MAPBOX_BUILDING_SOURCE_LAYER)
+                                minZoom(15.0)
+                                slot("middle")
+                                fillExtrusionColor("#d7d0c7")
+                                fillExtrusionOpacity(0.78)
+                                fillExtrusionHeight(Expression.fromRaw(BUILDING_HEIGHT_EXPRESSION))
+                                fillExtrusionBase(Expression.fromRaw(BUILDING_BASE_EXPRESSION))
+                                fillExtrusionVerticalScale(1.35)
+                                fillExtrusionVerticalGradient(true)
+                                fillExtrusionAmbientOcclusionIntensity(0.55)
+                                fillExtrusionAmbientOcclusionRadius(3.0)
+                            }
                             +geoJsonSource(POST_SOURCE_ID) {
                                 featureCollection(FeatureCollection.fromFeatures(postFeatures))
                             }
@@ -224,3 +239,9 @@ fun MapScreen(isVisible: Boolean = true) {
 
 private const val POST_SOURCE_ID = "poplur-posts"
 private const val POST_LAYER_ID = "poplur-post-markers"
+private const val BUILDING_LAYER_ID = "poplur-building-extrusions"
+private const val MAPBOX_COMPOSITE_SOURCE_ID = "composite"
+private const val MAPBOX_BUILDING_SOURCE_LAYER = "building"
+private const val BUILDING_HEIGHT_EXPRESSION =
+    "[\"coalesce\",[\"get\",\"height\"],[\"*\",[\"coalesce\",[\"get\",\"levels\"],2],3.2],8]"
+private const val BUILDING_BASE_EXPRESSION = "[\"coalesce\",[\"get\",\"min_height\"],0]"
