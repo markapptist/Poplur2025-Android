@@ -11,6 +11,8 @@ import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.content.pm.PackageManager
+import android.view.MotionEvent
+import android.widget.FrameLayout
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -26,11 +28,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.weather.WeatherBadge
+import com.apptists.poplur2025.gdx.weather.WeatherOverlayAdapter
 import com.apptists.poplur2025.location.LocationProvider
+import com.apptists.poplur2025.ui.WeatherOverlayFragment
 import com.apptists.poplur2025.ui.components.RadiusDisplay
+import androidx.fragment.app.FragmentActivity
 import com.mapbox.bindgen.DataRef
 import com.mapbox.bindgen.Value
 import com.mapbox.geojson.Feature
@@ -64,10 +70,7 @@ import java.util.Locale
 
 @SuppressLint("MissingPermission")
 @Composable
-fun MapScreen(
-    isVisible: Boolean = true,
-    onWeatherChange: (WeatherBadge) -> Unit = {}
-) {
+fun MapScreen(isVisible: Boolean = true) {
     val context = LocalContext.current
     var hasLocationPermission by remember {
         mutableStateOf(
@@ -93,6 +96,8 @@ fun MapScreen(
     var idleGeneration by remember { mutableIntStateOf(0) }
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
     val mapView = remember { MapView(context) }
+    val weatherAdapter = remember { WeatherOverlayAdapter() }
+    val weatherContainerId = remember { android.view.View.generateViewId() }
     val locationProvider = remember { LocationProvider(context) }
     val postFeatures = remember {
         DemoPostStore.posts.mapNotNull { post ->
@@ -245,7 +250,7 @@ fun MapScreen(
     }
 
     LaunchedEffect(activeWeather) {
-        onWeatherChange(activeWeather)
+        weatherAdapter.setWeather(activeWeather)
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -311,15 +316,43 @@ fun MapScreen(
                     }
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().zIndex(0f)
         )
 
-        Box(Modifier.fillMaxWidth().height(190.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent))))
-        Column(Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopStart)) {
+        AndroidView(
+            factory = { ctx ->
+                object : FrameLayout(ctx) {
+                    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = false
+
+                    @SuppressLint("ClickableViewAccessibility")
+                    override fun onTouchEvent(event: MotionEvent?): Boolean = false
+                }.apply {
+                    id = weatherContainerId
+                    setBackgroundColor(0)
+                    background = null
+                    isClickable = false
+                    isFocusable = false
+                    isEnabled = false
+
+                    val activity = ctx as? FragmentActivity
+                    activity?.supportFragmentManager?.beginTransaction()
+                        ?.replace(id, WeatherOverlayFragment.newInstance(weatherAdapter))
+                        ?.commit()
+                }
+            },
+            modifier = Modifier.fillMaxSize().zIndex(1f),
+            update = { view ->
+                view.setBackgroundColor(0)
+                view.background = null
+            }
+        )
+
+        Box(Modifier.fillMaxWidth().height(190.dp).zIndex(2f).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent))))
+        Column(Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopStart).zIndex(2f)) {
             Text(activeCityName, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
             Text("Tap the 3D map to choose exactly where a post should live.", color = Color.White.copy(alpha = .9f), fontSize = 16.sp)
         }
-        Surface(Modifier.padding(end = 16.dp).align(Alignment.CenterEnd), color = Color.Black.copy(alpha = .42f), shape = MaterialTheme.shapes.medium) {
+        Surface(Modifier.padding(end = 16.dp).align(Alignment.CenterEnd).zIndex(2f), color = Color.Black.copy(alpha = .42f), shape = MaterialTheme.shapes.medium) {
             Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(activeWeather.icon, fontSize = 36.sp)
                 Text(activeWeather.label, color = Color.White, fontWeight = FontWeight.Bold)
@@ -328,14 +361,14 @@ fun MapScreen(
                 }
             }
         }
-        Column(Modifier.padding(bottom = 80.dp, start = 20.dp).align(Alignment.BottomStart)) {
+        Column(Modifier.padding(bottom = 80.dp, start = 20.dp).align(Alignment.BottomStart).zIndex(2f)) {
             Text("476", color = Color(0xFFFF3B30), fontSize = 42.sp, fontWeight = FontWeight.Black)
             HorizontalDivider(color = Color.White.copy(alpha = .5f), thickness = 1.dp, modifier = Modifier.width(100.dp).padding(vertical = 8.dp))
             Text(DemoPostStore.posts.size.toString(), color = Color.White, fontSize = 56.sp, fontWeight = FontWeight.ExtraBold)
             Text("posts", color = Color.White, fontSize = 18.sp)
         }
         selectedCoordinate?.let { point ->
-            Surface(Modifier.align(Alignment.BottomCenter).padding(bottom = 158.dp, start = 20.dp, end = 20.dp), color = Color.Black.copy(alpha = .72f), shape = MaterialTheme.shapes.large) {
+            Surface(Modifier.align(Alignment.BottomCenter).padding(bottom = 158.dp, start = 20.dp, end = 20.dp).zIndex(2f), color = Color.Black.copy(alpha = .72f), shape = MaterialTheme.shapes.large) {
                 Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Post here", color = Color.White, fontWeight = FontWeight.Black)
                     Text("${"%.5f".format(point.latitude())}, ${"%.5f".format(point.longitude())}", color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
@@ -343,8 +376,8 @@ fun MapScreen(
                 }
             }
         }
-        Spacer(Modifier.padding(bottom = 60.dp).size(80.dp).align(Alignment.BottomCenter))
-        RadiusDisplay(Modifier.padding(bottom = 60.dp, end = 20.dp).align(Alignment.BottomEnd), radius = activeRadius)
+        Spacer(Modifier.padding(bottom = 60.dp).size(80.dp).align(Alignment.BottomCenter).zIndex(2f))
+        RadiusDisplay(Modifier.padding(bottom = 60.dp, end = 20.dp).align(Alignment.BottomEnd).zIndex(2f), radius = activeRadius)
     }
 }
 
