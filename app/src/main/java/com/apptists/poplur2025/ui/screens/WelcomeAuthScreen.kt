@@ -208,7 +208,7 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
             }
         }
 
-        if (mode == AuthMode.Welcome) {
+        if (mode == AuthMode.Welcome && welcomeSequence > 0) {
             key(welcomeSequence) {
                 val confettiContainerId = remember { android.view.View.generateViewId() }
                 val confettiFragment = remember { ConfettiAnimationFragment() }
@@ -222,18 +222,27 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
                             isFocusable = false
 
                             val fragmentActivity = ctx as? FragmentActivity
-                            fragmentActivity?.supportFragmentManager?.beginTransaction()
-                                ?.replace(id, confettiFragment)
-                                ?.commitAllowingStateLoss()
-                            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                                override fun onViewAttachedToWindow(v: View) = Unit
-
-                                override fun onViewDetachedFromWindow(v: View) {
+                            val attachConfetti = {
+                                if (!confettiFragment.isAdded && isAttachedToWindow) {
                                     fragmentActivity?.supportFragmentManager?.beginTransaction()
-                                        ?.remove(confettiFragment)
+                                        ?.replace(id, confettiFragment)
                                         ?.commitAllowingStateLoss()
                                 }
+                            }
+                            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                                override fun onViewAttachedToWindow(v: View) {
+                                    attachConfetti()
+                                }
+
+                                override fun onViewDetachedFromWindow(v: View) {
+                                    if (confettiFragment.isAdded) {
+                                        fragmentActivity?.supportFragmentManager?.beginTransaction()
+                                            ?.remove(confettiFragment)
+                                            ?.commitAllowingStateLoss()
+                                    }
+                                }
                             })
+                            post { attachConfetti() }
                         }
                     },
                     modifier = Modifier
