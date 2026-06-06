@@ -1,7 +1,12 @@
 package com.apptists.poplur2025.ui.screens
 
 import android.graphics.BitmapFactory
-import android.media.MediaPlayer
+import android.media.AudioAttributes
+import android.media.SoundPool
+import android.os.Handler
+import android.os.Looper
+import android.view.MotionEvent
+import android.widget.FrameLayout
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -28,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -38,7 +44,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
-import androidx.fragment.app.FragmentContainerView
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.ui.ConfettiAnimationFragment
 import kotlinx.coroutines.delay
@@ -59,26 +64,49 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
     val confettiContainerId = remember { android.view.View.generateViewId() }
     val confettiFragment = remember { ConfettiAnimationFragment() }
     var welcomeAnimationStarted by remember { mutableStateOf(false) }
-    val popPlayer = remember {
-        MediaPlayer().apply {
-            runCatching {
-                val afd = context.assets.openFd("pop.mp3")
-                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                afd.close()
-                prepare()
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    val popSoundPool = remember {
+        SoundPool.Builder()
+            .setMaxStreams(2)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            .build()
+    }
+    var popSoundId by remember { mutableIntStateOf(0) }
+    var popSoundReady by remember { mutableStateOf(false) }
+    var pendingWelcomePop by remember { mutableStateOf(false) }
+
+    DisposableEffect(popSoundPool, context) {
+        popSoundPool.setOnLoadCompleteListener { _, sampleId, status ->
+            if (sampleId == popSoundId && status == 0) {
+                mainHandler.post {
+                    popSoundReady = true
+                    if (pendingWelcomePop) {
+                        pendingWelcomePop = false
+                        popSoundPool.play(sampleId, 1f, 1f, 1, 0, 1f)
+                    }
+                }
             }
+        }
+        val afd = context.assets.openFd("pop.mp3")
+        popSoundId = popSoundPool.load(afd, 1)
+        afd.close()
+
+        onDispose {
+            popSoundPool.setOnLoadCompleteListener(null)
+            popSoundPool.release()
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose { popPlayer.release() }
-    }
-
     val playLaunchPop = {
-        runCatching {
-            if (popPlayer.isPlaying) popPlayer.pause()
-            popPlayer.seekTo(0)
-            popPlayer.start()
+        if (popSoundReady && popSoundId != 0) {
+            popSoundPool.play(popSoundId, 1f, 1f, 1, 0, 1f)
+        } else {
+            pendingWelcomePop = true
         }
     }
 
@@ -183,7 +211,11 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
 
         AndroidView(
             factory = { ctx ->
-                FragmentContainerView(ctx).apply {
+                object : FrameLayout(ctx) {
+                    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean = false
+                    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = false
+                    override fun onTouchEvent(event: MotionEvent?): Boolean = false
+                }.apply {
                     id = confettiContainerId
                     setBackgroundColor(0)
                     background = null
@@ -199,7 +231,8 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
             },
             modifier = Modifier
                 .fillMaxSize()
-                .zIndex(1.5f),
+                .pointerInteropFilter { false }
+                .zIndex(4f),
             update = { view ->
                 view.visibility = if (mode == AuthMode.Welcome) android.view.View.VISIBLE else android.view.View.GONE
                 view.setBackgroundColor(0)
