@@ -10,6 +10,8 @@ import com.badlogic.gdx.backends.android.AndroidApplicationConfiguration
 import com.badlogic.gdx.backends.android.AndroidFragmentApplication
 
 class ConfettiAnimationFragment : AndroidFragmentApplication() {
+    val adapter = ConfettiAnimationAdapter()
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val config = AndroidApplicationConfiguration().apply {
             useAccelerometer = false
@@ -21,7 +23,7 @@ class ConfettiAnimationFragment : AndroidFragmentApplication() {
             a = 8
         }
 
-        val view = initializeForView(ConfettiAnimationAdapter(), config)
+        val view = initializeForView(adapter, config)
         view.setBackgroundColor(0)
         view.background = null
         view.isClickable = false
@@ -33,5 +35,9 @@ class ConfettiAnimationFragment : AndroidFragmentApplication() {
         }
 
         return view
+    }
+
+    fun restartConfetti() {
+        adapter.restart()
     }
 }

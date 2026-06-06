@@ -1,6 +1,7 @@
 package com.apptists.poplur2025.ui.screens
 
 import android.graphics.BitmapFactory
+import android.media.MediaPlayer
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -56,19 +57,38 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
         }.getOrNull()
     }
     val confettiContainerId = remember { android.view.View.generateViewId() }
-    var showConfetti by remember { mutableStateOf(false) }
-    var confettiRunId by remember { mutableIntStateOf(0) }
+    val confettiFragment = remember { ConfettiAnimationFragment() }
     var welcomeAnimationStarted by remember { mutableStateOf(false) }
+    val popPlayer = remember {
+        MediaPlayer().apply {
+            runCatching {
+                val afd = context.assets.openFd("pop.mp3")
+                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                afd.close()
+                prepare()
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { popPlayer.release() }
+    }
+
+    val playLaunchPop = {
+        runCatching {
+            if (popPlayer.isPlaying) popPlayer.pause()
+            popPlayer.seekTo(0)
+            popPlayer.start()
+        }
+    }
 
     LaunchedEffect(mode) {
         welcomeAnimationStarted = false
-        showConfetti = false
         if (mode == AuthMode.Welcome) {
-            confettiRunId += 1
-            delay(80)
+            playLaunchPop()
+            confettiFragment.restartConfetti()
+            delay(60)
             welcomeAnimationStarted = true
-            delay(820)
-            showConfetti = true
         }
     }
 
@@ -83,47 +103,6 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
                 screenHeight = maxHeight,
                 mode = mode
             )
-        }
-
-        if (showConfetti && mode == AuthMode.Welcome) {
-            key(confettiRunId) {
-                val activity = context as? FragmentActivity
-                DisposableEffect(activity, confettiContainerId, confettiRunId) {
-                    onDispose {
-                        val fragmentManager = activity?.supportFragmentManager ?: return@onDispose
-                        fragmentManager.findFragmentById(confettiContainerId)?.let { fragment ->
-                            fragmentManager.beginTransaction()
-                                .remove(fragment)
-                                .commitAllowingStateLoss()
-                        }
-                    }
-                }
-
-                AndroidView(
-                    factory = { ctx ->
-                        FragmentContainerView(ctx).apply {
-                            id = confettiContainerId
-                            setBackgroundColor(0)
-                            background = null
-                            isClickable = false
-                            isFocusable = false
-                            isEnabled = false
-
-                            val fragmentActivity = ctx as? FragmentActivity
-                            fragmentActivity?.supportFragmentManager?.beginTransaction()
-                                ?.replace(id, ConfettiAnimationFragment())
-                                ?.commitAllowingStateLoss()
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .zIndex(0f),
-                    update = { view ->
-                        view.setBackgroundColor(0)
-                        view.background = null
-                    }
-                )
-            }
         }
 
         TicketPanel(
@@ -201,6 +180,32 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
                 )
             }
         }
+
+        AndroidView(
+            factory = { ctx ->
+                FragmentContainerView(ctx).apply {
+                    id = confettiContainerId
+                    setBackgroundColor(0)
+                    background = null
+                    isClickable = false
+                    isFocusable = false
+                    isEnabled = false
+
+                    val fragmentActivity = ctx as? FragmentActivity
+                    fragmentActivity?.supportFragmentManager?.beginTransaction()
+                        ?.replace(id, confettiFragment)
+                        ?.commitAllowingStateLoss()
+                }
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(4f),
+            update = { view ->
+                view.visibility = if (mode == AuthMode.Welcome) android.view.View.VISIBLE else android.view.View.GONE
+                view.setBackgroundColor(0)
+                view.background = null
+            }
+        )
     }
 }
 

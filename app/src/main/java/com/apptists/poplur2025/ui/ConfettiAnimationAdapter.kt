@@ -12,10 +12,25 @@ class ConfettiAnimationAdapter : ApplicationAdapter() {
     private var camera: OrthographicCamera? = null
     private var shapeRenderer: ShapeRenderer? = null
     private val pieces = mutableListOf<ConfettiPiece>()
+    private var restartPending = false
 
     override fun create() {
         shapeRenderer = ShapeRenderer()
         resetCamera()
+        populatePieces()
+    }
+
+    fun restart() {
+        if (shapeRenderer == null) {
+            restartPending = true
+            return
+        }
+        restartPending = false
+        populatePieces()
+    }
+
+    private fun populatePieces() {
+        pieces.clear()
         repeat(110) { pieces += newPiece(initial = true) }
     }
 
@@ -27,6 +42,8 @@ class ConfettiAnimationAdapter : ApplicationAdapter() {
         val width = Gdx.graphics.width.toFloat().coerceAtLeast(1f)
         val height = Gdx.graphics.height.toFloat().coerceAtLeast(1f)
         val delta = Gdx.graphics.deltaTime.coerceAtMost(1f / 30f)
+
+        if (restartPending) restart()
 
         Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
