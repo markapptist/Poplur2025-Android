@@ -580,24 +580,21 @@ private fun WeatherParticleOverlay(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 9_000, easing = LinearEasing),
+            animation = tween(durationMillis = 3_200, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "map-weather-phase"
     )
 
     Canvas(modifier = modifier) {
-        val topGuard = 180.dp.toPx()
-        val bottomGuard = 230.dp.toPx()
-        val drawTop = topGuard
-        val drawBottom = size.height - bottomGuard
-        val drawHeight = (drawBottom - drawTop).coerceAtLeast(1f)
+        val drawTop = 0f
+        val drawHeight = size.height.coerceAtLeast(1f)
 
         when {
             label.contains("Rain", ignoreCase = true) || label.contains("Drizzle", ignoreCase = true) -> {
-                repeat(90) { index ->
+                repeat(125) { index ->
                     val lane = ((index * 37) % 100) / 100f
-                    val y = drawTop + ((phase * drawHeight * 1.4f + index * 47f) % (drawHeight + 80f)) - 40f
+                    val y = drawTop + ((phase * drawHeight * 2.1f + index * 47f) % (drawHeight + 90f)) - 45f
                     val x = lane * size.width + ((index % 7) - 3) * 5f
                     drawLine(
                         color = Color(0x99A8C7FF),
@@ -608,9 +605,9 @@ private fun WeatherParticleOverlay(
                 }
             }
             label.contains("Snow", ignoreCase = true) -> {
-                repeat(75) { index ->
+                repeat(95) { index ->
                     val lane = ((index * 41) % 100) / 100f
-                    val y = drawTop + ((phase * drawHeight * 0.72f + index * 39f) % (drawHeight + 60f)) - 30f
+                    val y = drawTop + ((phase * drawHeight * 1.05f + index * 39f) % (drawHeight + 70f)) - 35f
                     val x = lane * size.width + kotlin.math.sin((phase * 6.28f + index) * 0.7f) * 18f
                     drawCircle(
                         color = Color(0xCCFFFFFF),
@@ -620,9 +617,9 @@ private fun WeatherParticleOverlay(
                 }
             }
             label.contains("Storm", ignoreCase = true) -> {
-                repeat(110) { index ->
+                repeat(140) { index ->
                     val lane = ((index * 31) % 100) / 100f
-                    val y = drawTop + ((phase * drawHeight * 1.6f + index * 43f) % (drawHeight + 80f)) - 40f
+                    val y = drawTop + ((phase * drawHeight * 2.35f + index * 43f) % (drawHeight + 90f)) - 45f
                     val x = lane * size.width
                     drawLine(
                         color = Color(0xAAB5CBFF),
@@ -636,22 +633,29 @@ private fun WeatherParticleOverlay(
                 }
             }
             label.contains("Cloudy", ignoreCase = true) || label.contains("Fog", ignoreCase = true) -> {
-                repeat(55) { index ->
+                repeat(95) { index ->
                     val lane = ((index * 29) % 100) / 100f
-                    val drift = (phase * size.width * 0.24f + index * 23f) % (size.width + 160f) - 80f
+                    val drift = (phase * size.width * 0.62f + index * 29f) % (size.width + 220f) - 110f
                     val y = drawTop + lane * drawHeight
                     val x = drift
                     drawLine(
-                        color = Color(0x22DDEBFF),
+                        color = Color(0x38DDEBFF),
                         start = Offset(x, y),
-                        end = Offset(x + 78f + (index % 5) * 12f, y),
-                        strokeWidth = 2f
+                        end = Offset(x + 92f + (index % 5) * 16f, y + ((index % 3) - 1) * 1.5f),
+                        strokeWidth = 2.8f
                     )
                     if (index % 3 == 0) {
                         drawCircle(
-                            color = Color(0x33EEF6FF),
-                            radius = 2.8f,
+                            color = Color(0x44EEF6FF),
+                            radius = 4.2f + (index % 4),
                             center = Offset(x + 36f, y)
+                        )
+                    }
+                    if (index % 9 == 0) {
+                        drawCircle(
+                            color = Color(0x18FFFFFF),
+                            radius = 18f + (index % 5) * 3f,
+                            center = Offset(x + 58f, y + ((index % 7) - 3) * 6f)
                         )
                     }
                 }
