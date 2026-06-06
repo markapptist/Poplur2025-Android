@@ -1,7 +1,10 @@
 package com.apptists.poplur2025.ui
 
+import android.annotation.SuppressLint
 import android.media.MediaPlayer
-import android.opengl.GLSurfaceView
+import android.view.MotionEvent
+import android.view.View
+import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -22,6 +25,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.data.AppTab
 import com.apptists.poplur2025.data.FakeChatStore
+import com.apptists.poplur2025.gdx.weather.WeatherOverlayAdapter
 import com.apptists.poplur2025.ui.screens.*
 import kotlin.random.Random
 
@@ -72,6 +76,8 @@ fun PoplurRoot(authViewModel: AuthViewModel = viewModel()) {
 
     val containerId = remember { android.view.View.generateViewId() }
     val logoContainerId = remember { android.view.View.generateViewId() }
+    val weatherContainerId = remember { View.generateViewId() }
+    val mapWeatherAdapter = remember { WeatherOverlayAdapter() }
     var cameraInitialized by remember { mutableStateOf(false) }
     if (tab == AppTab.Camera) cameraInitialized = true
 
@@ -120,8 +126,45 @@ fun PoplurRoot(authViewModel: AuthViewModel = viewModel()) {
                 )
             }
             if (tab == AppTab.Profile) Box(Modifier.fillMaxSize().zIndex(2f)) { ProfileScreen(authViewModel = authViewModel) }
-            if (tab == AppTab.Map) Box(Modifier.fillMaxSize().zIndex(3f)) { MapScreen(isVisible = true) }
+            if (tab == AppTab.Map) Box(Modifier.fillMaxSize().zIndex(3f)) {
+                MapScreen(
+                    isVisible = true,
+                    onWeatherChange = { mapWeatherAdapter.setWeather(it) }
+                )
+            }
             if (cameraInitialized) Box(Modifier.fillMaxSize().alpha(if (tab == AppTab.Camera) 1f else 0f).zIndex(if (tab == AppTab.Camera) 3f else 0f)) { CameraScreen() }
+        }
+
+        if (tab == AppTab.Map) {
+            AndroidView(
+                factory = { ctx ->
+                    object : FrameLayout(ctx) {
+                        override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = false
+
+                        @SuppressLint("ClickableViewAccessibility")
+                        override fun onTouchEvent(event: MotionEvent?): Boolean = false
+                    }.apply {
+                        id = weatherContainerId
+                        setBackgroundColor(0)
+                        background = null
+                        isClickable = false
+                        isFocusable = false
+                        isEnabled = false
+
+                        val activity = ctx as? FragmentActivity
+                        activity?.supportFragmentManager?.beginTransaction()
+                            ?.replace(id, WeatherOverlayFragment.newInstance(mapWeatherAdapter))
+                            ?.commit()
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(4f),
+                update = { view ->
+                    view.setBackgroundColor(0)
+                    view.background = null
+                }
+            )
         }
 
         // 3D/GL Overlay Layer (Higher Z-Index)
@@ -174,7 +217,7 @@ fun PoplurRoot(authViewModel: AuthViewModel = viewModel()) {
                                 ?.commit()
                         }
                     },
-                    modifier = Modifier.size(200.dp),
+                    modifier = Modifier.size(200.dp).zIndex(20f),
                     update = { view ->
                         view.setBackgroundColor(0)
                         view.background = null

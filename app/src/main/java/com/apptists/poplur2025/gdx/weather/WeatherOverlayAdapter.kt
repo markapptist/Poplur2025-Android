@@ -51,9 +51,6 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
             currentLabel.contains("Storm", ignoreCase = true) -> {
                 renderStorm(w, h)
             }
-            currentLabel.contains("Fog", ignoreCase = true) || currentLabel.contains("Cloudy", ignoreCase = true) -> {
-                renderClouds(w, h)
-            }
         }
         
         shapes.end()
@@ -88,28 +85,6 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
         }
     }
 
-    private fun renderClouds(w: Float, h: Float) {
-        // More "smoke-like" fog/clouds using many small overlapping circles with low alpha
-        val count = 25
-        for (i in 0 until count) {
-            val offset = i.toFloat() / count
-            val cx = ((time * 15f + offset * w * 2.5f) % (w + 600f)) - 300f
-            val cy = h * 0.75f + sin(time * 0.5f + i) * 60f
-            
-            // Outer soft glow
-            shapes.color = Color(0.9f, 0.9f, 0.9f, 0.08f)
-            shapes.circle(cx, cy, 180f + sin(time + i) * 20f)
-            
-            // Mid smoke layer
-            shapes.color = Color(0.85f, 0.85f, 0.85f, 0.12f)
-            shapes.circle(cx + 40f, cy - 10f, 130f)
-            
-            // Core
-            shapes.color = Color(0.8f, 0.8f, 0.8f, 0.05f)
-            shapes.circle(cx - 30f, cy + 20f, 150f)
-        }
-    }
-    
     private fun renderLightningOverlay(w: Float, h: Float) {
         shapes.begin(ShapeRenderer.ShapeType.Filled)
         shapes.color = Color(1f, 1f, 1f, lightningAlpha)

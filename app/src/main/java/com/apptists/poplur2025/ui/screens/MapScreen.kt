@@ -64,7 +64,10 @@ import java.util.Locale
 
 @SuppressLint("MissingPermission")
 @Composable
-fun MapScreen(isVisible: Boolean = true) {
+fun MapScreen(
+    isVisible: Boolean = true,
+    onWeatherChange: (WeatherBadge) -> Unit = {}
+) {
     val context = LocalContext.current
     var hasLocationPermission by remember {
         mutableStateOf(
@@ -90,7 +93,6 @@ fun MapScreen(isVisible: Boolean = true) {
     var idleGeneration by remember { mutableIntStateOf(0) }
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
     val mapView = remember { MapView(context) }
-    val weatherAdapter = remember { com.apptists.poplur2025.gdx.weather.WeatherOverlayAdapter() }
     val locationProvider = remember { LocationProvider(context) }
     val postFeatures = remember {
         DemoPostStore.posts.mapNotNull { post ->
@@ -243,7 +245,7 @@ fun MapScreen(isVisible: Boolean = true) {
     }
 
     LaunchedEffect(activeWeather) {
-        weatherAdapter.setWeather(activeWeather)
+        onWeatherChange(activeWeather)
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -307,31 +309,6 @@ fun MapScreen(isVisible: Boolean = true) {
                         style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "lightPreset", Value.valueOf("dusk"))
                         mapReady = true
                     }
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // Weather Overlay Layer (Safe implementation using Fragment, made touch-transparent)
-        val weatherContainerId = remember { android.view.View.generateViewId() }
-        AndroidView(
-            factory = { ctx ->
-                object : android.widget.FrameLayout(ctx) {
-                    override fun onInterceptTouchEvent(ev: android.view.MotionEvent?): Boolean = false
-                    @SuppressLint("ClickableViewAccessibility")
-                    override fun onTouchEvent(event: android.view.MotionEvent?): Boolean = false
-                }.apply {
-                    id = weatherContainerId
-                    setBackgroundColor(0)
-                    background = null
-                    isClickable = false
-                    isFocusable = false
-                    isEnabled = false
-
-                    val activity = ctx as? androidx.fragment.app.FragmentActivity
-                    activity?.supportFragmentManager?.beginTransaction()
-                        ?.replace(id, com.apptists.poplur2025.ui.WeatherOverlayFragment.newInstance(weatherAdapter))
-                        ?.commit()
                 }
             },
             modifier = Modifier.fillMaxSize()
