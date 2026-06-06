@@ -92,6 +92,7 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
     implementation("com.google.mlkit:object-detection:17.0.2")
+    implementation("com.google.mlkit:face-detection:16.1.7")
 
     implementation("com.android.billingclient:billing-ktx:7.1.1")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
