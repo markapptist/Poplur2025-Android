@@ -15,6 +15,7 @@ class ConfettiAnimationAdapter : ApplicationAdapter() {
     private var restartPending = false
 
     override fun create() {
+        Gdx.graphics.setContinuousRendering(true)
         shapeRenderer = ShapeRenderer()
         resetCamera()
         populatePieces()
@@ -25,8 +26,10 @@ class ConfettiAnimationAdapter : ApplicationAdapter() {
             restartPending = true
             return
         }
+        Gdx.graphics.setContinuousRendering(true)
         restartPending = false
         populatePieces()
+        Gdx.graphics.requestRendering()
     }
 
     private fun populatePieces() {
@@ -44,6 +47,7 @@ class ConfettiAnimationAdapter : ApplicationAdapter() {
         val delta = Gdx.graphics.deltaTime.coerceAtMost(1f / 30f)
 
         if (restartPending) restart()
+        Gdx.graphics.setContinuousRendering(true)
 
         Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
