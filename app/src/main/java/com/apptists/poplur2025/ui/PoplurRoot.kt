@@ -18,6 +18,7 @@ import androidx.compose.ui.zIndex
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.data.AppTab
 import com.apptists.poplur2025.data.FakeChatStore
@@ -25,8 +26,12 @@ import com.apptists.poplur2025.ui.screens.*
 import kotlin.random.Random
 
 @Composable
-fun PoplurRoot(authViewModel: AuthViewModel = viewModel()) {
+fun PoplurRoot(
+    authViewModel: AuthViewModel = viewModel(),
+    mapViewModel: MapViewModel = viewModel()
+) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val isSignedIn by authViewModel.isSignedIn.collectAsState()
     if (!isSignedIn) {
         WelcomeAuthScreen(authViewModel)
@@ -78,7 +83,13 @@ fun PoplurRoot(authViewModel: AuthViewModel = viewModel()) {
     }
 
     val onLongPressCube: () -> Unit = {
-        if (tab == AppTab.Feed) showingMessages = true
+        if (tab == AppTab.Feed) {
+            showingMessages = true
+        } else if (tab == AppTab.Map) {
+            scope.launch {
+                mapViewModel.triggerCenterOnUser()
+            }
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -86,7 +97,7 @@ fun PoplurRoot(authViewModel: AuthViewModel = viewModel()) {
             when (tab) {
                 AppTab.Feed -> FeedScreen(currentPostIndex, onIndexChange = { currentPostIndex = it; playPopSound() })
                 AppTab.Profile -> ProfileScreen(authViewModel = authViewModel)
-                AppTab.Map -> MapScreen(isVisible = true)
+                AppTab.Map -> MapScreen(isVisible = true, mapViewModel = mapViewModel)
                 AppTab.Camera -> CameraScreen()
                 AppTab.Home -> HomeScreen(onOpenCamera = { tab = AppTab.Camera }, onOpenMap = { tab = AppTab.Map })
                 AppTab.Messages -> MessagesScreen()
@@ -117,7 +128,11 @@ fun PoplurRoot(authViewModel: AuthViewModel = viewModel()) {
                     .padding(bottom = CUBE_BOTTOM_OFFSET)
                     .size(CUBE_CONTAINER_SIZE),
                 update = { view ->
-                    view.visibility = if (tab == AppTab.Camera) android.view.View.GONE else android.view.View.VISIBLE
+                    view.visibility = if (tab == AppTab.Camera || tab == AppTab.Map) {
+                        android.view.View.GONE
+                    } else {
+                        android.view.View.VISIBLE
+                    }
                     view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
                     view.background = null
                 }
