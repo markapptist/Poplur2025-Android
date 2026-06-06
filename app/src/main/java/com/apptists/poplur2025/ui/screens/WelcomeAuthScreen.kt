@@ -199,7 +199,7 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
             },
             modifier = Modifier
                 .fillMaxSize()
-                .zIndex(4f),
+                .zIndex(1.5f),
             update = { view ->
                 view.visibility = if (mode == AuthMode.Welcome) android.view.View.VISIBLE else android.view.View.GONE
                 view.setBackgroundColor(0)
