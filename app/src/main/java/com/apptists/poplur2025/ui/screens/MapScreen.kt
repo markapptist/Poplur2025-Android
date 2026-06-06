@@ -62,6 +62,7 @@ fun MapScreen(isVisible: Boolean = true) {
     val fallbackLocation = Point.fromLngLat(-73.985130, 40.758896)
     var selectedCoordinate by remember { mutableStateOf<Point?>(null) }
     var activeCityName by remember { mutableStateOf("Your Location") }
+    var activeRadius by remember { mutableIntStateOf(DEFAULT_RADIUS_KM) }
     var idleGeneration by remember { mutableIntStateOf(0) }
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
     val mapView = remember { MapView(context) }
@@ -96,6 +97,7 @@ fun MapScreen(isVisible: Boolean = true) {
             mapView.mapboxMap.addOnMapClickListener { point ->
                 selectedCoordinate = point
                 activeCityName = "Selected Location"
+                activeRadius = SELECTED_LOCATION_RADIUS_KM
                 idleGeneration++
                 mapView.mapboxMap.flyTo(
                     CameraOptions.Builder()
@@ -129,6 +131,7 @@ fun MapScreen(isVisible: Boolean = true) {
         val location = userLocation
         if (isVisible && mapReady && location != null && !hasZoomedToLocation) {
             activeCityName = "Your Location"
+            activeRadius = DEFAULT_RADIUS_KM
             mapView.mapboxMap.setCamera(
                 CameraOptions.Builder()
                     .center(globeView)
@@ -167,6 +170,7 @@ fun MapScreen(isVisible: Boolean = true) {
         while (isVisible && mapReady) {
             TourStops.forEach { stop ->
                 activeCityName = "World"
+                activeRadius = EARTH_RADIUS_KM
                 mapView.mapboxMap.flyTo(
                     CameraOptions.Builder()
                         .center(globeView)
@@ -178,6 +182,7 @@ fun MapScreen(isVisible: Boolean = true) {
                 )
                 delay(3300)
                 activeCityName = stop.cityName
+                activeRadius = stop.radiusKm
                 mapView.mapboxMap.flyTo(
                     CameraOptions.Builder()
                         .center(stop.coordinate)
@@ -187,7 +192,7 @@ fun MapScreen(isVisible: Boolean = true) {
                         .build(),
                     mapAnimationOptions { duration(4200) }
                 )
-                delay(7600)
+                delay(TOUR_STOP_DWELL_MS)
             }
         }
     }
@@ -260,7 +265,7 @@ fun MapScreen(isVisible: Boolean = true) {
             }
         }
         Spacer(Modifier.padding(bottom = 60.dp).size(80.dp).align(Alignment.BottomCenter))
-        RadiusDisplay(Modifier.padding(bottom = 60.dp, end = 20.dp).align(Alignment.BottomEnd), radius = 5000)
+        RadiusDisplay(Modifier.padding(bottom = 60.dp, end = 20.dp).align(Alignment.BottomEnd), radius = activeRadius)
     }
 }
 
@@ -268,20 +273,25 @@ private const val POST_SOURCE_ID = "poplur-posts"
 private const val POST_LAYER_ID = "poplur-post-markers"
 private const val MAPBOX_BASEMAP_IMPORT_ID = "basemap"
 private const val IDLE_TOUR_DELAY_MS = 30_000L
+private const val TOUR_STOP_DWELL_MS = 30_000L
+private const val DEFAULT_RADIUS_KM = 5_000
+private const val SELECTED_LOCATION_RADIUS_KM = 850
+private const val EARTH_RADIUS_KM = 6_371
 
 private data class TourStop(
     val cityName: String,
     val coordinate: Point,
     val bearing: Double,
+    val radiusKm: Int,
     val zoom: Double = 16.2
 )
 
 private val TourStops = listOf(
-    TourStop("Paris", Point.fromLngLat(2.2945, 48.8584), 28.0),
-    TourStop("New York", Point.fromLngLat(-73.9857, 40.7484), -24.0),
-    TourStop("Tokyo", Point.fromLngLat(139.7454, 35.6586), 34.0),
-    TourStop("London", Point.fromLngLat(-0.1246, 51.5007), -32.0),
-    TourStop("Dubai", Point.fromLngLat(55.2744, 25.1972), 18.0),
-    TourStop("Toronto", Point.fromLngLat(-79.3871, 43.6426), 24.0),
-    TourStop("Sydney", Point.fromLngLat(151.2153, -33.8568), -28.0)
+    TourStop("Paris", Point.fromLngLat(2.2945, 48.8584), 28.0, 105),
+    TourStop("New York", Point.fromLngLat(-73.9857, 40.7484), -24.0, 132),
+    TourStop("Tokyo", Point.fromLngLat(139.7454, 35.6586), 34.0, 148),
+    TourStop("London", Point.fromLngLat(-0.1246, 51.5007), -32.0, 118),
+    TourStop("Dubai", Point.fromLngLat(55.2744, 25.1972), 18.0, 96),
+    TourStop("Toronto", Point.fromLngLat(-79.3871, 43.6426), 24.0, 84),
+    TourStop("Sydney", Point.fromLngLat(151.2153, -33.8568), -28.0, 110)
 )

@@ -1,9 +1,12 @@
 package com.apptists.poplur2025.ui.components
 
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -20,7 +23,12 @@ fun RadiusDisplay(
     radius: Int,
     unit: String = "km"
 ) {
-    val formattedRadius = NumberFormat.getNumberInstance(Locale.US).format(radius)
+    val animatedRadius by animateIntAsState(
+        targetValue = radius,
+        animationSpec = tween(durationMillis = 1400),
+        label = "radius-count"
+    )
+    val formattedRadius = NumberFormat.getNumberInstance(Locale.US).format(animatedRadius)
     
     Surface(
         modifier = modifier
