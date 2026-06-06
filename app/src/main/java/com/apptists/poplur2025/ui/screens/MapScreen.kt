@@ -340,7 +340,10 @@ fun MapScreen(isVisible: Boolean = true) {
                         ?.commit()
                 }
             },
-            modifier = Modifier.fillMaxSize().zIndex(1f),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 190.dp, bottom = 230.dp)
+                .zIndex(1f),
             update = { view ->
                 view.setBackgroundColor(0)
                 view.background = null

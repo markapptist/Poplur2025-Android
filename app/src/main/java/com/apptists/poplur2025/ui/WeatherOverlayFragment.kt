@@ -36,7 +36,7 @@ class WeatherOverlayFragment : AndroidFragmentApplication() {
         view.background = null
         
         if (view is GLSurfaceView) {
-            view.setZOrderMediaOverlay(false)
+            view.setZOrderMediaOverlay(true)
             view.holder.setFormat(PixelFormat.TRANSLUCENT)
         }
         
