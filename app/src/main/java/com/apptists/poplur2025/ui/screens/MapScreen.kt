@@ -61,6 +61,8 @@ fun MapScreen(isVisible: Boolean = true) {
     val globeView = Point.fromLngLat(-98.0, 18.0)
     val fallbackLocation = Point.fromLngLat(-73.985130, 40.758896)
     var selectedCoordinate by remember { mutableStateOf<Point?>(null) }
+    var activeCityName by remember { mutableStateOf("Your Location") }
+    var idleGeneration by remember { mutableIntStateOf(0) }
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
     val mapView = remember { MapView(context) }
     val locationProvider = remember { LocationProvider(context) }
@@ -93,12 +95,14 @@ fun MapScreen(isVisible: Boolean = true) {
             }
             mapView.mapboxMap.addOnMapClickListener { point ->
                 selectedCoordinate = point
+                activeCityName = "Selected Location"
+                idleGeneration++
                 mapView.mapboxMap.flyTo(
                     CameraOptions.Builder()
                         .center(point)
-                        .zoom(19.2)
-                        .pitch(72.0)
-                        .bearing(22.0)
+                        .zoom(17.6)
+                        .pitch(66.0)
+                        .bearing(28.0)
                         .build(),
                     mapAnimationOptions { duration(1600) }
                 )
@@ -124,6 +128,7 @@ fun MapScreen(isVisible: Boolean = true) {
     LaunchedEffect(isVisible, mapReady, userLocation) {
         val location = userLocation
         if (isVisible && mapReady && location != null && !hasZoomedToLocation) {
+            activeCityName = "Your Location"
             mapView.mapboxMap.setCamera(
                 CameraOptions.Builder()
                     .center(globeView)
@@ -146,13 +151,44 @@ fun MapScreen(isVisible: Boolean = true) {
             mapView.mapboxMap.flyTo(
                 CameraOptions.Builder()
                     .center(location)
-                    .zoom(19.2)
-                    .pitch(72.0)
-                    .bearing(22.0)
+                    .zoom(16.9)
+                    .pitch(66.0)
+                    .bearing(28.0)
                     .build(),
                 mapAnimationOptions { duration(3600) }
             )
             hasZoomedToLocation = true
+        }
+    }
+
+    LaunchedEffect(isVisible, mapReady, idleGeneration) {
+        if (!isVisible || !mapReady) return@LaunchedEffect
+        delay(IDLE_TOUR_DELAY_MS)
+        while (isVisible && mapReady) {
+            TourStops.forEach { stop ->
+                activeCityName = "World"
+                mapView.mapboxMap.flyTo(
+                    CameraOptions.Builder()
+                        .center(globeView)
+                        .zoom(0.55)
+                        .pitch(0.0)
+                        .bearing(0.0)
+                        .build(),
+                    mapAnimationOptions { duration(2600) }
+                )
+                delay(3300)
+                activeCityName = stop.cityName
+                mapView.mapboxMap.flyTo(
+                    CameraOptions.Builder()
+                        .center(stop.coordinate)
+                        .zoom(stop.zoom)
+                        .pitch(66.0)
+                        .bearing(stop.bearing)
+                        .build(),
+                    mapAnimationOptions { duration(4200) }
+                )
+                delay(7600)
+            }
         }
     }
 
@@ -169,7 +205,7 @@ fun MapScreen(isVisible: Boolean = true) {
                             .build()
                     )
                     mapboxMap.loadStyle(
-                        style(Style.STANDARD_SATELLITE) {
+                        style(Style.STANDARD) {
                             +atmosphere { }
                             +projection(ProjectionName.GLOBE)
                             +geoJsonSource(POST_SOURCE_ID) {
@@ -187,7 +223,10 @@ fun MapScreen(isVisible: Boolean = true) {
                         }
                     ) { style ->
                         style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "show3dObjects", Value.valueOf(true))
-                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "lightPreset", Value.valueOf("day"))
+                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "showPointOfInterestLabels", Value.valueOf(true))
+                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "showRoadLabels", Value.valueOf(true))
+                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "showPlaceLabels", Value.valueOf(true))
+                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "lightPreset", Value.valueOf("dusk"))
                         mapReady = true
                     }
                 }
@@ -196,7 +235,7 @@ fun MapScreen(isVisible: Boolean = true) {
         )
         Box(Modifier.fillMaxWidth().height(190.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent))))
         Column(Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopStart)) {
-            Text("Your Location", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Text(activeCityName, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
             Text("Tap the 3D map to choose exactly where a post should live.", color = Color.White.copy(alpha = .9f), fontSize = 16.sp)
         }
         Surface(Modifier.padding(end = 16.dp).align(Alignment.CenterEnd), color = Color.Black.copy(alpha = .42f), shape = MaterialTheme.shapes.medium) {
@@ -228,3 +267,21 @@ fun MapScreen(isVisible: Boolean = true) {
 private const val POST_SOURCE_ID = "poplur-posts"
 private const val POST_LAYER_ID = "poplur-post-markers"
 private const val MAPBOX_BASEMAP_IMPORT_ID = "basemap"
+private const val IDLE_TOUR_DELAY_MS = 30_000L
+
+private data class TourStop(
+    val cityName: String,
+    val coordinate: Point,
+    val bearing: Double,
+    val zoom: Double = 16.2
+)
+
+private val TourStops = listOf(
+    TourStop("Paris", Point.fromLngLat(2.2945, 48.8584), 28.0),
+    TourStop("New York", Point.fromLngLat(-73.9857, 40.7484), -24.0),
+    TourStop("Tokyo", Point.fromLngLat(139.7454, 35.6586), 34.0),
+    TourStop("London", Point.fromLngLat(-0.1246, 51.5007), -32.0),
+    TourStop("Dubai", Point.fromLngLat(55.2744, 25.1972), 18.0),
+    TourStop("Toronto", Point.fromLngLat(-79.3871, 43.6426), 24.0),
+    TourStop("Sydney", Point.fromLngLat(151.2153, -33.8568), -28.0)
+)
