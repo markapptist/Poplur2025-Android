@@ -23,6 +23,12 @@ import android.view.View
 import android.widget.FrameLayout
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -41,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -50,7 +57,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.AudioAttributes
+import com.apptists.poplur2025.ui.MapViewModel
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -104,7 +113,10 @@ import kotlin.math.sin
 
 @SuppressLint("MissingPermission")
 @Composable
-fun MapScreen(isVisible: Boolean = true) {
+fun MapScreen(
+    isVisible: Boolean = true,
+    mapViewModel: MapViewModel = viewModel()
+) {
     val context = LocalContext.current
     var hasLocationPermission by remember {
         mutableStateOf(
@@ -154,6 +166,20 @@ fun MapScreen(isVisible: Boolean = true) {
             null
         }
     }
+    var tourSubtextMode by remember { mutableStateOf(TourSubtextMode.NowPlaying) }
+    val tourSubtext = remember(activeMusicStop, activeAiInsight, tourSubtextMode) {
+        activeMusicStop?.let { stop ->
+            when (tourSubtextMode) {
+                TourSubtextMode.NowPlaying -> nowPlayingSubtext(stop, activeAiInsight)
+                TourSubtextMode.Popular -> activeAiInsight?.subtitle ?: popularSubtext(stop)
+            }
+        } ?: "Tap the 3D map to choose exactly where a post should live."
+    }
+    val titlePulse by animateFloatAsState(
+        targetValue = if (activeMusicStop != null) 1f else 0f,
+        animationSpec = tween(durationMillis = 520),
+        label = "tourTitlePulse"
+    )
 
     CityTourMusicPlayer(
         tourStop = activeMusicStop,
@@ -163,6 +189,18 @@ fun MapScreen(isVisible: Boolean = true) {
 
     DisposableEffect(popTone) {
         onDispose { popTone.release() }
+    }
+
+    LaunchedEffect(activeMusicStop?.cityName, activeAiInsight?.id, isVisible) {
+        tourSubtextMode = TourSubtextMode.NowPlaying
+        if (!isVisible || activeMusicStop == null) return@LaunchedEffect
+        while (true) {
+            delay(TOUR_SUBTEXT_SWITCH_MS)
+            tourSubtextMode = when (tourSubtextMode) {
+                TourSubtextMode.NowPlaying -> TourSubtextMode.Popular
+                TourSubtextMode.Popular -> TourSubtextMode.NowPlaying
+            }
+        }
     }
 
     LaunchedEffect(isVisible) {
@@ -183,6 +221,29 @@ fun MapScreen(isVisible: Boolean = true) {
                 pulsingEnabled = true
             }
             mapView.mapboxMap.addOnMapClickListener { point ->
+                val current = selectedCoordinate
+                if (current != null) {
+                    // If user taps very close to the current selection or we just want to clear on any tap:
+                    // The user said "should be closed when i tap the map again". 
+                    // Let's make any tap close it, but if it's a different enough point, maybe select that?
+                    // Actually, "tap again" usually implies a toggle or dismiss.
+                    // To be safe and satisfy "tap again", we'll check distance.
+                    val dist = android.location.Location("").apply {
+                        latitude = current.latitude(); longitude = current.longitude()
+                    }.distanceTo(android.location.Location("").apply {
+                        latitude = point.latitude(); longitude = point.longitude()
+                    })
+                    
+                    if (dist < 50f) { // 50 meters
+                        selectedCoordinate = null
+                        activeCityName = "Your Location"
+                        activeRadius = DEFAULT_RADIUS_KM
+                        activeWeatherPoint = userLocation
+                        return@addOnMapClickListener true
+                    }
+                }
+                
+                // Select new point
                 selectedCoordinate = point
                 activeCityName = "Selected Location"
                 activeRadius = SELECTED_LOCATION_RADIUS_KM
@@ -245,6 +306,23 @@ fun MapScreen(isVisible: Boolean = true) {
         if (mapReady) {
             mapView.mapboxMap.getStyle { style ->
                 style.setRadiusCircleSource(location, DEFAULT_RADIUS_KM)
+            }
+        }
+    }
+
+    LaunchedEffect(mapReady, userLocation) {
+        mapViewModel.centerOnUserTrigger.collect {
+            val location = userLocation ?: return@collect
+            if (mapReady) {
+                mapView.mapboxMap.flyTo(
+                    CameraOptions.Builder()
+                        .center(location)
+                        .zoom(16.9)
+                        .pitch(66.0)
+                        .bearing(28.0)
+                        .build(),
+                    mapAnimationOptions { duration(1600) }
+                )
             }
         }
     }
@@ -416,12 +494,12 @@ fun MapScreen(isVisible: Boolean = true) {
                             }
                             +fillLayer(RADIUS_CIRCLE_FILL_LAYER_ID, RADIUS_CIRCLE_SOURCE_ID) {
                                 fillColor("#d8892b")
-                                fillOpacity(0.24)
+                                fillOpacity(0.42)
                             }
                             +lineLayer(RADIUS_CIRCLE_LINE_LAYER_ID, RADIUS_CIRCLE_SOURCE_ID) {
                                 lineColor("#ffb347")
-                                lineOpacity(0.94)
-                                lineWidth(5.0)
+                                lineOpacity(0.98)
+                                lineWidth(6.0)
                             }
                             +symbolLayer(LANDMARK_PIN_LAYER_ID, LANDMARK_PIN_SOURCE_ID) {
                                 iconImage(PINK_PIN_IMAGE_ID)
@@ -481,7 +559,9 @@ fun MapScreen(isVisible: Boolean = true) {
             },
             update = { container ->
                 container.setWeather(activeWeather)
-                container.setTrendPops(activeMusicStop, activeAiInsight)
+                container.setTrendPops(activeMusicStop, activeAiInsight) {
+                    popTone.startTone(ToneGenerator.TONE_PROP_BEEP, 80)
+                }
                 container.burstConfetti(confettiTrigger)
             },
             modifier = Modifier.fillMaxSize().zIndex(0f)
@@ -489,8 +569,21 @@ fun MapScreen(isVisible: Boolean = true) {
 
         Box(Modifier.fillMaxWidth().height(190.dp).zIndex(2f).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent))))
         Column(Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopStart).zIndex(2f)) {
-            Text(activeCityTitle(activeCityName, activeMusicStop), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-            Text(if (activeMusicStop != null) activeAiInsight?.subtitle ?: "" else "Tap the 3D map to choose exactly where a post should live.", color = Color.White.copy(alpha = .9f), fontSize = 16.sp)
+            Text(
+                activeCityTitle(activeCityName, activeMusicStop),
+                color = Color.White,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.graphicsLayer {
+                    val pulse = 1f + (titlePulse * 0.018f)
+                    scaleX = pulse
+                    scaleY = pulse
+                }
+            )
+            TourSubtextLine(
+                text = tourSubtext,
+                isTouring = activeMusicStop != null
+            )
         }
         Surface(Modifier.padding(end = 16.dp).align(Alignment.CenterEnd).zIndex(2f), color = Color.Black.copy(alpha = .42f), shape = MaterialTheme.shapes.medium) {
             Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -539,6 +632,27 @@ fun MapScreen(isVisible: Boolean = true) {
         }
         Spacer(Modifier.padding(bottom = 86.dp).size(112.dp).align(Alignment.BottomCenter).zIndex(2f))
         RadiusDisplay(Modifier.padding(bottom = 48.dp, end = 20.dp).align(Alignment.BottomEnd).zIndex(2f), radius = activeRadius)
+    }
+}
+
+@OptIn(ExperimentalAnimationApi::class)
+@Composable
+private fun TourSubtextLine(text: String, isTouring: Boolean) {
+    AnimatedContent(
+        targetState = text,
+        transitionSpec = {
+            fadeIn(animationSpec = tween(360)) togetherWith fadeOut(animationSpec = tween(240))
+        },
+        label = "tourSubtext"
+    ) { line ->
+        Text(
+            line,
+            color = Color.White.copy(alpha = if (isTouring) .94f else .9f),
+            fontSize = 16.sp,
+            fontWeight = if (isTouring) FontWeight.SemiBold else FontWeight.Normal,
+            lineHeight = 20.sp,
+            modifier = Modifier.padding(top = 3.dp)
+        )
     }
 }
 
@@ -618,8 +732,8 @@ private class MapWeatherTouchContainer(
         weatherView.setWeather(weather)
     }
 
-    fun setTrendPops(stop: TourStop?, insight: AiTourInsight?) {
-        trendPopView.setTrend(stop, insight)
+    fun setTrendPops(stop: TourStop?, insight: AiTourInsight?, onPop: () -> Unit) {
+        trendPopView.setTrend(stop, insight, onPop)
     }
 
     fun burstConfetti(trigger: Int) {
@@ -643,27 +757,40 @@ private class GdxUprightTrendPopView(
     private var insight: AiTourInsight? = null
     private var objects: List<TrendPopObject> = emptyList()
     private var startMs = 0L
+    private var onObjectPop: (() -> Unit)? = null
+    private val poppedIndices = mutableSetOf<Int>()
+
     private val animationTick = object : Runnable {
         override fun run() {
             if (objects.isNotEmpty()) {
+                val elapsed = (SystemClock.uptimeMillis() - startMs).coerceAtLeast(0L)
+                objects.forEachIndexed { index, item ->
+                    if (index !in poppedIndices && elapsed >= item.delayMs) {
+                        poppedIndices.add(index)
+                        onObjectPop?.invoke()
+                    }
+                }
                 invalidate()
                 postOnAnimation(this)
             }
         }
     }
 
-    fun setTrend(nextStop: TourStop?, nextInsight: AiTourInsight?) {
+    fun setTrend(nextStop: TourStop?, nextInsight: AiTourInsight?, onPop: () -> Unit) {
         val changed = stop?.cityName != nextStop?.cityName || insight?.id != nextInsight?.id
         stop = nextStop
         insight = nextInsight
+        onObjectPop = onPop
         if (nextStop == null || nextInsight == null) {
             objects = emptyList()
+            poppedIndices.clear()
             removeCallbacks(animationTick)
             invalidate()
             return
         }
         if (changed) {
             objects = buildTrendPopObjects(nextStop, nextInsight)
+            poppedIndices.clear()
             startMs = SystemClock.uptimeMillis()
             removeCallbacks(animationTick)
             postOnAnimation(animationTick)
@@ -706,6 +833,8 @@ private class GdxUprightTrendPopView(
         canvas.save()
         canvas.translate(x, y)
         canvas.scale(scale, scale)
+        
+        // Ground Shadow
         paint.style = Paint.Style.FILL
         paint.shader = RadialGradient(
             0f,
@@ -718,21 +847,18 @@ private class GdxUprightTrendPopView(
         canvas.drawOval(RectF(-58f, 52f, 58f, 92f), paint)
         paint.shader = null
 
-        paint.shader = null
+        // Emoji with clean shadow
         paint.style = Paint.Style.FILL
         paint.textAlign = Paint.Align.CENTER
         paint.typeface = Typeface.DEFAULT_BOLD
         paint.textSize = 78f
-        canvas.skew(-0.06f, 0f)
-        repeat(7) { depth ->
-            paint.color = AndroidColor.argb(72, 22, 18, 48)
-            paint.setShadowLayer(0f, 0f, 0f, AndroidColor.TRANSPARENT)
-            canvas.drawText(emoji, depth * 2.2f + 10f, depth * 2.5f + 28f, paint)
-        }
         paint.color = AndroidColor.WHITE
-        paint.setShadowLayer(10f, 0f, 8f, AndroidColor.argb(150, 0, 0, 0))
+        
+        // Drop shadow for the emoji itself
+        paint.setShadowLayer(12f, 0f, 6f, AndroidColor.argb(140, 0, 0, 0))
         canvas.drawText(emoji, 0f, 18f, paint)
         paint.clearShadowLayer()
+
         canvas.restore()
     }
 
@@ -1065,6 +1191,7 @@ private const val WEATHER_TIMEOUT_MS = 5_000
 private const val MUSIC_LOOKUP_TIMEOUT_MS = 5_000
 private const val MUSIC_TOP_TRACK_CHOICES = 5
 private const val TREND_POP_START_DELAY_MS = 1_350L
+private const val TOUR_SUBTEXT_SWITCH_MS = 6_000L
 private const val TREND_POP_ANIMATION_FRAME_MS = 360L
 private const val TREND_3D_POP_MS = 620L
 private const val TREND_3D_SEQUENCE_GAP_MS = 260L
@@ -1084,8 +1211,28 @@ private data class TourStop(
     val zoom: Double = 16.2
 )
 
+private enum class TourSubtextMode {
+    NowPlaying,
+    Popular
+}
+
 private fun activeCityTitle(cityName: String, stop: TourStop?): String {
     return stop?.let { "$cityName ${countryFlagEmoji(it.storefront)}" } ?: cityName
+}
+
+private fun nowPlayingSubtext(stop: TourStop, insight: AiTourInsight?): String {
+    val track = when {
+        insight?.category == TrendCategory.Sports -> FallbackCitySportsRadioTracks[stop.cityName]?.firstOrNull()
+        else -> FallbackCityRadioTracks[stop.cityName]?.firstOrNull()
+            ?: FallbackCityMusicTracks[stop.cityName]
+            ?: DefaultFallbackCityMusicTrack
+    } ?: DefaultFallbackCityMusicTrack
+    return "Now playing - ${track.artistSeed}"
+}
+
+private fun popularSubtext(stop: TourStop): String {
+    return FallbackCityPopularSubtexts[stop.cityName]
+        ?: "Popular here - music clips, food spots, street style, and landmark posts are moving now."
 }
 
 private fun countryFlagEmoji(countryCode: String): String {
@@ -1187,6 +1334,23 @@ private val FallbackCityMusicTracks = mapOf(
 
 private val DefaultFallbackCityMusicTrack =
     CityMusicTrack("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", "Global pop and rap mix")
+
+private val FallbackCityPopularSubtexts = mapOf(
+    "Paris" to "Popular here - Eiffel Tower shots, fashion reels, cafes, and night walks are spiking.",
+    "New York" to "Popular here - street style, skyline clips, slice shops, and courtside chatter are moving.",
+    "Los Angeles" to "Popular here - studio lots, fit checks, beach drives, and late-night food spots are hot.",
+    "Chicago" to "Popular here - architecture reels, deep dish stops, live sets, and sports talk are surging.",
+    "Miami" to "Popular here - beach clips, Latin nightlife, rooftop food, and art district posts are climbing.",
+    "Las Vegas" to "Popular here - casino walk-throughs, show clips, neon views, and club lines are trending.",
+    "Toronto" to "Popular here - CN Tower views, Drake mentions, food halls, and Raptors chatter are rising.",
+    "London" to "Popular here - pub scenes, streetwear, football talk, and West End clips are leading.",
+    "Tokyo" to "Popular here - Shibuya crossings, anime shops, ramen stops, and late trains are trending.",
+    "Sydney" to "Popular here - harbour views, surf clips, live radio, and brunch spots are taking off.",
+    "Dubai" to "Popular here - skyline views, luxury malls, desert drives, and night markets are glowing.",
+    "Rio de Janeiro" to "Popular here - beach football, samba clips, mountain views, and sunset posts are up.",
+    "Mexico City" to "Popular here - taco runs, museum clips, street markets, and park walks are everywhere.",
+    "Singapore" to "Popular here - hawker stalls, skyline reels, garden walks, and night food are buzzing."
+)
 
 private val FallbackCityRadioTracks = mapOf(
     "New York" to listOf(
