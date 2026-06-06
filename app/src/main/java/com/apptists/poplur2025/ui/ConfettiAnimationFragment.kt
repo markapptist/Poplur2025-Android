@@ -4,6 +4,7 @@ import android.graphics.PixelFormat
 import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import com.badlogic.gdx.backends.android.AndroidApplicationConfiguration
@@ -30,7 +31,10 @@ class ConfettiAnimationFragment : AndroidFragmentApplication() {
         view.isFocusable = false
 
         if (view is GLSurfaceView) {
-            view.setZOrderMediaOverlay(true)
+            view.setZOrderOnTop(true)
+            view.holder.setFormat(PixelFormat.TRANSLUCENT)
+        }
+        if (view is SurfaceView) {
             view.holder.setFormat(PixelFormat.TRANSLUCENT)
         }
 
