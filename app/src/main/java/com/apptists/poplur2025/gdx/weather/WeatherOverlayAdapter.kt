@@ -51,6 +51,9 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
             currentLabel.contains("Storm", ignoreCase = true) -> {
                 renderStorm(w, h)
             }
+            currentLabel.contains("Fog", ignoreCase = true) || currentLabel.contains("Cloudy", ignoreCase = true) -> {
+                renderMist(w, h)
+            }
         }
         
         shapes.end()
@@ -85,6 +88,25 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
         }
     }
 
+    private fun renderMist(w: Float, h: Float) {
+        particles.forEachIndexed { index, p ->
+            p.drift(w, 22f + (index % 7) * 4f)
+            val wave = sin(time * 0.45f + index * 0.31f) * 18f
+            val x = p.x * w + wave
+            val y = p.y * h
+            val width = 64f + (index % 5) * 18f
+            val alpha = 0.035f + (index % 4) * 0.008f
+
+            shapes.color = Color(0.78f, 0.86f, 0.94f, alpha)
+            shapes.rect(x, y, width, 1.6f)
+
+            if (index % 3 == 0) {
+                shapes.color = Color(0.9f, 0.95f, 1f, alpha * 1.35f)
+                shapes.circle(x + width * 0.5f, y, 2.2f)
+            }
+        }
+    }
+
     private fun renderLightningOverlay(w: Float, h: Float) {
         shapes.begin(ShapeRenderer.ShapeType.Filled)
         shapes.color = Color(1f, 1f, 1f, lightningAlpha)
@@ -105,6 +127,15 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
             if (y < -0.1f) {
                 y = 1.1f
                 x = random.nextFloat()
+            }
+        }
+
+        fun drift(w: Float, speed: Float) {
+            x += (speed * Gdx.graphics.deltaTime) / w
+            y += sin(time * 0.18f + x * 8f) * Gdx.graphics.deltaTime * 0.003f
+            if (x > 1.12f) {
+                x = -0.12f
+                y = random.nextFloat()
             }
         }
     }
