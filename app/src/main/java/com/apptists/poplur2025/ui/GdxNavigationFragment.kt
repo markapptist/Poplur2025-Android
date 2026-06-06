@@ -45,11 +45,11 @@ class GdxNavigationFragment() : AndroidFragmentApplication() {
         view.background = null
         
         if (view is GLSurfaceView) {
-            view.setZOrderMediaOverlay(true)
+            view.setZOrderOnTop(true)
             view.holder.setFormat(PixelFormat.TRANSLUCENT)
         }
         if (view is SurfaceView) {
-            view.setZOrderMediaOverlay(true)
+            view.setZOrderOnTop(true)
             view.holder.setFormat(PixelFormat.TRANSLUCENT)
         }
         

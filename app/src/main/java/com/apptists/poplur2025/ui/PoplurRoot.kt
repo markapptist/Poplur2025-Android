@@ -131,7 +131,7 @@ fun PoplurRoot(authViewModel: AuthViewModel = viewModel()) {
 }
 
 private const val CUBE_FEED_INDEX = 1
-private val CUBE_CONTAINER_SIZE = 150.dp
+private val CUBE_CONTAINER_SIZE = 300.dp
 private val CUBE_BOTTOM_OFFSET = 86.dp
 
 @Composable
