@@ -90,6 +90,7 @@ fun MapScreen(isVisible: Boolean = true) {
     var idleGeneration by remember { mutableIntStateOf(0) }
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
     val mapView = remember { MapView(context) }
+    val weatherAdapter = remember { com.apptists.poplur2025.gdx.weather.WeatherOverlayAdapter() }
     val locationProvider = remember { LocationProvider(context) }
     val postFeatures = remember {
         DemoPostStore.posts.mapNotNull { post ->
@@ -241,6 +242,10 @@ fun MapScreen(isVisible: Boolean = true) {
         }
     }
 
+    LaunchedEffect(activeWeather) {
+        weatherAdapter.setWeather(activeWeather)
+    }
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = {
@@ -280,7 +285,7 @@ fun MapScreen(isVisible: Boolean = true) {
                                 iconAnchor(IconAnchor.BOTTOM)
                                 iconAllowOverlap(true)
                                 iconIgnorePlacement(true)
-                                iconSize(0.74)
+                                iconSize(0.28)
                                 iconOffset(listOf(0.0, -4.0))
                             }
                             +symbolLayer(CURRENT_PIN_LAYER_ID, CURRENT_PIN_SOURCE_ID) {
@@ -288,7 +293,7 @@ fun MapScreen(isVisible: Boolean = true) {
                                 iconAnchor(IconAnchor.BOTTOM)
                                 iconAllowOverlap(true)
                                 iconIgnorePlacement(true)
-                                iconSize(0.78)
+                                iconSize(0.32)
                                 iconOffset(listOf(0.0, -4.0))
                             }
                         }
@@ -306,6 +311,32 @@ fun MapScreen(isVisible: Boolean = true) {
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        // Weather Overlay Layer (Safe implementation using Fragment, made touch-transparent)
+        val weatherContainerId = remember { android.view.View.generateViewId() }
+        AndroidView(
+            factory = { ctx ->
+                object : android.widget.FrameLayout(ctx) {
+                    override fun onInterceptTouchEvent(ev: android.view.MotionEvent?): Boolean = false
+                    @SuppressLint("ClickableViewAccessibility")
+                    override fun onTouchEvent(event: android.view.MotionEvent?): Boolean = false
+                }.apply {
+                    id = weatherContainerId
+                    setBackgroundColor(0)
+                    background = null
+                    isClickable = false
+                    isFocusable = false
+                    isEnabled = false
+
+                    val activity = ctx as? androidx.fragment.app.FragmentActivity
+                    activity?.supportFragmentManager?.beginTransaction()
+                        ?.replace(id, com.apptists.poplur2025.ui.WeatherOverlayFragment.newInstance(weatherAdapter))
+                        ?.commit()
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
         Box(Modifier.fillMaxWidth().height(190.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent))))
         Column(Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopStart)) {
             Text(activeCityName, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
