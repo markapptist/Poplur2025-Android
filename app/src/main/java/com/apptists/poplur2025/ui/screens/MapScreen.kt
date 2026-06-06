@@ -3,8 +3,6 @@ package com.apptists.poplur2025.ui.screens
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
-import android.os.Bundle
-import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -20,25 +18,32 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.location.LocationProvider
 import com.apptists.poplur2025.ui.components.RadiusDisplay
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.GoogleMap
-import com.google.android.gms.maps.GoogleMapOptions
-import com.google.android.gms.maps.MapView
-import com.google.android.gms.maps.model.*
+import com.mapbox.geojson.Feature
+import com.mapbox.geojson.FeatureCollection
+import com.mapbox.geojson.Point
+import com.mapbox.maps.CameraOptions
+import com.mapbox.maps.MapView
+import com.mapbox.maps.Style
+import com.mapbox.maps.extension.style.atmosphere.generated.atmosphere
+import com.mapbox.maps.extension.style.layers.generated.circleLayer
+import com.mapbox.maps.extension.style.layers.properties.generated.ProjectionName
+import com.mapbox.maps.extension.style.projection.generated.projection
+import com.mapbox.maps.extension.style.sources.generated.geoJsonSource
+import com.mapbox.maps.extension.style.style
+import com.mapbox.maps.plugin.animation.MapAnimationOptions.Companion.mapAnimationOptions
+import com.mapbox.maps.plugin.animation.flyTo
+import com.mapbox.maps.plugin.gestures.addOnMapClickListener
+import com.mapbox.maps.plugin.locationcomponent.location
 import kotlinx.coroutines.delay
 
 @SuppressLint("MissingPermission")
 @Composable
 fun MapScreen(isVisible: Boolean = true) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     var hasLocationPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
@@ -51,43 +56,22 @@ fun MapScreen(isVisible: Boolean = true) {
         hasLocationPermission = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
     }
-    // Start as wide as Google Maps allows, then fly into the user's location.
-    val globeView = LatLng(18.0, -98.0)
-    val fallbackLocation = LatLng(40.758896, -73.985130)
-    var selectedCoordinate by remember { mutableStateOf<LatLng?>(null) }
+    // Start on the full globe, then fly into the user's location.
+    val globeView = Point.fromLngLat(-98.0, 18.0)
+    val fallbackLocation = Point.fromLngLat(-73.985130, 40.758896)
+    var selectedCoordinate by remember { mutableStateOf<Point?>(null) }
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
-    val mapView = remember {
-        MapView(context, GoogleMapOptions()
-            .camera(CameraPosition.fromLatLngZoom(globeView, 0.0f))
-            .mapType(GoogleMap.MAP_TYPE_HYBRID)
-            .liteMode(false)
-            .compassEnabled(false)
-            .mapToolbarEnabled(false)
-            .tiltGesturesEnabled(true)
-            .rotateGesturesEnabled(true))
-    }
+    val mapView = remember { MapView(context) }
     val locationProvider = remember { LocationProvider(context) }
-    var mapInstance by remember { mutableStateOf<GoogleMap?>(null) }
-    var hasZoomedToLocation by remember { mutableStateOf(false) }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_CREATE -> try { mapView.onCreate(Bundle()) } catch (e: Exception) { Log.e("MapScreen", "onCreate", e) }
-                Lifecycle.Event.ON_START -> mapView.onStart()
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                Lifecycle.Event.ON_STOP -> mapView.onStop()
-                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
-                else -> Unit
-            }
+    val postFeatures = remember {
+        DemoPostStore.posts.mapNotNull { post ->
+            val lat = post.latitude
+            val lng = post.longitude
+            if (lat != null && lng != null) Feature.fromGeometry(Point.fromLngLat(lng, lat)) else null
         }
-        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.CREATED)) try { mapView.onCreate(Bundle()) } catch (_: Exception) {}
-        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) mapView.onStart()
-        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) mapView.onResume()
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    var mapReady by remember { mutableStateOf(false) }
+    var hasZoomedToLocation by remember { mutableStateOf(false) }
 
     LaunchedEffect(isVisible) {
         if (isVisible && !hasLocationPermission) {
@@ -100,106 +84,72 @@ fun MapScreen(isVisible: Boolean = true) {
         }
     }
 
-    LaunchedEffect(mapInstance, hasLocationPermission) {
-        mapInstance?.let { map ->
-            map.mapType = GoogleMap.MAP_TYPE_HYBRID
-            map.isBuildingsEnabled = true
-            map.isMyLocationEnabled = hasLocationPermission
-            map.uiSettings.isMyLocationButtonEnabled = false
-            map.uiSettings.isMapToolbarEnabled = false
-            map.uiSettings.isCompassEnabled = false
-            map.uiSettings.isZoomControlsEnabled = false
-            
-            map.setMinZoomPreference(0.0f)
-            map.setMaxZoomPreference(20.0f)
-            if (!hasZoomedToLocation) {
-                map.moveCamera(
-                    CameraUpdateFactory.newCameraPosition(
-                        CameraPosition.Builder()
-                            .target(globeView)
-                            .zoom(1.15f)
-                            .tilt(0.0f)
-                            .bearing(0.0f)
-                            .build()
-                    )
-                )
+    LaunchedEffect(mapReady, hasLocationPermission) {
+        if (mapReady) {
+            mapView.location.updateSettings {
+                enabled = hasLocationPermission
+                pulsingEnabled = true
             }
-
-            map.setOnMapClickListener { latLng ->
-                selectedCoordinate = latLng
-                map.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 18.8f))
-            }
-            map.clear()
-            DemoPostStore.posts.forEach { post ->
-                val lat = post.latitude
-                val lng = post.longitude
-                if (lat != null && lng != null) {
-                    val point = LatLng(lat, lng)
-                    map.addMarker(MarkerOptions().position(point).title(post.displayName).snippet(post.caption))
-                    map.addCircle(CircleOptions()
+            mapView.mapboxMap.addOnMapClickListener { point ->
+                selectedCoordinate = point
+                mapView.mapboxMap.flyTo(
+                    CameraOptions.Builder()
                         .center(point)
-                        .radius(post.radius.toDouble().coerceAtLeast(5000.0))
-                        .strokeWidth(4f)
-                        .strokeColor(0x66FF2D8A)
-                        .fillColor(0x22FF2D8A))
-                }
+                        .zoom(18.8)
+                        .pitch(67.5)
+                        .bearing(22.0)
+                        .build(),
+                    mapAnimationOptions { duration(1600) }
+                )
+                true
             }
         }
     }
 
-    var userLocation by remember { mutableStateOf<LatLng?>(null) }
+    var userLocation by remember { mutableStateOf<Point?>(null) }
 
     LaunchedEffect(hasLocationPermission) {
         if (hasLocationPermission) {
             locationProvider.lastLocation { lat, lng ->
-                val finalLat = lat ?: fallbackLocation.latitude
-                val finalLng = lng ?: fallbackLocation.longitude
-                userLocation = LatLng(finalLat, finalLng)
+                val finalLat = lat ?: fallbackLocation.latitude()
+                val finalLng = lng ?: fallbackLocation.longitude()
+                userLocation = Point.fromLngLat(finalLng, finalLat)
             }
         } else {
             userLocation = fallbackLocation
         }
     }
 
-    LaunchedEffect(isVisible, mapInstance, userLocation) {
-        val map = mapInstance
+    LaunchedEffect(isVisible, mapReady, userLocation) {
         val location = userLocation
-        if (isVisible && map != null && location != null && !hasZoomedToLocation) {
-            map.moveCamera(
-                CameraUpdateFactory.newCameraPosition(
-                    CameraPosition.Builder()
-                        .target(globeView)
-                        .zoom(1.15f)
-                        .tilt(0.0f)
-                        .bearing(0.0f)
-                        .build()
-                )
+        if (isVisible && mapReady && location != null && !hasZoomedToLocation) {
+            mapView.mapboxMap.setCamera(
+                CameraOptions.Builder()
+                    .center(globeView)
+                    .zoom(0.45)
+                    .pitch(0.0)
+                    .bearing(0.0)
+                    .build()
             )
             delay(1150)
-            map.animateCamera(
-                CameraUpdateFactory.newCameraPosition(
-                    CameraPosition.Builder()
-                        .target(location)
-                        .zoom(7.0f)
-                        .tilt(0.0f)
-                        .bearing(0.0f)
-                        .build()
-                ),
-                1900,
-                null
+            mapView.mapboxMap.flyTo(
+                CameraOptions.Builder()
+                    .center(location)
+                    .zoom(7.0)
+                    .pitch(0.0)
+                    .bearing(0.0)
+                    .build(),
+                mapAnimationOptions { duration(1900) }
             )
             delay(2050)
-            map.animateCamera(
-                CameraUpdateFactory.newCameraPosition(
-                    CameraPosition.Builder()
-                        .target(location)
-                        .zoom(18.8f)
-                        .tilt(67.5f)
-                        .bearing(22.0f)
-                        .build()
-                ),
-                3600,
-                null
+            mapView.mapboxMap.flyTo(
+                CameraOptions.Builder()
+                    .center(location)
+                    .zoom(18.8)
+                    .pitch(67.5)
+                    .bearing(22.0)
+                    .build(),
+                mapAnimationOptions { duration(3600) }
             )
             hasZoomedToLocation = true
         }
@@ -209,7 +159,34 @@ fun MapScreen(isVisible: Boolean = true) {
         AndroidView(
             factory = {
                 mapView.apply {
-                    getMapAsync { mapInstance = it }
+                    mapboxMap.setCamera(
+                        CameraOptions.Builder()
+                            .center(globeView)
+                            .zoom(0.45)
+                            .pitch(0.0)
+                            .bearing(0.0)
+                            .build()
+                    )
+                    mapboxMap.loadStyle(
+                        style(Style.STANDARD_SATELLITE) {
+                            +atmosphere { }
+                            +projection(ProjectionName.GLOBE)
+                            +geoJsonSource(POST_SOURCE_ID) {
+                                featureCollection(FeatureCollection.fromFeatures(postFeatures))
+                            }
+                            +circleLayer(POST_LAYER_ID, POST_SOURCE_ID) {
+                                circleRadius(18.0)
+                                circleColor("#ff2d8a")
+                                circleOpacity(0.46)
+                                circleStrokeColor("#ffffff")
+                                circleStrokeOpacity(0.9)
+                                circleStrokeWidth(2.5)
+                                circleEmissiveStrength(1.0)
+                            }
+                        }
+                    ) {
+                        mapReady = true
+                    }
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -235,7 +212,7 @@ fun MapScreen(isVisible: Boolean = true) {
             Surface(Modifier.align(Alignment.BottomCenter).padding(bottom = 158.dp, start = 20.dp, end = 20.dp), color = Color.Black.copy(alpha = .72f), shape = MaterialTheme.shapes.large) {
                 Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Post here", color = Color.White, fontWeight = FontWeight.Black)
-                    Text("${"%.5f".format(point.latitude)}, ${"%.5f".format(point.longitude)}", color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
+                    Text("${"%.5f".format(point.latitude())}, ${"%.5f".format(point.longitude())}", color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
                     Button(onClick = { mediaPicker.launch("image/*") }, modifier = Modifier.padding(top = 8.dp)) { Text("Choose media") }
                 }
             }
@@ -244,3 +221,6 @@ fun MapScreen(isVisible: Boolean = true) {
         RadiusDisplay(Modifier.padding(bottom = 60.dp, end = 20.dp).align(Alignment.BottomEnd), radius = 5000)
     }
 }
+
+private const val POST_SOURCE_ID = "poplur-posts"
+private const val POST_LAYER_ID = "poplur-post-markers"

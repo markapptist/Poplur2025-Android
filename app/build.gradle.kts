@@ -73,7 +73,7 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
 
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
+    implementation("com.mapbox.maps:android:11.19.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.android.gms:play-services-ads:23.6.0")
 
