@@ -34,8 +34,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
 import com.apptists.poplur2025.auth.AuthViewModel
@@ -57,18 +57,18 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
     }
     val confettiContainerId = remember { android.view.View.generateViewId() }
     var showConfetti by remember { mutableStateOf(false) }
+    var confettiRunId by remember { mutableIntStateOf(0) }
     var welcomeAnimationStarted by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        delay(900)
-        showConfetti = true
-    }
 
     LaunchedEffect(mode) {
         welcomeAnimationStarted = false
+        showConfetti = false
         if (mode == AuthMode.Welcome) {
+            confettiRunId += 1
             delay(80)
             welcomeAnimationStarted = true
+            delay(820)
+            showConfetti = true
         }
     }
 
@@ -86,30 +86,44 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
         }
 
         if (showConfetti && mode == AuthMode.Welcome) {
-            AndroidView(
-                factory = { ctx ->
-                    FragmentContainerView(ctx).apply {
-                        id = confettiContainerId
-                        setBackgroundColor(0)
-                        background = null
-                        isClickable = false
-                        isFocusable = false
-                        isEnabled = false
-
-                        val activity = ctx as? FragmentActivity
-                        activity?.supportFragmentManager?.beginTransaction()
-                            ?.replace(id, ConfettiAnimationFragment())
-                            ?.commit()
+            key(confettiRunId) {
+                val activity = context as? FragmentActivity
+                DisposableEffect(activity, confettiContainerId, confettiRunId) {
+                    onDispose {
+                        val fragmentManager = activity?.supportFragmentManager ?: return@onDispose
+                        fragmentManager.findFragmentById(confettiContainerId)?.let { fragment ->
+                            fragmentManager.beginTransaction()
+                                .remove(fragment)
+                                .commitAllowingStateLoss()
+                        }
                     }
-                },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(0f),
-                update = { view ->
-                    view.setBackgroundColor(0)
-                    view.background = null
                 }
-            )
+
+                AndroidView(
+                    factory = { ctx ->
+                        FragmentContainerView(ctx).apply {
+                            id = confettiContainerId
+                            setBackgroundColor(0)
+                            background = null
+                            isClickable = false
+                            isFocusable = false
+                            isEnabled = false
+
+                            val fragmentActivity = ctx as? FragmentActivity
+                            fragmentActivity?.supportFragmentManager?.beginTransaction()
+                                ?.replace(id, ConfettiAnimationFragment())
+                                ?.commitAllowingStateLoss()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(0f),
+                    update = { view ->
+                        view.setBackgroundColor(0)
+                        view.background = null
+                    }
+                )
+            }
         }
 
         TicketPanel(
@@ -413,38 +427,23 @@ private fun LoginFields(
 ) {
     Column(Modifier.fillMaxWidth()) {
         LoginLineField(
-            value = email,
-            onValueChange = onEmailChange,
-            placeholder = "E-Mail",
-            layout = layout,
-            leading = { Text("@", color = Color.White, fontSize = layout.fieldTextSize.sp, fontWeight = FontWeight.Black) }
+            email,
+            onEmailChange,
+            "E-Mail",
+            layout,
+            { Text("@", color = Color.White, fontSize = layout.fieldTextSize.sp, fontWeight = FontWeight.Black) }
         )
         Spacer(Modifier.height(layout.fieldGap))
         LoginLineField(
-            value = password,
-            onValueChange = onPasswordChange,
-            placeholder = "Password",
-            layout = layout,
-            visualTransformation = PasswordVisualTransformation(),
-            leading = { Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(layout.fieldIconSize)) },
-            trailing = {
-                Text(
-                    "FORGOT",
-                    color = Color.White,
-                    fontSize = layout.forgotTextSize.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 2.sp
-                )
-            }
+            password,
+            onPasswordChange,
+            "Password",
+            layout,
+            { Icon(Icons.Default.Lock, null, tint = Color.White, modifier = Modifier.size(layout.fieldIconSize)) },
+            { Text("FORGOT", color = Color.White, fontSize = layout.forgotTextSize.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp) },
+            PasswordVisualTransformation()
         )
-        error?.let {
-            Text(
-                it,
-                color = Color.White,
-                modifier = Modifier.padding(top = 10.dp),
-                fontWeight = FontWeight.Bold
-            )
-        }
+        error?.let { Text(it, color = Color.White, modifier = Modifier.padding(top = 10.dp), fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -459,139 +458,49 @@ private fun LoginLineField(
     visualTransformation: VisualTransformation = VisualTransformation.None
 ) {
     Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(layout.fieldHeight),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(Modifier.width(layout.fieldLeadingWidth), contentAlignment = Alignment.CenterStart) { leading() }
+        Row(Modifier.fillMaxWidth().height(layout.fieldHeight), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.width(layout.fieldLeadingWidth), contentAlignment = Alignment.CenterStart) { leading() }
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = true,
                 visualTransformation = visualTransformation,
-                textStyle = LocalTextStyle.current.copy(
-                    color = Color.White,
-                    fontSize = layout.fieldTextSize.sp,
-                    fontWeight = FontWeight.Black
-                ),
+                textStyle = LocalTextStyle.current.copy(color = Color.White, fontSize = layout.fieldTextSize.sp, fontWeight = FontWeight.Black),
                 modifier = Modifier.weight(1f),
-                decorationBox = { innerTextField ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (value.isEmpty()) {
-                            Text(
-                                placeholder,
-                                color = Color.White.copy(alpha = 0.36f),
-                                fontSize = layout.fieldTextSize.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
+                decorationBox = { it -> Box(contentAlignment = Alignment.CenterStart) { if (value.isEmpty()) Text(placeholder, color = Color.White.copy(alpha = 0.36f), fontSize = layout.fieldTextSize.sp, fontWeight = FontWeight.Black); it() } }
             )
-            trailing?.let {
-                Spacer(Modifier.width(12.dp))
-                Box(contentAlignment = Alignment.CenterEnd) { it() }
-            }
+            trailing?.let { Spacer(Modifier.width(12.dp)); Box(modifier = Modifier, contentAlignment = Alignment.CenterEnd) { it() } }
         }
         HorizontalDivider(color = Color.White.copy(alpha = 0.86f), thickness = 2.dp)
     }
 }
 
-private fun Dp.safeCoerceIn(minimumValue: Dp, maximumValue: Dp): Dp {
-    val lower = minOf(minimumValue, maximumValue)
-    val upper = maxOf(minimumValue, maximumValue)
-    return coerceIn(lower, upper)
-}
+private fun Dp.safeCoerceIn(minV: Dp, maxV: Dp): Dp = coerceIn(minOf(minV, maxV), maxOf(minV, maxV))
 
-private class AuthLayoutMetrics(
-    screenWidth: androidx.compose.ui.unit.Dp,
-    screenHeight: androidx.compose.ui.unit.Dp,
-    mode: AuthMode
-) {
-    private val compactWidth = screenWidth.coerceAtMost(430.dp)
-    private val widthScale = compactWidth / 430.dp
-    private val heightScale = screenHeight / 932.dp
-    private val scale = widthScale.coerceAtMost(heightScale).coerceIn(0.86f, 1.18f)
-
+private class AuthLayoutMetrics(screenWidth: Dp, screenHeight: Dp, mode: AuthMode) {
+    val scale = (minOf(screenWidth.coerceAtMost(430.dp)/430.dp, screenHeight/932.dp)).coerceIn(0.86f, 1.18f)
     val ticketHorizontalInset = (screenWidth * 0.074f).coerceIn(24.dp, 44.dp)
-    val ticketTopInset = if (mode == AuthMode.Welcome) {
-        (screenHeight * 0.123f).coerceIn(88.dp, 132.dp)
-    } else {
-        (screenHeight * 0.171f).coerceIn(150.dp, 188.dp)
-    }
-    val ticketBottomInset = if (mode == AuthMode.Welcome) {
-        (screenHeight * 0.123f).coerceIn(88.dp, 132.dp)
-    } else {
-        (screenHeight * 0.096f).coerceIn(72.dp, 108.dp)
-    }
-
+    val ticketTopInset = if (mode == AuthMode.Welcome) (screenHeight * 0.123f).coerceIn(88.dp, 132.dp) else (screenHeight * 0.171f).coerceIn(150.dp, 188.dp)
+    val ticketBottomInset = if (mode == AuthMode.Welcome) (screenHeight * 0.123f).coerceIn(88.dp, 132.dp) else (screenHeight * 0.096f).coerceIn(72.dp, 108.dp)
     val logoSize = (screenWidth * 0.46f).coerceIn(186.dp, 232.dp)
     val ticketHeight = (screenHeight - ticketTopInset - ticketBottomInset).coerceAtLeast(1.dp)
     val welcomeLogoTop = (ticketTopInset + (ticketHeight * 0.145f)).safeCoerceIn(ticketTopInset + 38.dp, ticketTopInset + 82.dp)
-    val welcomeButtonTop = (ticketTopInset + (ticketHeight * 0.655f)).safeCoerceIn(
-        ticketTopInset + (ticketHeight * 0.54f),
-        ticketTopInset + ticketHeight - 146.dp
-    )
+    val welcomeButtonTop = (ticketTopInset + (ticketHeight * 0.655f)).safeCoerceIn(ticketTopInset + (ticketHeight * 0.54f), ticketTopInset + ticketHeight - 146.dp)
     val welcomeButtonWidth = (screenWidth * 0.34f).coerceIn(172.dp, 206.dp)
     val welcomeButtonHeight = (64.dp * scale).coerceIn(58.dp, 70.dp)
     val welcomeButtonTextSize = (22f * scale).coerceIn(20f, 24f)
-
-    val backButtonStart = (screenWidth * 0.068f).coerceIn(24.dp, 34.dp)
-    val backButtonTop = (screenHeight * 0.073f).coerceIn(66.dp, 84.dp)
-    val backButtonSize = (68.dp * scale).coerceIn(60.dp, 74.dp)
-    val backIconSize = (38.dp * scale).coerceIn(34.dp, 42.dp)
-
-    val formHorizontalInset = (screenWidth * 0.122f).coerceIn(44.dp, 58.dp)
-    val loginLogoTop = (screenHeight * 0.202f).coerceIn(184.dp, 218.dp)
-    val submitButtonHeight = (screenHeight * 0.102f).coerceIn(88.dp, 106.dp)
-    val fieldGap = (screenHeight * 0.028f).coerceIn(22.dp, 30.dp)
-    val fieldHeight = (58.dp * scale).coerceIn(52.dp, 64.dp)
-    val submitButtonTop = (ticketTopInset + ticketHeight - submitButtonHeight - (ticketHeight * 0.075f)).safeCoerceIn(
-        ticketTopInset + (ticketHeight * 0.68f),
-        ticketTopInset + ticketHeight - submitButtonHeight - 34.dp
-    )
-    val loginFieldsTop = (submitButtonTop - (fieldHeight * 2f) - fieldGap - (ticketHeight * 0.06f)).safeCoerceIn(
-        ticketTopInset + (ticketHeight * 0.52f),
-        submitButtonTop - (fieldHeight * 2f) - fieldGap - 22.dp
-    )
+    val backButtonStart = (screenWidth * 0.068f).coerceIn(24.dp, 34.dp); val backButtonTop = (screenHeight * 0.073f).coerceIn(66.dp, 84.dp); val backButtonSize = (68.dp * scale).coerceIn(60.dp, 74.dp); val backIconSize = (38.dp * scale).coerceIn(34.dp, 42.dp)
+    val formHorizontalInset = (screenWidth * 0.122f).coerceIn(44.dp, 58.dp); val loginLogoTop = (screenHeight * 0.202f).coerceIn(184.dp, 218.dp); val submitButtonHeight = (screenHeight * 0.102f).coerceIn(88.dp, 106.dp); val fieldGap = (screenHeight * 0.028f).coerceIn(22.dp, 30.dp); val fieldHeight = (58.dp * scale).coerceIn(52.dp, 64.dp)
+    val submitButtonTop = (ticketTopInset + ticketHeight - submitButtonHeight - (ticketHeight * 0.075f)).safeCoerceIn(ticketTopInset + (ticketHeight * 0.68f), ticketTopInset + ticketHeight - submitButtonHeight - 34.dp)
+    val loginFieldsTop = (submitButtonTop - (fieldHeight * 2f) - fieldGap - (ticketHeight * 0.06f)).safeCoerceIn(ticketTopInset + (ticketHeight * 0.52f), submitButtonTop - (fieldHeight * 2f) - fieldGap - 22.dp)
     val submitButtonTextSize = (30f * scale).coerceIn(28f, 34f)
-
-    val fieldLeadingWidth = (56.dp * scale).coerceIn(50.dp, 62.dp)
-    val fieldIconSize = (34.dp * scale).coerceIn(30.dp, 38.dp)
-    val fieldTextSize = (34f * scale).coerceIn(30f, 38f)
-    val forgotTextSize = (17f * scale).coerceIn(15f, 19f)
+    val fieldLeadingWidth = (56.dp * scale).coerceIn(50.dp, 62.dp); val fieldIconSize = (34.dp * scale).coerceIn(30.dp, 38.dp); val fieldTextSize = (34f * scale).coerceIn(30f, 38f); val forgotTextSize = (17f * scale).coerceIn(15f, 19f)
 }
 
 @Composable
-private fun WelcomeLogo(
-    logoBitmap: androidx.compose.ui.graphics.ImageBitmap?,
-    modifier: Modifier
-) {
-    if (logoBitmap != null) {
-        Image(bitmap = logoBitmap, contentDescription = "Poplur", modifier = modifier)
-    } else {
-        LogoFallback(modifier)
-    }
-}
+private fun WelcomeLogo(logoBitmap: androidx.compose.ui.graphics.ImageBitmap?, modifier: Modifier) { if (logoBitmap != null) Image(bitmap = logoBitmap, contentDescription = "Poplur", modifier = modifier) else LogoFallback(modifier) }
 
 @Composable
-private fun LogoFallback() {
-    LogoFallback(Modifier.size(186.dp))
-}
-
-@Composable
-private fun LogoFallback(modifier: Modifier) {
-    Surface(
-        modifier = modifier.clip(RoundedCornerShape(42.dp)),
-        color = Color(0xFF2A1238)
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text("P", color = Color.White, fontSize = 92.sp, fontWeight = FontWeight.Black)
-        }
-    }
-}
+private fun LogoFallback(modifier: Modifier) { Surface(modifier = modifier.clip(RoundedCornerShape(42.dp)), color = Color(0xFF2A1238)) { Box(contentAlignment = Alignment.Center) { Text(text = "P", color = Color.White, fontSize = 92.sp, fontWeight = FontWeight.Bold) } } }
 
 private enum class AuthMode { Welcome, Login, SignUp }

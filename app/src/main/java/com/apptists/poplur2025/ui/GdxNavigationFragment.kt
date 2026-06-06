@@ -2,6 +2,7 @@ package com.apptists.poplur2025.ui
 
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import android.opengl.GLSurfaceView
@@ -27,6 +28,7 @@ class GdxNavigationFragment() : AndroidFragmentApplication() {
             useAccelerometer = false
             useCompass = false
             useImmersiveMode = false
+            useGL30 = true
             r = 8; g = 8; b = 8; a = 8
         }
         
@@ -39,11 +41,15 @@ class GdxNavigationFragment() : AndroidFragmentApplication() {
         
         val view = initializeForView(adapter, config)
         
-        view.setBackgroundColor(0)
+        view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
         view.background = null
         
         if (view is GLSurfaceView) {
-            view.setZOrderOnTop(true)
+            view.setZOrderMediaOverlay(true)
+            view.holder.setFormat(PixelFormat.TRANSLUCENT)
+        }
+        if (view is SurfaceView) {
+            view.setZOrderMediaOverlay(true)
             view.holder.setFormat(PixelFormat.TRANSLUCENT)
         }
         

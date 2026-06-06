@@ -28,7 +28,7 @@ class ConfettiAnimationFragment : AndroidFragmentApplication() {
         view.isFocusable = false
 
         if (view is GLSurfaceView) {
-            view.setZOrderOnTop(true)
+            view.setZOrderMediaOverlay(true)
             view.holder.setFormat(PixelFormat.TRANSLUCENT)
         }
 

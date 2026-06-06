@@ -19,7 +19,6 @@ import com.badlogic.gdx.graphics.g3d.ModelBatch
 import com.badlogic.gdx.graphics.g3d.ModelInstance
 import com.badlogic.gdx.graphics.g3d.attributes.BlendingAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute
-import com.badlogic.gdx.graphics.g3d.attributes.FloatAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.TextureAttribute
 import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder
@@ -75,7 +74,7 @@ class CombinedGdxAdapter(
             val w = Gdx.graphics.width.toFloat().coerceAtLeast(1f)
             val h = Gdx.graphics.height.toFloat().coerceAtLeast(1f)
             camera = PerspectiveCamera(40f, w, h).apply {
-                position.set(0f, 0f, 5.0f) // Restored camera distance
+                position.set(0f, 0f, 5f)
                 lookAt(0f, 0f, 0f)
                 near = 0.1f
                 far = 100f
@@ -136,11 +135,8 @@ class CombinedGdxAdapter(
             textures += texture
             Material(
                 TextureAttribute.createDiffuse(texture),
-                BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, 1f),
                 ColorAttribute.createDiffuse(Color.WHITE),
-                ColorAttribute.createEmissive(Color(0.34f, 0.32f, 0.78f, 1f).mul(0.18f)),
-                ColorAttribute.createSpecular(Color.WHITE),
-                FloatAttribute.createShininess(12f)
+                BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA)
             )
         }
     }
@@ -148,7 +144,7 @@ class CombinedGdxAdapter(
     private fun buildCube(materials: List<Material>): Model {
         val mb = ModelBuilder()
         val attr = (Usage.Position or Usage.Normal or Usage.TextureCoordinates).toLong()
-        val s = 0.62f
+        val s = 0.65f
         mb.begin()
         mb.part("f", GL20.GL_TRIANGLES, attr, materials[0]).rect(-s,-s,s, s,-s,s, s,s,s, -s,s,s, 0f,0f,1f)
         mb.part("r", GL20.GL_TRIANGLES, attr, materials[1]).rect(s,-s,s, s,-s,-s, s,s,-s, s,s,s, 1f,0f,0f)
@@ -183,13 +179,8 @@ class CombinedGdxAdapter(
         sr.set(ShapeRenderer.ShapeType.Line)
         val step = 64f
         for (i in -10..10) {
-            sr.color = Color(0f, 0f, 0f, 0.3f)
-            Gdx.gl.glLineWidth(3f)
-            sr.line(0f, i * step, size.toFloat(), i * step + size)
-            sr.line(0f, i * step + size, size.toFloat(), i * step)
-            sr.color = Color(1f, 1f, 1f, 0.05f)
-            Gdx.gl.glLineWidth(1.2f)
-            sr.line(2f, i * step + 2f, size.toFloat() + 2f, i * step + size + 2f)
+            sr.color = Color(0f, 0f, 0f, 0.3f); Gdx.gl.glLineWidth(3f); sr.line(0f, i * step, size.toFloat(), i * step + size); sr.line(0f, i * step + size, size.toFloat(), i * step)
+            sr.color = Color(1f, 1f, 1f, 0.05f); Gdx.gl.glLineWidth(1.2f); sr.line(2f, i * step + 2f, size.toFloat() + 2f, i * step + size + 2f)
         }
         
         // Quilted Dots
@@ -197,18 +188,17 @@ class CombinedGdxAdapter(
         for (ix in 0..6) {
             for (iy in 0..6) {
                 val px = ix * step; val py = iy * step
-                if (px > pad + 40f && px < size - pad - 40f && py > pad + 40f && py < size - pad - 40f) {
+                if (px > pad + 38f && px < size - pad - 38f && py > pad + 38f && py < size - pad - 38f) {
                     sr.color = Color(0f, 0f, 0f, 0.5f); sr.circle(px + 1.5f, py - 1.5f, 4f, 10)
-                    sr.color = Color(0.48f, 0.45f, 0.8f, 0.6f); sr.circle(px, py, 3.5f, 10)
+                    sr.color = Color(0.48f, 0.45f, 0.8f, 0.65f); sr.circle(px, py, 3.5f, 10)
                 }
             }
         }
 
         // Inner icon area
-        sr.color = Color(0.06f, 0.07f, 0.14f, 0.95f)
+        sr.color = Color(0.06f, 0.07f, 0.14f, 0.96f)
         sr.filledRoundRect(pad + 52f, pad + 52f, size - pad*2 - 104f, size - pad*2 - 104f, r - 32f)
         
-        // Draw simplified icon
         sr.color = Color(0.7f, 0.68f, 1f, 1f)
         val cx = size/2f; val cy = size * 0.64f; val isize = 88f
         when(title) {
