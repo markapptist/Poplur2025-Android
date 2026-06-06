@@ -633,31 +633,46 @@ private fun WeatherParticleOverlay(
                 }
             }
             label.contains("Cloudy", ignoreCase = true) || label.contains("Fog", ignoreCase = true) -> {
-                repeat(95) { index ->
-                    val lane = ((index * 29) % 100) / 100f
-                    val drift = (phase * size.width * 0.62f + index * 29f) % (size.width + 220f) - 110f
-                    val y = drawTop + lane * drawHeight
+                repeat(44) { index ->
+                    val lane = ((index * 17) % 100) / 100f
+                    val depth = 0.62f + (index % 6) * 0.075f
+                    val radius = (34f + (index % 7) * 8f) * depth
+                    val drift = (phase * size.width * (0.18f + depth * 0.08f) + index * 73f) % (size.width + radius * 4f) - radius * 2f
+                    val verticalWave = kotlin.math.sin((phase * 6.28f) + index * 0.61f) * 18f * depth
+                    val y = drawTop + lane * drawHeight + verticalWave
                     val x = drift
-                    drawLine(
-                        color = Color(0x38DDEBFF),
-                        start = Offset(x, y),
-                        end = Offset(x + 92f + (index % 5) * 16f, y + ((index % 3) - 1) * 1.5f),
-                        strokeWidth = 2.8f
+                    val center = Offset(x, y)
+
+                    drawCircle(
+                        color = Color(0x242F3440),
+                        radius = radius * 1.18f,
+                        center = center + Offset(radius * 0.22f, radius * 0.24f)
                     )
-                    if (index % 3 == 0) {
-                        drawCircle(
-                            color = Color(0x44EEF6FF),
-                            radius = 4.2f + (index % 4),
-                            center = Offset(x + 36f, y)
-                        )
-                    }
-                    if (index % 9 == 0) {
-                        drawCircle(
-                            color = Color(0x18FFFFFF),
-                            radius = 18f + (index % 5) * 3f,
-                            center = Offset(x + 58f, y + ((index % 7) - 3) * 6f)
-                        )
-                    }
+                    drawCircle(
+                        color = Color(0x526E7480),
+                        radius = radius,
+                        center = center
+                    )
+                    drawCircle(
+                        color = Color(0x308E96A3),
+                        radius = radius * 0.68f,
+                        center = center + Offset(-radius * 0.24f, -radius * 0.2f)
+                    )
+                    drawCircle(
+                        color = Color(0x20D7DEE8),
+                        radius = radius * 0.34f,
+                        center = center + Offset(-radius * 0.38f, -radius * 0.32f)
+                    )
+                }
+                repeat(70) { index ->
+                    val lane = ((index * 31) % 100) / 100f
+                    val drift = (phase * size.width * 0.38f + index * 41f) % (size.width + 80f) - 40f
+                    val y = drawTop + lane * drawHeight + kotlin.math.sin(phase * 6.28f + index) * 9f
+                    drawCircle(
+                        color = Color(0x30353A42),
+                        radius = 1.8f + (index % 4),
+                        center = Offset(drift, y)
+                    )
                 }
             }
         }
