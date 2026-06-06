@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Poplur</string>
-    <string name="mapbox_access_token">YOUR_MAPBOX_ACCESS_TOKEN</string>
+    <string name="mapbox_access_token">pk.eyJ1IjoibWFya2FwcHRpc3QiLCJhIjoiY21xMW4xeGlxMTNxbTJycHc4d21pbmZqbyJ9.9Dc0zyh2iRss1ARUTHAu-Q</string>
 </resources>
