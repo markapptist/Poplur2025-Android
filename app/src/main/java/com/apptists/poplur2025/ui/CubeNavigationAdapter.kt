@@ -46,11 +46,13 @@ class CubeNavigationAdapter(private val onTabSelected: (Int) -> Unit) : Applicat
 
         modelBatch = ModelBatch()
 
-        val modelBuilder = ModelBuilder()
-        // Create a cube with different colors on each face if possible, or just a distinguishable box
-        model = modelBuilder.createBox(2f, 2f, 2f,
+        model = ModelBuilder().createBox(
+            2f,
+            2f,
+            2f,
             Material(ColorAttribute.createDiffuse(Color.WHITE)),
-            (Usage.Position or Usage.Normal).toLong())
+            (Usage.Position or Usage.Normal).toLong()
+        )
         instance = ModelInstance(model)
 
         val env = Environment()

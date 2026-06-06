@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.gms.google-services")
     id("com.github.triplet.play")
@@ -30,7 +29,24 @@ android { namespace = "com.apptists.poplur2025"
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
-    packaging { resources.excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*") }
+
+    androidResources {
+        noCompress += listOf(
+            "tflite", "pb", "emd", "tfl",
+            "models_bundled/**",
+            "mlkit_odt_localizer/**",
+            "mlkit_odt_default_classifier/**"
+        )
+    }
+
+    packaging {
+        resources {
+            excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*")
+            pickFirsts.add("assets/models_bundled/**")
+            pickFirsts.add("assets/mlkit_odt_localizer/**")
+            pickFirsts.add("assets/mlkit_odt_default_classifier/**")
+        }
+    }
     
     testOptions {
         unitTests {
@@ -41,9 +57,6 @@ android { namespace = "com.apptists.poplur2025"
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
     }
 }
 
@@ -64,9 +77,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.navigation:navigation-compose:2.8.7")
     implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.credentials:credentials:1.6.0")
-    implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
-    implementation("com.google.android.libraries.identity.googleid:googleid:1.2.0")
 
     implementation(platform("com.google.firebase:firebase-bom:33.9.0"))
     implementation("com.google.firebase:firebase-auth-ktx")
@@ -85,12 +95,14 @@ dependencies {
 
     implementation("com.android.billingclient:billing-ktx:7.1.1")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
 
     implementation("io.coil-kt:coil-compose:2.6.0")
 
     implementation("com.badlogicgames.gdx:gdx:1.13.1")
     implementation("com.badlogicgames.gdx:gdx-backend-android:1.13.1")
+    implementation("com.badlogicgames.gdx:gdx-bullet:1.13.1")
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-armeabi-v7a")
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-arm64-v8a")
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-x86")

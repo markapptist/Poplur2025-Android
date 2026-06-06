@@ -3,13 +3,12 @@ package com.apptists.poplur2025.ui.components
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -21,7 +20,8 @@ import java.util.*
 fun RadiusDisplay(
     modifier: Modifier = Modifier,
     radius: Int,
-    unit: String = "km"
+    unit: String = "km",
+    totalRadius: Int = if (unit.equals("mi", ignoreCase = true)) 3959 else 6371
 ) {
     val animatedRadius by animateIntAsState(
         targetValue = radius,
@@ -29,31 +29,43 @@ fun RadiusDisplay(
         label = "radius-count"
     )
     val formattedRadius = NumberFormat.getNumberInstance(Locale.US).format(animatedRadius)
-    
-    Surface(
-        modifier = modifier
-            .shadow(elevation = 8.dp, shape = RoundedCornerShape(16.dp)),
-        color = Color.Black.copy(alpha = 0.6f),
-        shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+    val formattedTotal = NumberFormat.getNumberInstance(Locale.US).format(totalRadius)
+
+    Column(
+        modifier = modifier.widthIn(min = 112.dp),
+        horizontalAlignment = Alignment.End
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = formattedRadius,
-                color = Color.White,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Black
-            )
-            Text(
-                text = unit.uppercase(),
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
-            )
-        }
+        Text(
+            text = "RADIUS  🛡️",
+            color = Color.White.copy(alpha = 0.72f),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 2.sp
+        )
+        Text(
+            text = formattedRadius,
+            color = Color(0xFFD8892B),
+            fontSize = 54.sp,
+            fontWeight = FontWeight.Black,
+            lineHeight = 54.sp
+        )
+        HorizontalDivider(
+            color = Color(0xFFD8892B),
+            thickness = 2.dp,
+            modifier = Modifier.width(104.dp).padding(vertical = 8.dp)
+        )
+        Text(
+            text = formattedTotal,
+            color = Color.White,
+            fontSize = 42.sp,
+            fontWeight = FontWeight.Black,
+            lineHeight = 42.sp
+        )
+        Text(
+            text = unit,
+            color = Color(0xFFD8892B),
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Black
+        )
     }
 }

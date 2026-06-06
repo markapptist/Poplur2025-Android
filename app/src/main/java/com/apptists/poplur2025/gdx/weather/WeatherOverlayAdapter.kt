@@ -3,6 +3,7 @@ package com.apptists.poplur2025.gdx.weather
 import com.apptists.poplur2025.data.weather.WeatherBadge
 import com.badlogic.gdx.ApplicationAdapter
 import com.badlogic.gdx.Gdx
+import com.badlogic.gdx.audio.Sound
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
@@ -11,6 +12,7 @@ import java.util.Random
 
 class WeatherOverlayAdapter : ApplicationAdapter() {
     private lateinit var shapes: ShapeRenderer
+    private var thunderSound: Sound? = null
     private var weatherBadge: WeatherBadge? = null
     private var time = 0f
     
@@ -23,6 +25,12 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
         shapes = ShapeRenderer()
         Gdx.gl.glEnable(GL20.GL_BLEND)
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA)
+        
+        try {
+            thunderSound = Gdx.audio.newSound(Gdx.files.internal("thunder.mp3"))
+        } catch (e: Exception) {
+            Gdx.app.error("WeatherOverlay", "Failed to load thunder sound", e)
+        }
     }
 
     fun setWeather(newWeather: WeatherBadge) {
@@ -52,7 +60,7 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
                 renderStorm(w, h)
             }
             currentLabel.contains("Fog", ignoreCase = true) || currentLabel.contains("Cloudy", ignoreCase = true) -> {
-                renderMist(w, h)
+                renderSmog(w, h)
             }
         }
         
@@ -83,27 +91,37 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
 
     private fun renderStorm(w: Float, h: Float) {
         renderRain(w, h)
-        if (random.nextFloat() < 0.01f) {
+        if (random.nextFloat() < 0.005f) {
             lightningAlpha = 0.8f
+            thunderSound?.play(0.8f)
         }
     }
 
-    private fun renderMist(w: Float, h: Float) {
-        particles.forEachIndexed { index, p ->
-            p.drift(w, 22f + (index % 7) * 4f)
-            val wave = sin(time * 0.45f + index * 0.31f) * 18f
-            val x = p.x * w + wave
-            val y = p.y * h
-            val width = 64f + (index % 5) * 18f
-            val alpha = 0.035f + (index % 4) * 0.008f
+    private fun renderSmog(w: Float, h: Float) {
+        // Full screen base haze tint
+        shapes.color = Color(0.72f, 0.72f, 0.7f, 0.08f)
+        shapes.rect(0f, 0f, w, h)
 
-            shapes.color = Color(0.78f, 0.86f, 0.94f, alpha)
-            shapes.rect(x, y, width, 1.6f)
-
-            if (index % 3 == 0) {
-                shapes.color = Color(0.9f, 0.95f, 1f, alpha * 1.35f)
-                shapes.circle(x + width * 0.5f, y, 2.2f)
-            }
+        // Many large, extremely transparent horizontally-stretched ovals for a "layered haze" look
+        val count = 45
+        for (i in 0 until count) {
+            val offset = i.toFloat() / count
+            
+            // Very slow horizontal drift
+            val drift = (time * 12f + offset * w * 2.5f) % (w + 1200f) - 600f
+            
+            // Distribute across the screen, thicker in the middle/upper half
+            val cy = h * 0.2f + (offset * h * 0.7f) + sin(time * 0.25f + i) * 40f
+            
+            // Smog color: greyish-beige (muted)
+            val alpha = 0.02f + (random.nextFloat() * 0.015f)
+            shapes.color = Color(0.76f, 0.75f, 0.73f, alpha)
+            
+            // Draw large stretched ellipses to simulate horizontal layers of haze
+            val ovalWidth = 800f + random.nextFloat() * 600f
+            val ovalHeight = 200f + random.nextFloat() * 150f
+            
+            shapes.ellipse(drift, cy, ovalWidth, ovalHeight)
         }
     }
 
@@ -116,6 +134,7 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
 
     override fun dispose() {
         shapes.dispose()
+        thunderSound?.dispose()
     }
 
     private inner class Particle {

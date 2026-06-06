@@ -39,20 +39,20 @@ class GdxNavigationFragment() : AndroidFragmentApplication() {
             activity?.runOnUiThread { onTabSelected?.invoke(index) }
         }
         
-        val view = initializeForView(adapter, config)
+        val gdxView = initializeForView(adapter, config)
         
-        view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        view.background = null
+        gdxView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        gdxView.background = null
         
-        if (view is GLSurfaceView) {
-            view.setZOrderOnTop(true)
-            view.holder.setFormat(PixelFormat.TRANSLUCENT)
+        if (gdxView is GLSurfaceView) {
+            gdxView.setZOrderOnTop(true)
+            gdxView.holder.setFormat(PixelFormat.TRANSLUCENT)
         }
-        if (view is SurfaceView) {
-            view.setZOrderOnTop(true)
-            view.holder.setFormat(PixelFormat.TRANSLUCENT)
+        if (gdxView is SurfaceView) {
+            gdxView.setZOrderOnTop(true)
+            gdxView.holder.setFormat(PixelFormat.TRANSLUCENT)
         }
         
-        return view
+        return gdxView
     }
 }

@@ -1,10 +1,6 @@
 package com.apptists.poplur2025.ui.screens
 
 import android.graphics.BitmapFactory
-import android.media.AudioAttributes
-import android.media.SoundPool
-import android.os.Handler
-import android.os.Looper
 import android.view.View
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -45,6 +41,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.ui.ConfettiAnimationFragment
+import kotlinx.coroutines.delay
 
 @Composable
 fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
@@ -59,60 +56,12 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
             context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
         }.getOrNull()
     }
-    var welcomeSequence by remember { mutableIntStateOf(0) }
     var welcomeAnimationStarted by remember { mutableStateOf(false) }
-    val mainHandler = remember { Handler(Looper.getMainLooper()) }
-    val popSoundPool = remember {
-        SoundPool.Builder()
-            .setMaxStreams(2)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            )
-            .build()
-    }
-    var popSoundId by remember { mutableIntStateOf(0) }
-    var popSoundReady by remember { mutableStateOf(false) }
-    var pendingWelcomePop by remember { mutableStateOf(false) }
-
-    DisposableEffect(popSoundPool, context) {
-        popSoundPool.setOnLoadCompleteListener { _, sampleId, status ->
-            if (sampleId == popSoundId && status == 0) {
-                mainHandler.post {
-                    popSoundReady = true
-                    if (pendingWelcomePop) {
-                        pendingWelcomePop = false
-                        popSoundPool.play(sampleId, 1f, 1f, 1, 0, 1f)
-                    }
-                }
-            }
-        }
-        val afd = context.assets.openFd("pop.mp3")
-        popSoundId = popSoundPool.load(afd, 1)
-        afd.close()
-
-        onDispose {
-            popSoundPool.setOnLoadCompleteListener(null)
-            popSoundPool.release()
-        }
-    }
-
-    val playLaunchPop = {
-        if (popSoundReady && popSoundId != 0) {
-            popSoundPool.play(popSoundId, 1f, 1f, 1, 0, 1f)
-        } else {
-            pendingWelcomePop = true
-        }
-    }
 
     LaunchedEffect(mode) {
         if (mode == AuthMode.Welcome) {
             welcomeAnimationStarted = false
-            welcomeSequence += 1
-            withFrameNanos { }
-            playLaunchPop()
+            delay(100)
             welcomeAnimationStarted = true
         } else {
             welcomeAnimationStarted = false
@@ -129,6 +78,34 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
                 screenWidth = maxWidth,
                 screenHeight = maxHeight,
                 mode = mode
+            )
+        }
+
+        // Confetti Layer - Only active on Welcome screen
+        if (mode == AuthMode.Welcome) {
+            val confettiContainerId = remember { android.view.View.generateViewId() }
+            AndroidView(
+                factory = { ctx ->
+                    FragmentContainerView(ctx).apply {
+                        id = confettiContainerId
+                        setBackgroundColor(0)
+                        background = null
+                        isClickable = false
+                        isFocusable = false
+
+                        val fragmentActivity = ctx as? FragmentActivity
+                        fragmentActivity?.supportFragmentManager?.beginTransaction()
+                            ?.replace(id, ConfettiAnimationFragment())
+                            ?.commitAllowingStateLoss()
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(0.5f),
+                update = { view ->
+                    view.setBackgroundColor(0)
+                    view.background = null
+                }
             )
         }
 
@@ -203,54 +180,6 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
                                 if (!ok) error = msg
                             }
                         }
-                    }
-                )
-            }
-        }
-
-        if (mode == AuthMode.Welcome && welcomeSequence > 0) {
-            key(welcomeSequence) {
-                val confettiContainerId = remember { android.view.View.generateViewId() }
-                val confettiFragment = remember { ConfettiAnimationFragment() }
-                AndroidView(
-                    factory = { ctx ->
-                        FragmentContainerView(ctx).apply {
-                            id = confettiContainerId
-                            setBackgroundColor(0)
-                            background = null
-                            isClickable = false
-                            isFocusable = false
-
-                            val fragmentActivity = ctx as? FragmentActivity
-                            val attachConfetti = {
-                                if (!confettiFragment.isAdded && isAttachedToWindow) {
-                                    fragmentActivity?.supportFragmentManager?.beginTransaction()
-                                        ?.replace(id, confettiFragment)
-                                        ?.commitAllowingStateLoss()
-                                }
-                            }
-                            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                                override fun onViewAttachedToWindow(v: View) {
-                                    attachConfetti()
-                                }
-
-                                override fun onViewDetachedFromWindow(v: View) {
-                                    if (confettiFragment.isAdded) {
-                                        fragmentActivity?.supportFragmentManager?.beginTransaction()
-                                            ?.remove(confettiFragment)
-                                            ?.commitAllowingStateLoss()
-                                    }
-                                }
-                            })
-                            post { attachConfetti() }
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .zIndex(1.5f),
-                    update = { view ->
-                        view.setBackgroundColor(0)
-                        view.background = null
                     }
                 )
             }

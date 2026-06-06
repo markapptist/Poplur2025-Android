@@ -2,15 +2,25 @@ package com.apptists.poplur2025.ui.screens
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
+import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Color as AndroidColor
 import android.graphics.LinearGradient
+import android.graphics.BlurMaskFilter
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
+import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.Typeface
 import android.content.pm.PackageManager
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.os.SystemClock
+import android.view.MotionEvent
+import android.view.View
+import android.widget.FrameLayout
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
@@ -21,7 +31,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -36,6 +50,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.weather.WeatherBadge
 import com.apptists.poplur2025.location.LocationProvider
@@ -45,14 +64,19 @@ import com.mapbox.bindgen.Value
 import com.mapbox.geojson.Feature
 import com.mapbox.geojson.FeatureCollection
 import com.mapbox.geojson.Point
+import com.mapbox.geojson.Polygon
 import com.mapbox.maps.CameraOptions
 import com.mapbox.maps.Image
 import com.mapbox.maps.MapView
 import com.mapbox.maps.Style
 import com.mapbox.maps.extension.style.atmosphere.generated.atmosphere
 import com.mapbox.maps.extension.style.layers.generated.circleLayer
+import com.mapbox.maps.extension.style.layers.generated.fillLayer
+import com.mapbox.maps.extension.style.layers.generated.lineLayer
 import com.mapbox.maps.extension.style.layers.generated.symbolLayer
 import com.mapbox.maps.extension.style.layers.properties.generated.IconAnchor
+import com.mapbox.maps.extension.style.layers.properties.generated.IconPitchAlignment
+import com.mapbox.maps.extension.style.layers.properties.generated.IconRotationAlignment
 import com.mapbox.maps.extension.style.layers.properties.generated.ProjectionName
 import com.mapbox.maps.extension.style.projection.generated.projection
 import com.mapbox.maps.extension.style.sources.getSourceAs
@@ -66,11 +90,17 @@ import com.mapbox.maps.plugin.locationcomponent.location
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.net.URL
+import java.net.URLEncoder
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.asin
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -96,11 +126,14 @@ fun MapScreen(isVisible: Boolean = true) {
     var activeRadius by remember { mutableIntStateOf(DEFAULT_RADIUS_KM) }
     var activeWeatherPoint by remember { mutableStateOf<Point?>(fallbackLocation) }
     var activeWeather by remember { mutableStateOf(WeatherBadge.Loading) }
+    var activeAiInsight by remember { mutableStateOf<AiTourInsight?>(null) }
+    var confettiTrigger by remember { mutableIntStateOf(0) }
     var userLocation by remember { mutableStateOf<Point?>(null) }
     var idleGeneration by remember { mutableIntStateOf(0) }
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
     val mapView = remember { MapView(context) }
     val locationProvider = remember { LocationProvider(context) }
+    val popTone = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 82) }
     val postFeatures = remember {
         DemoPostStore.posts.mapNotNull { post ->
             val lat = post.latitude
@@ -113,6 +146,24 @@ fun MapScreen(isVisible: Boolean = true) {
     }
     var mapReady by remember { mutableStateOf(false) }
     var hasZoomedToLocation by remember { mutableStateOf(false) }
+    var zoomSliderValue by remember { mutableFloatStateOf(16.9f) }
+    val activeMusicStop = remember(activeCityName, isVisible) {
+        if (isVisible) {
+            TourStops.firstOrNull { it.cityName == activeCityName }
+        } else {
+            null
+        }
+    }
+
+    CityTourMusicPlayer(
+        tourStop = activeMusicStop,
+        isVisible = isVisible,
+        aiInsight = activeAiInsight
+    )
+
+    DisposableEffect(popTone) {
+        onDispose { popTone.release() }
+    }
 
     LaunchedEffect(isVisible) {
         if (isVisible && !hasLocationPermission) {
@@ -136,7 +187,11 @@ fun MapScreen(isVisible: Boolean = true) {
                 activeCityName = "Selected Location"
                 activeRadius = SELECTED_LOCATION_RADIUS_KM
                 activeWeatherPoint = point
+                activeAiInsight = null
                 idleGeneration++
+                mapView.mapboxMap.getStyle { style ->
+                    style.clearTrendPopSource()
+                }
                 mapView.mapboxMap.flyTo(
                     CameraOptions.Builder()
                         .center(point)
@@ -180,7 +235,54 @@ fun MapScreen(isVisible: Boolean = true) {
         if (mapReady) {
             mapView.mapboxMap.getStyle { style ->
                 style.getSourceAs<GeoJsonSource>(CURRENT_PIN_SOURCE_ID)?.geometry(location)
+                style.setRadiusCircleSource(location, DEFAULT_RADIUS_KM)
             }
+        }
+    }
+
+    LaunchedEffect(mapReady, userLocation) {
+        val location = userLocation ?: return@LaunchedEffect
+        if (mapReady) {
+            mapView.mapboxMap.getStyle { style ->
+                style.setRadiusCircleSource(location, DEFAULT_RADIUS_KM)
+            }
+        }
+    }
+
+    LaunchedEffect(mapReady, activeMusicStop) {
+        if (mapReady) {
+            mapView.mapboxMap.getStyle { style ->
+                style.setMusicWaveSource(activeMusicStop?.coordinate)
+            }
+        }
+    }
+
+    LaunchedEffect(mapReady, activeAiInsight, activeMusicStop) {
+        if (!mapReady) return@LaunchedEffect
+        val insight = activeAiInsight
+        if (insight == null) {
+            mapView.mapboxMap.getStyle { style -> style.clearTrendPopSource() }
+            return@LaunchedEffect
+        }
+        mapView.mapboxMap.getStyle { style ->
+            style.setTrendPopIcon(insight)
+            style.clearTrendPopSource()
+        }
+    }
+
+    LaunchedEffect(mapReady, activeMusicStop) {
+        if (!mapReady || activeMusicStop == null) return@LaunchedEffect
+        var frame = 0
+        while (true) {
+            mapView.mapboxMap.getStyle { style ->
+                style.setStyleLayerProperty(
+                    MUSIC_WAVE_LAYER_ID,
+                    "icon-image",
+                    Value.valueOf(MUSIC_WAVE_IMAGE_IDS[frame % MUSIC_WAVE_IMAGE_IDS.size])
+                )
+            }
+            frame++
+            delay(MUSIC_WAVE_FRAME_MS)
         }
     }
 
@@ -190,6 +292,7 @@ fun MapScreen(isVisible: Boolean = true) {
             activeCityName = "Your Location"
             activeRadius = DEFAULT_RADIUS_KM
             activeWeatherPoint = location
+            activeAiInsight = null
             mapView.mapboxMap.setCamera(
                 CameraOptions.Builder()
                     .center(globeView)
@@ -226,7 +329,7 @@ fun MapScreen(isVisible: Boolean = true) {
         if (!isVisible || !mapReady) return@LaunchedEffect
         delay(IDLE_TOUR_DELAY_MS)
         while (isVisible && mapReady) {
-            TourStops.forEach { stop ->
+            TourStops.shuffled().take(TOUR_STOPS_PER_CYCLE).forEach { stop ->
                 activeCityName = "World"
                 activeRadius = EARTH_RADIUS_KM
                 activeWeatherPoint = null
@@ -243,6 +346,8 @@ fun MapScreen(isVisible: Boolean = true) {
                 activeCityName = stop.cityName
                 activeRadius = stop.radiusKm
                 activeWeatherPoint = stop.coordinate
+                val insight = spoofAiTourInsight(stop)
+                activeAiInsight = insight
                 mapView.mapboxMap.flyTo(
                     CameraOptions.Builder()
                         .center(stop.coordinate)
@@ -252,7 +357,14 @@ fun MapScreen(isVisible: Boolean = true) {
                         .build(),
                     mapAnimationOptions { duration(4200) }
                 )
-                delay(TOUR_STOP_DWELL_MS)
+                delay(TREND_POP_START_DELAY_MS)
+                mapView.mapboxMap.getStyle { style ->
+                    style.setTrendPopIcon(insight)
+                    style.clearTrendPopSource()
+                }
+                popTone.startTone(ToneGenerator.TONE_PROP_BEEP, 130)
+                confettiTrigger++
+                delay((TOUR_STOP_DWELL_MS - TREND_POP_START_DELAY_MS).coerceAtLeast(0L))
             }
         }
     }
@@ -260,7 +372,9 @@ fun MapScreen(isVisible: Boolean = true) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = {
-                mapView.apply {
+                MapWeatherTouchContainer(context, mapView).apply {
+                    setWeather(activeWeather)
+                    mapView.apply {
                     mapboxMap.setCamera(
                         CameraOptions.Builder()
                             .center(globeView)
@@ -279,8 +393,17 @@ fun MapScreen(isVisible: Boolean = true) {
                             +geoJsonSource(CURRENT_PIN_SOURCE_ID) {
                                 geometry(fallbackLocation)
                             }
+                            +geoJsonSource(RADIUS_CIRCLE_SOURCE_ID) {
+                                geometry(radiusCirclePolygon(fallbackLocation, DEFAULT_RADIUS_KM))
+                            }
                             +geoJsonSource(LANDMARK_PIN_SOURCE_ID) {
                                 featureCollection(landmarkFeatures)
+                            }
+                            +geoJsonSource(MUSIC_WAVE_SOURCE_ID) {
+                                featureCollection(emptyFeatureCollection())
+                            }
+                            +geoJsonSource(TREND_POP_SOURCE_ID) {
+                                featureCollection(emptyFeatureCollection())
                             }
                             +circleLayer(POST_LAYER_ID, POST_SOURCE_ID) {
                                 circleRadius(18.0)
@@ -291,6 +414,15 @@ fun MapScreen(isVisible: Boolean = true) {
                                 circleStrokeWidth(2.5)
                                 circleEmissiveStrength(1.0)
                             }
+                            +fillLayer(RADIUS_CIRCLE_FILL_LAYER_ID, RADIUS_CIRCLE_SOURCE_ID) {
+                                fillColor("#d8892b")
+                                fillOpacity(0.24)
+                            }
+                            +lineLayer(RADIUS_CIRCLE_LINE_LAYER_ID, RADIUS_CIRCLE_SOURCE_ID) {
+                                lineColor("#ffb347")
+                                lineOpacity(0.94)
+                                lineWidth(5.0)
+                            }
                             +symbolLayer(LANDMARK_PIN_LAYER_ID, LANDMARK_PIN_SOURCE_ID) {
                                 iconImage(PINK_PIN_IMAGE_ID)
                                 iconAnchor(IconAnchor.BOTTOM)
@@ -298,6 +430,23 @@ fun MapScreen(isVisible: Boolean = true) {
                                 iconIgnorePlacement(true)
                                 iconSize(0.28)
                                 iconOffset(listOf(0.0, -4.0))
+                            }
+                            +symbolLayer(MUSIC_WAVE_LAYER_ID, MUSIC_WAVE_SOURCE_ID) {
+                                iconImage(MUSIC_WAVE_IMAGE_IDS.first())
+                                iconAnchor(IconAnchor.BOTTOM)
+                                iconAllowOverlap(true)
+                                iconIgnorePlacement(true)
+                                iconSize(0.36)
+                                iconOffset(listOf(31.0, -67.0))
+                            }
+                            +symbolLayer(TREND_POP_LAYER_ID, TREND_POP_SOURCE_ID) {
+                                iconImage(TrendCategory.Clothes.imageId)
+                                iconAnchor(IconAnchor.CENTER)
+                                iconAllowOverlap(true)
+                                iconIgnorePlacement(true)
+                                iconPitchAlignment(IconPitchAlignment.MAP)
+                                iconRotationAlignment(IconRotationAlignment.MAP)
+                                iconSize(0.42)
                             }
                             +symbolLayer(CURRENT_PIN_LAYER_ID, CURRENT_PIN_SOURCE_ID) {
                                 iconImage(BLUE_PIN_IMAGE_ID)
@@ -311,6 +460,15 @@ fun MapScreen(isVisible: Boolean = true) {
                     ) { style ->
                         style.addStyleImage(BLUE_PIN_IMAGE_ID, 1.0f, createGdxStylePinImage(BLUE_PIN_THEME), false, emptyList(), emptyList(), null)
                         style.addStyleImage(PINK_PIN_IMAGE_ID, 1.0f, createGdxStylePinImage(PINK_PIN_THEME), false, emptyList(), emptyList(), null)
+                        MUSIC_WAVE_IMAGE_IDS.forEachIndexed { index, imageId ->
+                            style.addStyleImage(imageId, 1.0f, createGdxMusicWaveImage(index), false, emptyList(), emptyList(), null)
+                        }
+                        TrendCategory.values().forEach { category ->
+                            style.addStyleImage(category.imageId, 1.0f, createTrendPopImage(category), false, emptyList(), emptyList(), null)
+                        }
+                        style.setMusicWaveSource(activeMusicStop?.coordinate)
+                        style.setTrendPopIcon(activeAiInsight)
+                        style.setRadiusCircleSource(userLocation ?: fallbackLocation, DEFAULT_RADIUS_KM)
                         style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "show3dObjects", Value.valueOf(true))
                         style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "showPointOfInterestLabels", Value.valueOf(true))
                         style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "showRoadLabels", Value.valueOf(true))
@@ -319,19 +477,20 @@ fun MapScreen(isVisible: Boolean = true) {
                         mapReady = true
                     }
                 }
+                }
+            },
+            update = { container ->
+                container.setWeather(activeWeather)
+                container.setTrendPops(activeMusicStop, activeAiInsight)
+                container.burstConfetti(confettiTrigger)
             },
             modifier = Modifier.fillMaxSize().zIndex(0f)
         )
 
-        WeatherParticleOverlay(
-            weather = activeWeather,
-            modifier = Modifier.fillMaxSize().zIndex(1f)
-        )
-
         Box(Modifier.fillMaxWidth().height(190.dp).zIndex(2f).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent))))
         Column(Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopStart).zIndex(2f)) {
-            Text(activeCityName, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-            Text("Tap the 3D map to choose exactly where a post should live.", color = Color.White.copy(alpha = .9f), fontSize = 16.sp)
+            Text(activeCityTitle(activeCityName, activeMusicStop), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Text(if (activeMusicStop != null) activeAiInsight?.subtitle ?: "" else "Tap the 3D map to choose exactly where a post should live.", color = Color.White.copy(alpha = .9f), fontSize = 16.sp)
         }
         Surface(Modifier.padding(end = 16.dp).align(Alignment.CenterEnd).zIndex(2f), color = Color.Black.copy(alpha = .42f), shape = MaterialTheme.shapes.medium) {
             Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -342,7 +501,28 @@ fun MapScreen(isVisible: Boolean = true) {
                 }
             }
         }
-        Column(Modifier.padding(bottom = 80.dp, start = 20.dp).align(Alignment.BottomStart).zIndex(2f)) {
+        MapZoomSlider(
+            zoom = zoomSliderValue,
+            onZoomChange = { requestedZoom ->
+                zoomSliderValue = requestedZoom
+                if (mapReady) {
+                    val cameraState = mapView.mapboxMap.cameraState
+                    mapView.mapboxMap.setCamera(
+                        CameraOptions.Builder()
+                            .center(cameraState.center)
+                            .zoom(requestedZoom.toDouble())
+                            .pitch(cameraState.pitch)
+                            .bearing(cameraState.bearing)
+                            .build()
+                    )
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 34.dp, top = 36.dp)
+                .zIndex(3f)
+        )
+        Column(Modifier.padding(bottom = 58.dp, start = 20.dp).align(Alignment.BottomStart).zIndex(2f)) {
             Text("476", color = Color(0xFFFF3B30), fontSize = 42.sp, fontWeight = FontWeight.Black)
             HorizontalDivider(color = Color.White.copy(alpha = .5f), thickness = 1.dp, modifier = Modifier.width(100.dp).padding(vertical = 8.dp))
             Text(DemoPostStore.posts.size.toString(), color = Color.White, fontSize = 56.sp, fontWeight = FontWeight.ExtraBold)
@@ -357,8 +537,496 @@ fun MapScreen(isVisible: Boolean = true) {
                 }
             }
         }
-        Spacer(Modifier.padding(bottom = 60.dp).size(80.dp).align(Alignment.BottomCenter).zIndex(2f))
-        RadiusDisplay(Modifier.padding(bottom = 60.dp, end = 20.dp).align(Alignment.BottomEnd).zIndex(2f), radius = activeRadius)
+        Spacer(Modifier.padding(bottom = 86.dp).size(112.dp).align(Alignment.BottomCenter).zIndex(2f))
+        RadiusDisplay(Modifier.padding(bottom = 48.dp, end = 20.dp).align(Alignment.BottomEnd).zIndex(2f), radius = activeRadius)
+    }
+}
+
+@Composable
+private fun MapZoomSlider(
+    zoom: Float,
+    onZoomChange: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var heightPx by remember { mutableIntStateOf(1) }
+    val minZoom = 2.0f
+    val maxZoom = 18.5f
+    val clampedZoom = zoom.coerceIn(minZoom, maxZoom)
+    val fraction = ((clampedZoom - minZoom) / (maxZoom - minZoom)).coerceIn(0f, 1f)
+
+    fun updateFromY(y: Float) {
+        val nextFraction = (1f - (y / heightPx.coerceAtLeast(1))).coerceIn(0f, 1f)
+        onZoomChange(minZoom + nextFraction * (maxZoom - minZoom))
+    }
+
+    Box(
+        modifier = modifier
+            .width(76.dp)
+            .height(350.dp)
+            .onSizeChanged { heightPx = it.height.coerceAtLeast(1) }
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { offset -> updateFromY(offset.y) },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        updateFromY(change.position.y)
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier
+                .width(5.dp)
+                .fillMaxHeight()
+                .background(Color.Black.copy(alpha = 0.22f), RoundedCornerShape(100.dp))
+        )
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = ((1f - fraction) * 306f).dp)
+                .size(width = 58.dp, height = 46.dp)
+                .background(Color.Black.copy(alpha = 0.78f), RoundedCornerShape(8.dp))
+        )
+    }
+}
+
+private class MapWeatherTouchContainer(
+    context: Context,
+    private val mapView: MapView
+) : FrameLayout(context) {
+    private val weatherView = FullScreenWeatherView(context)
+    private val trendPopView = GdxUprightTrendPopView(context, mapView)
+    private val confettiView = GdxTrendConfettiView(context)
+    private var lastConfettiTrigger = 0
+
+    init {
+        addView(mapView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(weatherView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(trendPopView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(confettiView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        trendPopView.isClickable = false
+        trendPopView.isFocusable = false
+        confettiView.isClickable = false
+        confettiView.isFocusable = false
+        weatherView.isClickable = false
+        weatherView.isFocusable = false
+        isClickable = true
+    }
+
+    fun setWeather(weather: WeatherBadge) {
+        weatherView.setWeather(weather)
+    }
+
+    fun setTrendPops(stop: TourStop?, insight: AiTourInsight?) {
+        trendPopView.setTrend(stop, insight)
+    }
+
+    fun burstConfetti(trigger: Int) {
+        if (trigger > 0 && trigger != lastConfettiTrigger) {
+            lastConfettiTrigger = trigger
+            confettiView.burst()
+        }
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        return mapView.dispatchTouchEvent(event)
+    }
+}
+
+private class GdxUprightTrendPopView(
+    context: Context,
+    private val mapView: MapView
+) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var stop: TourStop? = null
+    private var insight: AiTourInsight? = null
+    private var objects: List<TrendPopObject> = emptyList()
+    private var startMs = 0L
+    private val animationTick = object : Runnable {
+        override fun run() {
+            if (objects.isNotEmpty()) {
+                invalidate()
+                postOnAnimation(this)
+            }
+        }
+    }
+
+    fun setTrend(nextStop: TourStop?, nextInsight: AiTourInsight?) {
+        val changed = stop?.cityName != nextStop?.cityName || insight?.id != nextInsight?.id
+        stop = nextStop
+        insight = nextInsight
+        if (nextStop == null || nextInsight == null) {
+            objects = emptyList()
+            removeCallbacks(animationTick)
+            invalidate()
+            return
+        }
+        if (changed) {
+            objects = buildTrendPopObjects(nextStop, nextInsight)
+            startMs = SystemClock.uptimeMillis()
+            removeCallbacks(animationTick)
+            postOnAnimation(animationTick)
+        }
+        invalidate()
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(animationTick)
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(canvas: AndroidCanvas) {
+        super.onDraw(canvas)
+        val activeInsight = insight ?: return
+        val elapsed = (SystemClock.uptimeMillis() - startMs).coerceAtLeast(0L)
+        objects.forEachIndexed { index, item ->
+            val screen = mapView.mapboxMap.pixelForCoordinate(item.point)
+            val x = screen.x.toFloat()
+            val y = screen.y.toFloat()
+            if (x !in -160f..(width + 160f).toFloat() || y !in -220f..(height + 180f).toFloat()) return@forEachIndexed
+            val localElapsed = elapsed - item.delayMs
+            if (localElapsed < 0L) return@forEachIndexed
+            val popPhase = (localElapsed / TREND_3D_POP_MS.toFloat()).coerceIn(0f, 1f)
+            val scale = overshootScale(popPhase) * item.scale
+            val bob = sin((elapsed + index * 157L) / 520f) * 3f
+            drawObjectConfetti(canvas, x, y + bob, localElapsed, item.seed)
+            drawUprightEmoji(canvas, item.emoji, x, y + bob, scale)
+        }
+    }
+
+    private fun drawUprightEmoji(
+        canvas: AndroidCanvas,
+        emoji: String,
+        x: Float,
+        y: Float,
+        scale: Float
+    ) {
+        if (scale <= 0.01f) return
+        canvas.save()
+        canvas.translate(x, y)
+        canvas.scale(scale, scale)
+        paint.style = Paint.Style.FILL
+        paint.shader = RadialGradient(
+            0f,
+            76f,
+            70f,
+            intArrayOf(AndroidColor.argb(95, 0, 0, 0), AndroidColor.TRANSPARENT),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawOval(RectF(-58f, 52f, 58f, 92f), paint)
+        paint.shader = null
+
+        paint.shader = null
+        paint.style = Paint.Style.FILL
+        paint.textAlign = Paint.Align.CENTER
+        paint.typeface = Typeface.DEFAULT_BOLD
+        paint.textSize = 78f
+        canvas.skew(-0.06f, 0f)
+        repeat(7) { depth ->
+            paint.color = AndroidColor.argb(72, 22, 18, 48)
+            paint.setShadowLayer(0f, 0f, 0f, AndroidColor.TRANSPARENT)
+            canvas.drawText(emoji, depth * 2.2f + 10f, depth * 2.5f + 28f, paint)
+        }
+        paint.color = AndroidColor.WHITE
+        paint.setShadowLayer(10f, 0f, 8f, AndroidColor.argb(150, 0, 0, 0))
+        canvas.drawText(emoji, 0f, 18f, paint)
+        paint.clearShadowLayer()
+        canvas.restore()
+    }
+
+    private fun drawObjectConfetti(canvas: AndroidCanvas, x: Float, y: Float, elapsed: Long, seed: Int) {
+        if (elapsed !in 0 until TREND_3D_CONFETTI_MS) return
+        val phase = elapsed / TREND_3D_CONFETTI_MS.toFloat()
+        paint.style = Paint.Style.FILL
+        repeat(14) { index ->
+            val angle = seed * 0.017f + index * 0.92f
+            val distance = (34f + (index % 5) * 11f) * phase
+            val px = x + cos(angle) * distance
+            val py = y - 34f + sin(angle) * distance + phase * phase * 44f
+            paint.color = when ((seed + index) % 6) {
+                0 -> AndroidColor.argb((230 * (1f - phase)).toInt(), 255, 74, 174)
+                1 -> AndroidColor.argb((230 * (1f - phase)).toInt(), 255, 211, 69)
+                2 -> AndroidColor.argb((230 * (1f - phase)).toInt(), 88, 235, 255)
+                3 -> AndroidColor.argb((230 * (1f - phase)).toInt(), 113, 255, 142)
+                4 -> AndroidColor.argb((230 * (1f - phase)).toInt(), 172, 118, 255)
+                else -> AndroidColor.argb((230 * (1f - phase)).toInt(), 255, 255, 255)
+            }
+            canvas.save()
+            canvas.rotate(index * 31f + phase * 220f, px, py)
+            canvas.drawRoundRect(RectF(px - 4f, py - 7f, px + 4f, py + 7f), 2f, 2f, paint)
+            canvas.restore()
+        }
+    }
+}
+
+private class GdxTrendConfettiView(context: Context) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var burstStartMs = 0L
+    private val animationTick = object : Runnable {
+        override fun run() {
+            if (SystemClock.uptimeMillis() - burstStartMs < CONFETTI_BURST_MS) {
+                invalidate()
+                postOnAnimation(this)
+            }
+        }
+    }
+
+    fun burst() {
+        burstStartMs = SystemClock.uptimeMillis()
+        removeCallbacks(animationTick)
+        postOnAnimation(animationTick)
+        invalidate()
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(animationTick)
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(canvas: AndroidCanvas) {
+        super.onDraw(canvas)
+        val elapsed = SystemClock.uptimeMillis() - burstStartMs
+        if (elapsed !in 0 until CONFETTI_BURST_MS) return
+        val phase = elapsed / CONFETTI_BURST_MS.toFloat()
+        val centerX = width * 0.5f
+        val centerY = height * 0.42f
+        paint.style = Paint.Style.FILL
+        repeat(48) { index ->
+            val angle = index * 0.73f
+            val speed = 80f + (index % 9) * 18f
+            val x = centerX + cos(angle) * speed * phase + ((index % 5) - 2) * 16f
+            val y = centerY + sin(angle) * speed * phase + phase * phase * 180f
+            paint.color = when (index % 6) {
+                0 -> AndroidColor.argb((220 * (1f - phase)).toInt(), 255, 45, 138)
+                1 -> AndroidColor.argb((220 * (1f - phase)).toInt(), 95, 232, 255)
+                2 -> AndroidColor.argb((220 * (1f - phase)).toInt(), 255, 214, 72)
+                3 -> AndroidColor.argb((220 * (1f - phase)).toInt(), 128, 255, 128)
+                4 -> AndroidColor.argb((220 * (1f - phase)).toInt(), 175, 116, 255)
+                else -> AndroidColor.argb((220 * (1f - phase)).toInt(), 255, 255, 255)
+            }
+            canvas.save()
+            canvas.rotate((phase * 260f + index * 17f) % 360f, x, y)
+            canvas.drawRoundRect(RectF(x - 5f, y - 9f, x + 5f, y + 9f), 3f, 3f, paint)
+            canvas.restore()
+        }
+    }
+}
+
+private class FullScreenWeatherView(context: Context) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var weather: WeatherBadge = WeatherBadge.Loading
+    private var startMs = SystemClock.uptimeMillis()
+    private val animationTick = object : Runnable {
+        override fun run() {
+            if (weatherParticleMode(weather.label) != WeatherParticleMode.None) {
+                invalidate()
+                postOnAnimation(this)
+            }
+        }
+    }
+
+    fun setWeather(nextWeather: WeatherBadge) {
+        if (weather.label == nextWeather.label && weather.icon == nextWeather.icon) return
+        weather = nextWeather
+        startMs = SystemClock.uptimeMillis()
+        removeCallbacks(animationTick)
+        if (weatherParticleMode(weather.label) != WeatherParticleMode.None && isAttachedToWindow) {
+            postOnAnimation(animationTick)
+        }
+        invalidate()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (weatherParticleMode(weather.label) != WeatherParticleMode.None) {
+            postOnAnimation(animationTick)
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(animationTick)
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(canvas: AndroidCanvas) {
+        super.onDraw(canvas)
+        val mode = weatherParticleMode(weather.label)
+        if (mode == WeatherParticleMode.None) return
+
+        val width = width.toFloat().coerceAtLeast(1f)
+        val height = height.toFloat().coerceAtLeast(1f)
+        val phase = ((SystemClock.uptimeMillis() - startMs) % 3_200L) / 3_200f
+
+        when (mode) {
+            WeatherParticleMode.Rain -> drawRain(canvas, width, height, phase, storm = false)
+            WeatherParticleMode.Storm -> {
+                drawRain(canvas, width, height, phase, storm = true)
+                if (phase < 0.08f) {
+                    paint.style = Paint.Style.FILL
+                    paint.color = AndroidColor.argb((46f * (1f - phase / 0.08f)).toInt(), 255, 255, 255)
+                    canvas.drawRect(0f, 0f, width, height, paint)
+                }
+            }
+            WeatherParticleMode.Snow -> drawSnow(canvas, width, height, phase)
+            WeatherParticleMode.Cloud -> drawClouds(canvas, width, height, phase)
+            WeatherParticleMode.None -> Unit
+        }
+    }
+
+    private fun drawRain(canvas: AndroidCanvas, width: Float, height: Float, phase: Float, storm: Boolean) {
+        paint.style = Paint.Style.STROKE
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeWidth = if (storm) 2.8f else 2.4f
+        paint.color = if (storm) AndroidColor.argb(170, 181, 203, 255) else AndroidColor.argb(153, 168, 199, 255)
+        val count = if (storm) 140 else 125
+        val speed = if (storm) 2.35f else 2.1f
+        repeat(count) { index ->
+            val lane = ((index * 37) % 100) / 100f
+            val y = ((phase * height * speed + index * 47f) % (height + 90f)) - 45f
+            val x = lane * width + ((index % 7) - 3) * 5f
+            canvas.drawLine(x, y, x - 8f, y + if (storm) 38f else 34f, paint)
+        }
+    }
+
+    private fun drawSnow(canvas: AndroidCanvas, width: Float, height: Float, phase: Float) {
+        paint.style = Paint.Style.FILL
+        paint.color = AndroidColor.argb(204, 255, 255, 255)
+        repeat(95) { index ->
+            val lane = ((index * 41) % 100) / 100f
+            val y = ((phase * height * 1.05f + index * 39f) % (height + 70f)) - 35f
+            val x = lane * width + kotlin.math.sin((phase * 6.28f + index) * 0.7f) * 18f
+            canvas.drawCircle(x, y, 2.4f + (index % 3), paint)
+        }
+    }
+
+    private fun drawClouds(canvas: AndroidCanvas, width: Float, height: Float, phase: Float) {
+        paint.style = Paint.Style.FILL
+        paint.shader = LinearGradient(
+            0f,
+            0f,
+            0f,
+            height,
+            intArrayOf(
+                AndroidColor.argb(128, 214, 224, 238),
+                AndroidColor.argb(104, 224, 232, 242),
+                AndroidColor.argb(54, 226, 232, 238),
+                AndroidColor.TRANSPARENT
+            ),
+            floatArrayOf(0f, 0.24f, 0.56f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(0f, 0f, width, height, paint)
+        paint.shader = null
+
+        paint.maskFilter = BlurMaskFilter(18f, BlurMaskFilter.Blur.NORMAL)
+        repeat(34) { index ->
+            val depth = 0.34f + ((index * 17) % 66) / 100f
+            val radius = width * (0.10f + ((index * 13) % 38) / 260f) * depth
+            val driftSpeed = 0.03f + depth * 0.045f
+            val x = ((index * 97f + phase * width * driftSpeed) % (width + radius * 2f)) - radius
+            val baseY = height * (0.08f + ((index * 23) % 64) / 100f)
+            val y = baseY + sin(phase * 6.28318f + index * 0.41f) * height * 0.018f
+            val alpha = (34 + depth * 64).toInt().coerceIn(34, 98)
+            paint.shader = RadialGradient(
+                x,
+                y,
+                radius,
+                intArrayOf(
+                    AndroidColor.argb(alpha, 218, 226, 234),
+                    AndroidColor.argb((alpha * 0.58f).toInt(), 198, 207, 216),
+                    AndroidColor.TRANSPARENT
+                ),
+                floatArrayOf(0f, 0.48f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawOval(RectF(x - radius * 1.15f, y - radius * 0.48f, x + radius * 1.15f, y + radius * 0.48f), paint)
+        }
+
+        paint.maskFilter = null
+        paint.shader = null
+        repeat(24) { index ->
+            val y = height * (0.16f + (index % 12) * 0.047f)
+            val drift = ((phase * width * 0.16f + index * 83f) % (width + 260f)) - 130f
+            val alpha = 28 + (index % 5) * 7
+            paint.color = AndroidColor.argb(alpha, 235, 241, 247)
+            canvas.drawRoundRect(
+                drift,
+                y,
+                drift + width * (0.42f + (index % 3) * 0.12f),
+                y + 8f + (index % 4) * 3f,
+                18f,
+                18f,
+                paint
+            )
+        }
+    }
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun CityTourMusicPlayer(
+    tourStop: TourStop?,
+    isVisible: Boolean,
+    aiInsight: AiTourInsight?
+) {
+    val context = LocalContext.current
+    val chartTrackCache = remember { mutableStateMapOf<String, List<CityMusicTrack>>() }
+    val radioTrackCache = remember { mutableStateMapOf<String, List<CityMusicTrack>>() }
+    val sportsRadioTrackCache = remember { mutableStateMapOf<String, List<CityMusicTrack>>() }
+    val player = remember {
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+
+        ExoPlayer.Builder(context)
+            .setAudioAttributes(audioAttributes, true)
+            .build()
+            .apply {
+                repeatMode = Player.REPEAT_MODE_ONE
+                volume = 0.72f
+            }
+    }
+
+    LaunchedEffect(tourStop?.cityName, isVisible, aiInsight?.id) {
+        if (!isVisible || tourStop == null) {
+            player.pause()
+            player.clearMediaItems()
+            return@LaunchedEffect
+        }
+
+        val track = run {
+            val tracks = chartTrackCache[tourStop.cityName]
+                ?: resolveTopCountryMusicTracks(tourStop).getOrElse {
+                    listOf(FallbackCityMusicTracks[tourStop.cityName] ?: DefaultFallbackCityMusicTrack)
+                }.also { chartTrackCache[tourStop.cityName] = it }
+            val radioTracks = radioTrackCache[tourStop.cityName]
+                ?: resolveTopCityRadioTracks(tourStop).getOrElse {
+                    FallbackCityRadioTracks[tourStop.cityName] ?: emptyList()
+                }.also { radioTrackCache[tourStop.cityName] = it }
+            val sportsRadioTracks = sportsRadioTrackCache[tourStop.cityName]
+                ?: resolveTopCitySportsRadioTracks(tourStop).getOrElse {
+                    FallbackCitySportsRadioTracks[tourStop.cityName] ?: emptyList()
+                }.also { sportsRadioTrackCache[tourStop.cityName] = it }
+
+            when {
+                aiInsight?.category == TrendCategory.Sports && sportsRadioTracks.isNotEmpty() -> sportsRadioTracks.random()
+                radioTracks.isNotEmpty() && listOf(true, false).random() -> radioTracks.random()
+                else -> tracks.random()
+            }
+        }
+
+        player.setMediaItem(MediaItem.fromUri(track.assetUri))
+        player.prepare()
+        player.playWhenReady = true
+    }
+
+    DisposableEffect(player) {
+        onDispose {
+            player.release()
+        }
     }
 }
 
@@ -366,35 +1034,224 @@ private const val POST_SOURCE_ID = "poplur-posts"
 private const val POST_LAYER_ID = "poplur-post-markers"
 private const val CURRENT_PIN_SOURCE_ID = "poplur-current-location-pin-source"
 private const val CURRENT_PIN_LAYER_ID = "poplur-current-location-pin-layer"
+private const val RADIUS_CIRCLE_SOURCE_ID = "poplur-radius-circle-source"
+private const val RADIUS_CIRCLE_FILL_LAYER_ID = "poplur-radius-circle-fill-layer"
+private const val RADIUS_CIRCLE_LINE_LAYER_ID = "poplur-radius-circle-line-layer"
 private const val LANDMARK_PIN_SOURCE_ID = "poplur-landmark-pin-source"
 private const val LANDMARK_PIN_LAYER_ID = "poplur-landmark-pin-layer"
+private const val MUSIC_WAVE_SOURCE_ID = "poplur-music-wave-source"
+private const val MUSIC_WAVE_LAYER_ID = "poplur-music-wave-layer"
+private const val TREND_POP_SOURCE_ID = "poplur-ai-trend-pop-source"
+private const val TREND_POP_LAYER_ID = "poplur-ai-trend-pop-layer"
+private const val WEATHER_RAIN_SOURCE_ID = "poplur-weather-rain-source"
+private const val WEATHER_RAIN_LAYER_ID = "poplur-weather-rain-layer"
+private const val WEATHER_SNOW_SOURCE_ID = "poplur-weather-snow-source"
+private const val WEATHER_SNOW_LAYER_ID = "poplur-weather-snow-layer"
+private const val WEATHER_CLOUD_SOURCE_ID = "poplur-weather-cloud-source"
+private const val WEATHER_CLOUD_LAYER_ID = "poplur-weather-cloud-layer"
 private const val BLUE_PIN_IMAGE_ID = "poplur-gdx-blue-location-pin"
 private const val PINK_PIN_IMAGE_ID = "poplur-gdx-pink-landmark-pin"
+private const val MUSIC_WAVE_IMAGE_ID_PREFIX = "poplur-gdx-music-wave"
 private const val MAPBOX_BASEMAP_IMPORT_ID = "basemap"
 private const val IDLE_TOUR_DELAY_MS = 30_000L
 private const val TOUR_STOP_DWELL_MS = 30_000L
+private const val TOUR_STOPS_PER_CYCLE = 12
+private const val MUSIC_WAVE_FRAME_MS = 180L
+private const val WEATHER_PARTICLE_FRAME_MS = 140L
 private const val DEFAULT_RADIUS_KM = 5_000
 private const val SELECTED_LOCATION_RADIUS_KM = 850
 private const val EARTH_RADIUS_KM = 6_371
 private const val WEATHER_TIMEOUT_MS = 5_000
+private const val MUSIC_LOOKUP_TIMEOUT_MS = 5_000
+private const val MUSIC_TOP_TRACK_CHOICES = 5
+private const val TREND_POP_START_DELAY_MS = 1_350L
+private const val TREND_POP_ANIMATION_FRAME_MS = 360L
+private const val TREND_3D_POP_MS = 620L
+private const val TREND_3D_SEQUENCE_GAP_MS = 260L
+private const val TREND_3D_CONFETTI_MS = 980L
+private const val CONFETTI_BURST_MS = 1_250L
+private const val RADIUS_CIRCLE_SEGMENTS = 128
+private const val TREND_POP_COUNT_MIN = 10
+private const val TREND_POP_COUNT_RANGE = 6
+private val MUSIC_WAVE_IMAGE_IDS = List(4) { index -> "$MUSIC_WAVE_IMAGE_ID_PREFIX-$index" }
 
 private data class TourStop(
     val cityName: String,
+    val storefront: String,
     val coordinate: Point,
     val bearing: Double,
     val radiusKm: Int,
     val zoom: Double = 16.2
 )
 
+private fun activeCityTitle(cityName: String, stop: TourStop?): String {
+    return stop?.let { "$cityName ${countryFlagEmoji(it.storefront)}" } ?: cityName
+}
+
+private fun countryFlagEmoji(countryCode: String): String {
+    val normalized = countryCode.uppercase(Locale.US)
+    if (normalized.length != 2 || normalized.any { it !in 'A'..'Z' }) return ""
+    return normalized.map { code ->
+        String(Character.toChars(0x1F1E6 + (code.code - 'A'.code)))
+    }.joinToString("")
+}
+
 private val TourStops = listOf(
-    TourStop("Paris", Point.fromLngLat(2.2945, 48.8584), 28.0, 105),
-    TourStop("New York", Point.fromLngLat(-73.9857, 40.7484), -24.0, 132),
-    TourStop("Tokyo", Point.fromLngLat(139.7454, 35.6586), 34.0, 148),
-    TourStop("London", Point.fromLngLat(-0.1246, 51.5007), -32.0, 118),
-    TourStop("Dubai", Point.fromLngLat(55.2744, 25.1972), 18.0, 96),
-    TourStop("Toronto", Point.fromLngLat(-79.3871, 43.6426), 24.0, 84),
-    TourStop("Sydney", Point.fromLngLat(151.2153, -33.8568), -28.0, 110)
+    TourStop("Paris", "fr", Point.fromLngLat(2.2945, 48.8584), 28.0, 105),
+    TourStop("New York", "us", Point.fromLngLat(-73.9857, 40.7484), -24.0, 132),
+    TourStop("Los Angeles", "us", Point.fromLngLat(-118.3267, 34.1016), 22.0, 150),
+    TourStop("Chicago", "us", Point.fromLngLat(-87.6233, 41.8819), -18.0, 120),
+    TourStop("Miami", "us", Point.fromLngLat(-80.1918, 25.7617), 36.0, 95),
+    TourStop("Las Vegas", "us", Point.fromLngLat(-115.1728, 36.1147), -34.0, 115),
+    TourStop("New Orleans", "us", Point.fromLngLat(-90.0659, 29.9584), 30.0, 90),
+    TourStop("San Francisco", "us", Point.fromLngLat(-122.4783, 37.8199), 18.0, 110),
+    TourStop("Seattle", "us", Point.fromLngLat(-122.3493, 47.6205), -28.0, 105),
+    TourStop("Washington DC", "us", Point.fromLngLat(-77.0365, 38.8977), 20.0, 80),
+    TourStop("Toronto", "ca", Point.fromLngLat(-79.3871, 43.6426), 24.0, 84),
+    TourStop("Vancouver", "ca", Point.fromLngLat(-123.1119, 49.2827), -22.0, 95),
+    TourStop("Montreal", "ca", Point.fromLngLat(-73.5673, 45.5017), 30.0, 88),
+    TourStop("Calgary", "ca", Point.fromLngLat(-114.0719, 51.0447), -18.0, 100),
+    TourStop("Mexico City", "mx", Point.fromLngLat(-99.1332, 19.4326), 26.0, 130),
+    TourStop("Rio de Janeiro", "br", Point.fromLngLat(-43.2105, -22.9519), -24.0, 130),
+    TourStop("Sao Paulo", "br", Point.fromLngLat(-46.6333, -23.5505), 34.0, 150),
+    TourStop("Tokyo", "jp", Point.fromLngLat(139.7454, 35.6586), 34.0, 148),
+    TourStop("Seoul", "kr", Point.fromLngLat(126.9780, 37.5665), -20.0, 105),
+    TourStop("Singapore", "sg", Point.fromLngLat(103.8518, 1.2834), 22.0, 70),
+    TourStop("Bangkok", "th", Point.fromLngLat(100.5018, 13.7563), -30.0, 100),
+    TourStop("Jakarta", "id", Point.fromLngLat(106.8272, -6.1754), 28.0, 135),
+    TourStop("Manila", "ph", Point.fromLngLat(120.9842, 14.5995), -26.0, 110),
+    TourStop("London", "gb", Point.fromLngLat(-0.1246, 51.5007), -32.0, 118),
+    TourStop("Dubai", "ae", Point.fromLngLat(55.2744, 25.1972), 18.0, 96),
+    TourStop("Doha", "qa", Point.fromLngLat(51.5310, 25.2854), -24.0, 80),
+    TourStop("Riyadh", "sa", Point.fromLngLat(46.6753, 24.7136), 30.0, 115),
+    TourStop("Istanbul", "tr", Point.fromLngLat(28.9784, 41.0082), -28.0, 125),
+    TourStop("Petra", "jo", Point.fromLngLat(35.4444, 30.3285), 20.0, 65, zoom = 15.7),
+    TourStop("Mumbai", "in", Point.fromLngLat(72.8777, 19.0760), 26.0, 145),
+    TourStop("Delhi", "in", Point.fromLngLat(77.2295, 28.6129), -24.0, 155),
+    TourStop("Jaipur", "in", Point.fromLngLat(75.8235, 26.9239), 34.0, 95),
+    TourStop("Bengaluru", "in", Point.fromLngLat(77.5946, 12.9716), -18.0, 120),
+    TourStop("Cairo", "eg", Point.fromLngLat(31.1342, 29.9792), 26.0, 120, zoom = 15.7),
+    TourStop("Lagos", "ng", Point.fromLngLat(3.3792, 6.5244), -20.0, 165),
+    TourStop("Nairobi", "ke", Point.fromLngLat(36.8219, -1.2921), 30.0, 115),
+    TourStop("Cape Town", "za", Point.fromLngLat(18.4241, -33.9249), -26.0, 105),
+    TourStop("Marrakech", "ma", Point.fromLngLat(-7.9811, 31.6295), 22.0, 85),
+    TourStop("Accra", "gh", Point.fromLngLat(-0.1869, 5.6037), -28.0, 95),
+    TourStop("Sydney", "au", Point.fromLngLat(151.2153, -33.8568), -28.0, 110)
 )
+
+private data class CityMusicTrack(
+    val assetUri: String,
+    val artistSeed: String
+)
+
+private data class AiTourInsight(
+    val id: String,
+    val subtitle: String,
+    val category: TrendCategory
+)
+
+private data class TrendPopObject(
+    val point: Point,
+    val emoji: String,
+    val scale: Float,
+    val delayMs: Long,
+    val seed: Int
+)
+
+private enum class TrendCategory(val imageId: String) {
+    Clothes("poplur-ai-trend-clothes"),
+    Sports("poplur-ai-trend-sports"),
+    Food("poplur-ai-trend-food"),
+    Nightlife("poplur-ai-trend-nightlife"),
+    Music("poplur-ai-trend-music"),
+    Travel("poplur-ai-trend-travel")
+}
+
+private enum class WeatherParticleMode {
+    None,
+    Rain,
+    Snow,
+    Cloud,
+    Storm
+}
+
+private val FallbackCityMusicTracks = mapOf(
+    "Paris" to CityMusicTrack("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", "Aya Nakamura, Daft Punk, DJ Snake"),
+    "New York" to CityMusicTrack("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3", "Jay-Z, Cardi B, A\$AP Rocky"),
+    "Tokyo" to CityMusicTrack("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3", "YOASOBI, Hikaru Utada, Ryuichi Sakamoto"),
+    "London" to CityMusicTrack("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3", "Dua Lipa, Stormzy, Adele"),
+    "Dubai" to CityMusicTrack("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3", "Balqees, Hussain Al Jassmi, Wegz"),
+    "Toronto" to CityMusicTrack("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3", "Drake, The Weeknd, PARTYNEXTDOOR"),
+    "Sydney" to CityMusicTrack("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3", "The Kid LAROI, Sia, Flume")
+)
+
+private val DefaultFallbackCityMusicTrack =
+    CityMusicTrack("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", "Global pop and rap mix")
+
+private val FallbackCityRadioTracks = mapOf(
+    "New York" to listOf(
+        CityMusicTrack("https://playerservices.streamtheworld.com/api/livestream-redirect/WNYCFM.mp3", "WNYC live radio"),
+        CityMusicTrack("https://playerservices.streamtheworld.com/api/livestream-redirect/WQXRFM.mp3", "WQXR live radio")
+    ),
+    "Los Angeles" to listOf(
+        CityMusicTrack("https://playerservices.streamtheworld.com/api/livestream-redirect/KUSCMP256.mp3", "KUSC live radio")
+    ),
+    "Chicago" to listOf(
+        CityMusicTrack("https://playerservices.streamtheworld.com/api/livestream-redirect/WBEZFM.mp3", "WBEZ live radio")
+    ),
+    "London" to listOf(
+        CityMusicTrack("https://stream.live.vc.bbcmedia.co.uk/bbc_radio_fourfm", "BBC Radio 4 live"),
+        CityMusicTrack("https://stream.live.vc.bbcmedia.co.uk/bbc_radio_one", "BBC Radio 1 live")
+    ),
+    "Paris" to listOf(
+        CityMusicTrack("https://icecast.radiofrance.fr/fip-midfi.mp3", "FIP live radio")
+    ),
+    "Toronto" to listOf(
+        CityMusicTrack("https://playerservices.streamtheworld.com/api/livestream-redirect/CBC_R1_TOR_H.mp3", "CBC Radio One Toronto")
+    ),
+    "Sydney" to listOf(
+        CityMusicTrack("https://live-radio01.mediahubaustralia.com/2TJW/mp3/", "triple j Sydney live")
+    )
+)
+
+private val FallbackCitySportsRadioTracks = mapOf(
+    "New York" to listOf(
+        CityMusicTrack("https://playerservices.streamtheworld.com/api/livestream-redirect/WFANAM.mp3", "WFAN Sports Radio New York")
+    ),
+    "Los Angeles" to listOf(
+        CityMusicTrack("https://playerservices.streamtheworld.com/api/livestream-redirect/KSPNAMAAC.aac", "ESPN LA live sports radio")
+    ),
+    "Chicago" to listOf(
+        CityMusicTrack("https://playerservices.streamtheworld.com/api/livestream-redirect/WSCRAM.mp3", "670 The Score Chicago")
+    ),
+    "Toronto" to listOf(
+        CityMusicTrack("https://playerservices.streamtheworld.com/api/livestream-redirect/CHUMAM.mp3", "TSN 1050 Toronto")
+    ),
+    "London" to listOf(
+        CityMusicTrack("https://radio.talksport.com/stream", "talkSPORT London")
+    )
+)
+
+private fun spoofAiTourInsight(stop: TourStop): AiTourInsight {
+    val sportsCities = setOf("New York", "Los Angeles", "Chicago", "Toronto", "London", "Tokyo", "Sydney", "Miami")
+    val options = listOf(
+        AiTourInsight("${stop.cityName}-clothes-${SystemClock.uptimeMillis()}", "AI: most posts nearby are fit checks, sneakers, and streetwear drops.", TrendCategory.Clothes),
+        AiTourInsight("${stop.cityName}-food-${SystemClock.uptimeMillis()}", "AI: food posts are spiking here: late plates, cafes, and table shots.", TrendCategory.Food),
+        AiTourInsight("${stop.cityName}-nightlife-${SystemClock.uptimeMillis()}", "AI: nightlife is trending now: clubs, rooftops, and after-dark clips.", TrendCategory.Nightlife),
+        AiTourInsight("${stop.cityName}-music-${SystemClock.uptimeMillis()}", "AI: music posts are leading here: concerts, street performers, and studio clips.", TrendCategory.Music),
+        AiTourInsight("${stop.cityName}-travel-${SystemClock.uptimeMillis()}", "AI: travel posts are highest here: landmarks, views, and arrival moments.", TrendCategory.Travel)
+    )
+    val shouldSimulateGame = stop.cityName in sportsCities && abs((stop.cityName.hashCode() + SystemClock.uptimeMillis()).toInt()) % 3 == 0
+    if (shouldSimulateGame) {
+        return AiTourInsight(
+            id = "${stop.cityName}-sports-${SystemClock.uptimeMillis()}",
+            subtitle = "AI: sports posts are surging here. Tuning into a live local sports radio station.",
+            category = TrendCategory.Sports
+        )
+    }
+    return options.random()
+}
+
 
 private data class PinTheme(
     val base: Int,
@@ -422,10 +1279,193 @@ private fun createGdxStylePinImage(theme: PinTheme): Image {
     return bitmap.toMapboxImage()
 }
 
+private fun createGdxMusicWaveImage(frame: Int): Image {
+    val size = 172
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = AndroidCanvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    val activeArc = frame % 3
+    val arcs = listOf(
+        WaveArc(RectF(8f, 48f, 78f, 124f), 12f, AndroidColor.argb(if (activeArc == 0) 255 else 150, 255, 255, 255)),
+        WaveArc(RectF(-8f, 27f, 122f, 145f), 14f, AndroidColor.argb(if (activeArc == 1) 255 else 162, 118, 235, 255)),
+        WaveArc(RectF(-24f, 6f, 168f, 166f), 16f, AndroidColor.argb(if (activeArc == 2) 255 else 170, 255, 68, 214))
+    )
+
+    arcs.forEachIndexed { index, arc ->
+        paint.strokeWidth = arc.strokeWidth + if (index == activeArc) 2.5f else 0f
+        paint.color = arc.color
+        canvas.drawArc(arc.bounds, -54f, 108f, false, paint)
+    }
+
+    return bitmap.toMapboxImage()
+}
+
+private fun createTrendPopImage(category: TrendCategory): Image {
+    val size = 144
+    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val canvas = AndroidCanvas(bitmap)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    val accent = when (category) {
+        TrendCategory.Clothes -> AndroidColor.rgb(255, 72, 180)
+        TrendCategory.Sports -> AndroidColor.rgb(96, 234, 122)
+        TrendCategory.Food -> AndroidColor.rgb(255, 190, 72)
+        TrendCategory.Nightlife -> AndroidColor.rgb(156, 105, 255)
+        TrendCategory.Music -> AndroidColor.rgb(82, 224, 255)
+        TrendCategory.Travel -> AndroidColor.rgb(255, 100, 88)
+    }
+    val dark = AndroidColor.argb(245, 30, 22, 52)
+
+    paint.style = Paint.Style.FILL
+    paint.color = AndroidColor.argb(76, 0, 0, 0)
+    canvas.drawOval(RectF(22f, 102f, 122f, 132f), paint)
+
+    paint.shader = null
+    paint.color = AndroidColor.argb(210, 24, 16, 46)
+    canvas.save()
+    canvas.translate(10f, 12f)
+    drawTrendShape(canvas, paint, category)
+    canvas.restore()
+    paint.color = AndroidColor.argb(155, 72, 40, 116)
+    canvas.save()
+    canvas.translate(5f, 6f)
+    drawTrendShape(canvas, paint, category)
+    canvas.restore()
+
+    paint.shader = LinearGradient(
+        36f,
+        22f,
+        112f,
+        112f,
+        intArrayOf(AndroidColor.WHITE, accent, dark),
+        floatArrayOf(0f, 0.42f, 1f),
+        Shader.TileMode.CLAMP
+    )
+
+    drawTrendShape(canvas, paint, category)
+
+    paint.shader = null
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = 4f
+    paint.color = AndroidColor.argb(220, 255, 255, 255)
+    when (category) {
+        TrendCategory.Clothes -> canvas.drawPath(trendShirtPath(), paint)
+        TrendCategory.Sports -> canvas.drawCircle(72f, 64f, 34f, paint)
+        TrendCategory.Food -> canvas.drawRoundRect(RectF(38f, 54f, 106f, 96f), 18f, 18f, paint)
+        TrendCategory.Nightlife -> canvas.drawPath(trendGlassPath(), paint)
+        TrendCategory.Music -> canvas.drawPath(trendMusicPath(), paint)
+        TrendCategory.Travel -> canvas.drawPath(trendPlanePath(), paint)
+    }
+
+    return bitmap.toMapboxImage()
+}
+
+private fun drawTrendShape(canvas: AndroidCanvas, paint: Paint, category: TrendCategory) {
+    paint.style = Paint.Style.FILL
+    when (category) {
+        TrendCategory.Clothes -> drawTrendShirt(canvas, paint)
+        TrendCategory.Sports -> drawTrendBall(canvas, paint)
+        TrendCategory.Food -> drawTrendFood(canvas, paint)
+        TrendCategory.Nightlife -> drawTrendNightlife(canvas, paint)
+        TrendCategory.Music -> drawTrendMusic(canvas, paint)
+        TrendCategory.Travel -> drawTrendTravel(canvas, paint)
+    }
+}
+
+private fun drawTrendShirt(canvas: AndroidCanvas, paint: Paint) {
+    canvas.drawPath(trendShirtPath(), paint)
+}
+
+private fun trendShirtPath(): Path = Path().apply {
+    moveTo(42f, 38f)
+    lineTo(57f, 24f)
+    lineTo(72f, 34f)
+    lineTo(87f, 24f)
+    lineTo(104f, 39f)
+    lineTo(118f, 60f)
+    lineTo(100f, 72f)
+    lineTo(94f, 116f)
+    lineTo(50f, 116f)
+    lineTo(44f, 72f)
+    lineTo(26f, 60f)
+    close()
+}
+
+private fun drawTrendBall(canvas: AndroidCanvas, paint: Paint) {
+    canvas.drawCircle(72f, 64f, 34f, paint)
+    paint.shader = null
+    paint.style = Paint.Style.STROKE
+    paint.strokeWidth = 4f
+    paint.color = AndroidColor.argb(190, 30, 22, 52)
+    canvas.drawLine(43f, 47f, 101f, 82f, paint)
+    canvas.drawArc(RectF(36f, 31f, 108f, 98f), -70f, 140f, false, paint)
+    canvas.drawArc(RectF(42f, 26f, 112f, 102f), 110f, 130f, false, paint)
+    paint.style = Paint.Style.FILL
+}
+
+private fun drawTrendFood(canvas: AndroidCanvas, paint: Paint) {
+    canvas.drawRoundRect(RectF(38f, 54f, 106f, 96f), 18f, 18f, paint)
+    canvas.drawOval(RectF(30f, 42f, 114f, 66f), paint)
+    canvas.drawRect(52f, 96f, 92f, 112f, paint)
+}
+
+private fun drawTrendNightlife(canvas: AndroidCanvas, paint: Paint) {
+    canvas.drawPath(trendGlassPath(), paint)
+}
+
+private fun trendGlassPath(): Path = Path().apply {
+    moveTo(42f, 30f)
+    lineTo(104f, 30f)
+    lineTo(91f, 74f)
+    lineTo(78f, 86f)
+    lineTo(78f, 112f)
+    lineTo(102f, 118f)
+    lineTo(44f, 118f)
+    lineTo(68f, 112f)
+    lineTo(68f, 86f)
+    lineTo(55f, 74f)
+    close()
+}
+
+private fun drawTrendMusic(canvas: AndroidCanvas, paint: Paint) {
+    canvas.drawPath(trendMusicPath(), paint)
+}
+
+private fun trendMusicPath(): Path = Path().apply {
+    moveTo(58f, 28f)
+    lineTo(98f, 20f)
+    lineTo(98f, 86f)
+    lineTo(88f, 86f)
+    lineTo(88f, 42f)
+    lineTo(66f, 46f)
+    lineTo(66f, 94f)
+    lineTo(56f, 94f)
+    close()
+    addOval(RectF(38f, 88f, 66f, 116f), Path.Direction.CW)
+    addOval(RectF(78f, 80f, 106f, 108f), Path.Direction.CW)
+}
+
+private fun drawTrendTravel(canvas: AndroidCanvas, paint: Paint) {
+    canvas.drawPath(trendPlanePath(), paint)
+}
+
+private fun trendPlanePath(): Path = Path().apply {
+    moveTo(24f, 68f)
+    lineTo(120f, 30f)
+    lineTo(92f, 76f)
+    lineTo(108f, 108f)
+    lineTo(78f, 90f)
+    lineTo(52f, 118f)
+    lineTo(56f, 80f)
+    close()
+}
+
 private fun createGdxStylePinBitmap(theme: PinTheme): Bitmap {
     val size = 168
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
+    val canvas = AndroidCanvas(bitmap)
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     paint.shader = RadialGradient(
@@ -495,6 +1535,12 @@ private fun createGdxStylePinBitmap(theme: PinTheme): Bitmap {
     return bitmap
 }
 
+private data class WaveArc(
+    val bounds: RectF,
+    val strokeWidth: Float,
+    val color: Int
+)
+
 private fun Bitmap.toMapboxImage(): Image {
     val pixels = IntArray(width * height)
     getPixels(pixels, 0, width, 0, 0, width, height)
@@ -507,6 +1553,412 @@ private fun Bitmap.toMapboxImage(): Image {
     }
     buffer.flip()
     return Image(width, height, DataRef(buffer))
+}
+
+private fun emptyFeatureCollection(): FeatureCollection {
+    return FeatureCollection.fromFeatures(emptyList<Feature>())
+}
+
+private fun Style.setMusicWaveSource(point: Point?) {
+    val features = point?.let { listOf(Feature.fromGeometry(it)) } ?: emptyList()
+    getSourceAs<GeoJsonSource>(MUSIC_WAVE_SOURCE_ID)?.featureCollection(
+        FeatureCollection.fromFeatures(features)
+    )
+}
+
+private fun Style.setTrendPopIcon(insight: AiTourInsight?) {
+    setStyleLayerProperty(
+        TREND_POP_LAYER_ID,
+        "icon-image",
+        Value.valueOf(insight?.category?.imageId ?: TrendCategory.Clothes.imageId)
+    )
+}
+
+private fun Style.setTrendPopSource(stop: TourStop, insight: AiTourInsight, frame: Int) {
+    getSourceAs<GeoJsonSource>(TREND_POP_SOURCE_ID)?.featureCollection(
+        trendPopFeatureCollection(stop, insight, frame)
+    )
+}
+
+private fun Style.clearTrendPopSource() {
+    getSourceAs<GeoJsonSource>(TREND_POP_SOURCE_ID)?.featureCollection(emptyFeatureCollection())
+}
+
+private fun Style.setRadiusCircleSource(center: Point, radiusKm: Int) {
+    getSourceAs<GeoJsonSource>(RADIUS_CIRCLE_SOURCE_ID)?.geometry(
+        radiusCirclePolygon(center, radiusKm)
+    )
+}
+
+private fun radiusCirclePolygon(center: Point, radiusKm: Int): Polygon {
+    val angularDistance = radiusKm.coerceAtLeast(1) / EARTH_RADIUS_KM.toDouble()
+    val centerLat = Math.toRadians(center.latitude())
+    val centerLng = Math.toRadians(center.longitude())
+    val ring = (0..RADIUS_CIRCLE_SEGMENTS).map { index ->
+        val bearing = 2.0 * Math.PI * index / RADIUS_CIRCLE_SEGMENTS
+        val lat = asin(
+            sin(centerLat) * cos(angularDistance) +
+                cos(centerLat) * sin(angularDistance) * cos(bearing)
+        )
+        val lng = centerLng + atan2(
+            sin(bearing) * sin(angularDistance) * cos(centerLat),
+            cos(angularDistance) - sin(centerLat) * sin(lat)
+        )
+        Point.fromLngLat(Math.toDegrees(lng), Math.toDegrees(lat))
+    }
+    return Polygon.fromLngLats(listOf(ring))
+}
+
+private fun trendPopFeatureCollection(stop: TourStop, insight: AiTourInsight, frame: Int): FeatureCollection {
+    val seed = abs((stop.cityName.hashCode() xor insight.category.name.hashCode()))
+    val count = TREND_POP_COUNT_MIN + seed % TREND_POP_COUNT_RANGE
+    val lngScale = 0.0046
+    val latScale = 0.0034
+    val features = (0 until count).map { index ->
+        val angle = 2.0 * Math.PI * index / count + (seed % 360) * Math.PI / 180.0
+        val radius = 0.34 + ((index * 29 + seed) % 100) / 150.0
+        val wobble = sin(index * 1.7 + seed + frame * 0.38) * 0.26
+        val pop = 1.0 + sin(frame * 0.72 + index) * 0.12
+        Feature.fromGeometry(
+            Point.fromLngLat(
+                stop.coordinate.longitude() + cos(angle + wobble) * lngScale * radius * pop,
+                stop.coordinate.latitude() + sin(angle + wobble * 0.35) * latScale * radius * pop
+            )
+        )
+    }
+    return FeatureCollection.fromFeatures(features)
+}
+
+private fun buildTrendPopObjects(stop: TourStop, insight: AiTourInsight): List<TrendPopObject> {
+    val seed = abs(stop.cityName.hashCode() xor insight.id.hashCode() xor insight.category.name.hashCode())
+    val count = TREND_POP_COUNT_MIN + seed % TREND_POP_COUNT_RANGE
+    val lngScale = 0.0048
+    val latScale = 0.0036
+    return (0 until count).map { index ->
+        val angle = 2.0 * Math.PI * index / count + (seed % 360) * Math.PI / 180.0
+        val radius = 0.36 + ((index * 29 + seed) % 100) / 145.0
+        TrendPopObject(
+            point = Point.fromLngLat(
+                stop.coordinate.longitude() + cos(angle) * lngScale * radius,
+                stop.coordinate.latitude() + sin(angle) * latScale * radius
+            ),
+            emoji = trendEmoji(insight.category, seed + index),
+            scale = 0.9f + ((index * 17 + seed) % 28) / 100f,
+            delayMs = index * TREND_3D_SEQUENCE_GAP_MS,
+            seed = seed + index * 97
+        )
+    }
+}
+
+private fun trendEmoji(category: TrendCategory, seed: Int): String {
+    val emojis = when (category) {
+        TrendCategory.Clothes -> listOf("👕", "👟", "🧢", "🕶️", "👜")
+        TrendCategory.Sports -> listOf("🏀", "⚽", "🏈", "⚾", "🏆")
+        TrendCategory.Food -> listOf("🍔", "🍕", "🍜", "🍣", "☕")
+        TrendCategory.Nightlife -> listOf("🪩", "🍸", "🎉", "🌃", "✨")
+        TrendCategory.Music -> listOf("🎤", "🎧", "🎸", "🎹", "🎵")
+        TrendCategory.Travel -> listOf("✈️", "🗽", "🏙️", "📍", "🌍")
+    }
+    return emojis[abs(seed) % emojis.size]
+}
+
+private fun overshootScale(phase: Float): Float {
+    if (phase <= 0f) return 0f
+    if (phase >= 1f) return 1f
+    val eased = 1f - (1f - phase) * (1f - phase) * (1f - phase)
+    return eased + sin(phase * Math.PI.toFloat()) * 0.18f
+}
+
+private fun lightTrendColor(category: TrendCategory): Int = when (category) {
+    TrendCategory.Clothes -> AndroidColor.rgb(255, 139, 218)
+    TrendCategory.Sports -> AndroidColor.rgb(161, 255, 176)
+    TrendCategory.Food -> AndroidColor.rgb(255, 224, 117)
+    TrendCategory.Nightlife -> AndroidColor.rgb(205, 166, 255)
+    TrendCategory.Music -> AndroidColor.rgb(148, 246, 255)
+    TrendCategory.Travel -> AndroidColor.rgb(255, 157, 142)
+}
+
+private fun midTrendColor(category: TrendCategory): Int = when (category) {
+    TrendCategory.Clothes -> AndroidColor.rgb(255, 72, 180)
+    TrendCategory.Sports -> AndroidColor.rgb(70, 226, 101)
+    TrendCategory.Food -> AndroidColor.rgb(255, 176, 45)
+    TrendCategory.Nightlife -> AndroidColor.rgb(145, 88, 255)
+    TrendCategory.Music -> AndroidColor.rgb(69, 210, 255)
+    TrendCategory.Travel -> AndroidColor.rgb(255, 88, 75)
+}
+
+private fun darkTrendColor(category: TrendCategory): Int = when (category) {
+    TrendCategory.Clothes -> AndroidColor.rgb(128, 28, 96)
+    TrendCategory.Sports -> AndroidColor.rgb(28, 128, 55)
+    TrendCategory.Food -> AndroidColor.rgb(155, 88, 18)
+    TrendCategory.Nightlife -> AndroidColor.rgb(71, 42, 143)
+    TrendCategory.Music -> AndroidColor.rgb(24, 112, 142)
+    TrendCategory.Travel -> AndroidColor.rgb(151, 45, 42)
+}
+
+private fun uprightShirtPath(): Path = Path().apply {
+    moveTo(-46f, -62f)
+    lineTo(-22f, -84f)
+    lineTo(-8f, -66f)
+    lineTo(8f, -66f)
+    lineTo(22f, -84f)
+    lineTo(46f, -62f)
+    lineTo(32f, -30f)
+    lineTo(22f, -38f)
+    lineTo(22f, 52f)
+    lineTo(-22f, 52f)
+    lineTo(-22f, -38f)
+    lineTo(-32f, -30f)
+    close()
+}
+
+private fun uprightGlassPath(): Path = Path().apply {
+    moveTo(-42f, -72f)
+    lineTo(42f, -72f)
+    lineTo(24f, -6f)
+    cubicTo(18f, 12f, -18f, 12f, -24f, -6f)
+    close()
+    moveTo(0f, 8f)
+    lineTo(0f, 48f)
+    moveTo(-26f, 52f)
+    lineTo(26f, 52f)
+}
+
+private fun uprightMusicPath(): Path = Path().apply {
+    moveTo(-24f, -72f)
+    lineTo(34f, -84f)
+    lineTo(34f, 18f)
+    cubicTo(34f, 42f, -4f, 42f, -4f, 20f)
+    cubicTo(-4f, 2f, 22f, 0f, 24f, 10f)
+    lineTo(24f, -50f)
+    lineTo(-14f, -42f)
+    lineTo(-14f, 32f)
+    cubicTo(-14f, 56f, -52f, 56f, -52f, 34f)
+    cubicTo(-52f, 16f, -26f, 14f, -24f, 24f)
+    close()
+}
+
+private fun uprightPlanePath(): Path = Path().apply {
+    moveTo(-58f, -8f)
+    lineTo(58f, -66f)
+    lineTo(24f, -2f)
+    lineTo(46f, 46f)
+    lineTo(8f, 22f)
+    lineTo(-32f, 58f)
+    lineTo(-22f, 8f)
+    close()
+}
+
+private suspend fun resolveTopCountryMusicTracks(stop: TourStop): Result<List<CityMusicTrack>> = runCatching {
+    withContext(Dispatchers.IO) {
+        val chartUrl = URL("https://rss.applemarketingtools.com/api/v2/${stop.storefront}/music/most-played/50/songs.json")
+        val chartResponse = chartUrl.openConnection().apply {
+            connectTimeout = MUSIC_LOOKUP_TIMEOUT_MS
+            readTimeout = MUSIC_LOOKUP_TIMEOUT_MS
+        }.getInputStream().bufferedReader().use { it.readText() }
+        val results = JSONObject(chartResponse)
+            .getJSONObject("feed")
+            .getJSONArray("results")
+
+        val chartItems = (0 until results.length()).map { index ->
+            results.getJSONObject(index)
+        }
+        val tracks = mutableListOf<CityMusicTrack>()
+
+        for (item in chartItems.take(24)) {
+            val title = item.optString("name")
+            val artist = item.optString("artistName")
+            val previewUrl = lookupITunesPreviewUrl(title, artist, stop.storefront)
+            if (previewUrl != null) {
+                tracks += CityMusicTrack(previewUrl, "$artist - $title")
+                if (tracks.size == MUSIC_TOP_TRACK_CHOICES) {
+                    return@withContext tracks
+                }
+            }
+        }
+
+        if (tracks.isNotEmpty()) tracks else error("No playable chart preview found for ${stop.cityName}")
+    }
+}
+
+private suspend fun resolveTopCityRadioTracks(stop: TourStop): Result<List<CityMusicTrack>> = runCatching {
+    withContext(Dispatchers.IO) {
+        val cityQuery = URLEncoder.encode(stop.cityName, "UTF-8")
+        val country = stop.storefront.uppercase(Locale.US)
+        val stationUrl = URL(
+            "https://de1.api.radio-browser.info/json/stations/search" +
+                "?name=$cityQuery" +
+                "&countrycode=$country" +
+                "&hidebroken=true" +
+                "&order=clickcount" +
+                "&reverse=true" +
+                "&limit=24"
+        )
+        val response = stationUrl.openConnection().apply {
+            connectTimeout = MUSIC_LOOKUP_TIMEOUT_MS
+            readTimeout = MUSIC_LOOKUP_TIMEOUT_MS
+            setRequestProperty("User-Agent", "Poplur2025-Android/1.0")
+        }.getInputStream().bufferedReader().use { it.readText() }
+        val stations = JSONArray(response)
+        val tracks = mutableListOf<CityMusicTrack>()
+
+        for (index in 0 until stations.length()) {
+            val station = stations.getJSONObject(index)
+            val streamUrl = station.optString("url_resolved").ifBlank { station.optString("url") }
+            val name = station.optString("name", "Live radio")
+            if (streamUrl.startsWith("http", ignoreCase = true) && name.isNotBlank()) {
+                tracks += CityMusicTrack(streamUrl, "$name live radio")
+                if (tracks.size == MUSIC_TOP_TRACK_CHOICES) {
+                    return@withContext tracks
+                }
+            }
+        }
+
+        if (tracks.isNotEmpty()) tracks else error("No playable radio streams found for ${stop.cityName}")
+    }
+}
+
+private suspend fun resolveTopCitySportsRadioTracks(stop: TourStop): Result<List<CityMusicTrack>> = runCatching {
+    val cityStations = queryRadioBrowserStations(stop, nameQuery = stop.cityName, tagQuery = "sports", limit = 36)
+    val countrySportsStations = if (cityStations.size < MUSIC_TOP_TRACK_CHOICES) {
+        queryRadioBrowserStations(stop, nameQuery = "", tagQuery = "sports", limit = 36)
+    } else {
+        emptyList()
+    }
+    val sportsSignals = listOf("sports", "sport", "espn", "fox sports", "tsn", "sportsnet", "talksport", "score", "fan")
+    val tracks = (cityStations + countrySportsStations)
+        .filter { station ->
+            val searchable = "${station.name} ${station.tags}".lowercase(Locale.US)
+            sportsSignals.any { signal -> searchable.contains(signal) }
+        }
+        .distinctBy { it.streamUrl }
+        .take(MUSIC_TOP_TRACK_CHOICES)
+        .map { station -> CityMusicTrack(station.streamUrl, "${station.name} live sports radio") }
+
+    if (tracks.isNotEmpty()) tracks else error("No playable sports radio streams found for ${stop.cityName}")
+}
+
+private data class RadioStationCandidate(
+    val name: String,
+    val tags: String,
+    val streamUrl: String
+)
+
+private suspend fun queryRadioBrowserStations(
+    stop: TourStop,
+    nameQuery: String,
+    tagQuery: String,
+    limit: Int
+): List<RadioStationCandidate> {
+    return withContext(Dispatchers.IO) {
+        val name = URLEncoder.encode(nameQuery, "UTF-8")
+        val tag = URLEncoder.encode(tagQuery, "UTF-8")
+        val country = stop.storefront.uppercase(Locale.US)
+        val stationUrl = URL(
+            "https://de1.api.radio-browser.info/json/stations/search" +
+                "?name=$name" +
+                "&tag=$tag" +
+                "&countrycode=$country" +
+                "&hidebroken=true" +
+                "&order=clickcount" +
+                "&reverse=true" +
+                "&limit=$limit"
+        )
+        val response = stationUrl.openConnection().apply {
+            connectTimeout = MUSIC_LOOKUP_TIMEOUT_MS
+            readTimeout = MUSIC_LOOKUP_TIMEOUT_MS
+            setRequestProperty("User-Agent", "Poplur2025-Android/1.0")
+        }.getInputStream().bufferedReader().use { it.readText() }
+        val stations = JSONArray(response)
+        (0 until stations.length()).mapNotNull { index ->
+            val station = stations.getJSONObject(index)
+            val streamUrl = station.optString("url_resolved").ifBlank { station.optString("url") }
+            val nameValue = station.optString("name", "Live radio")
+            if (streamUrl.startsWith("http", ignoreCase = true) && nameValue.isNotBlank()) {
+                RadioStationCandidate(
+                    name = nameValue,
+                    tags = station.optString("tags"),
+                    streamUrl = streamUrl
+                )
+            } else {
+                null
+            }
+        }
+    }
+}
+
+private fun lookupITunesPreviewUrl(title: String, artist: String, storefront: String): String? {
+    val term = URLEncoder.encode("$artist $title", "UTF-8")
+    val country = storefront.uppercase(Locale.US)
+    val searchUrl = URL("https://itunes.apple.com/search?term=$term&country=$country&media=music&entity=song&limit=5")
+    val response = searchUrl.openConnection().apply {
+        connectTimeout = MUSIC_LOOKUP_TIMEOUT_MS
+        readTimeout = MUSIC_LOOKUP_TIMEOUT_MS
+    }.getInputStream().bufferedReader().use { it.readText() }
+    val results = JSONObject(response).getJSONArray("results")
+    for (index in 0 until results.length()) {
+        val item = results.getJSONObject(index)
+        val preview = item.optString("previewUrl")
+        if (preview.isNotBlank()) return preview
+    }
+    return null
+}
+
+private fun Style.setWeatherParticleSources(mode: WeatherParticleMode, point: Point?, frame: Int) {
+    getSourceAs<GeoJsonSource>(WEATHER_RAIN_SOURCE_ID)?.featureCollection(
+        if (mode == WeatherParticleMode.Rain || mode == WeatherParticleMode.Storm) weatherParticleFeatureCollection(point, mode, frame) else emptyFeatureCollection()
+    )
+    getSourceAs<GeoJsonSource>(WEATHER_SNOW_SOURCE_ID)?.featureCollection(
+        if (mode == WeatherParticleMode.Snow) weatherParticleFeatureCollection(point, mode, frame) else emptyFeatureCollection()
+    )
+    getSourceAs<GeoJsonSource>(WEATHER_CLOUD_SOURCE_ID)?.featureCollection(
+        if (mode == WeatherParticleMode.Cloud || mode == WeatherParticleMode.Storm) weatherParticleFeatureCollection(point, mode, frame) else emptyFeatureCollection()
+    )
+}
+
+private fun weatherParticleMode(label: String): WeatherParticleMode {
+    return when {
+        label.contains("Rain", ignoreCase = true) || label.contains("Drizzle", ignoreCase = true) -> WeatherParticleMode.Rain
+        label.contains("Snow", ignoreCase = true) -> WeatherParticleMode.Snow
+        label.contains("Storm", ignoreCase = true) -> WeatherParticleMode.Storm
+        else -> WeatherParticleMode.None
+    }
+}
+
+private fun weatherParticleFeatureCollection(point: Point?, mode: WeatherParticleMode, frame: Int): FeatureCollection {
+    if (point == null) return emptyFeatureCollection()
+    val count = when (mode) {
+        WeatherParticleMode.Rain -> 90
+        WeatherParticleMode.Snow -> 70
+        WeatherParticleMode.Cloud -> 30
+        WeatherParticleMode.Storm -> 112
+        WeatherParticleMode.None -> 0
+    }
+    val spanLat = when (mode) {
+        WeatherParticleMode.Cloud -> 0.22
+        WeatherParticleMode.Storm -> 0.16
+        else -> 0.12
+    }
+    val spanLng = when (mode) {
+        WeatherParticleMode.Cloud -> 0.28
+        WeatherParticleMode.Storm -> 0.2
+        else -> 0.16
+    }
+    val phase = (frame % 120) / 120.0
+    val features = (0 until count).map { index ->
+        val lane = ((index * 37) % 100) / 100.0
+        val cross = ((index * 53) % 100) / 100.0
+        val fall = (phase * (if (mode == WeatherParticleMode.Cloud) 0.38 else 1.35) + index * 0.031) % 1.0
+        val sway = kotlin.math.sin((phase * 6.28318) + index * 0.61) * when (mode) {
+            WeatherParticleMode.Snow -> 0.12
+            WeatherParticleMode.Cloud -> 0.18
+            else -> 0.04
+        }
+        val lng = point.longitude() + (cross - 0.5 + sway) * spanLng
+        val lat = point.latitude() + (0.5 - fall + (lane - 0.5) * 0.2) * spanLat
+        Feature.fromGeometry(Point.fromLngLat(lng, lat))
+    }
+    return FeatureCollection.fromFeatures(features)
 }
 
 private suspend fun fetchCurrentWeather(point: Point): Result<WeatherBadge> = runCatching {
@@ -570,6 +2022,8 @@ private fun WeatherParticleOverlay(
     if (
         label.contains("Weather", ignoreCase = true) ||
         label.contains("World", ignoreCase = true) ||
+        label.contains("Cloudy", ignoreCase = true) ||
+        label.contains("Fog", ignoreCase = true) ||
         label.contains("Clear", ignoreCase = true) && !label.contains("Cloudy", ignoreCase = true)
     ) {
         return
@@ -630,49 +2084,6 @@ private fun WeatherParticleOverlay(
                 }
                 if (phase < 0.08f) {
                     drawRect(Color.White.copy(alpha = 0.18f * (1f - phase / 0.08f)))
-                }
-            }
-            label.contains("Cloudy", ignoreCase = true) || label.contains("Fog", ignoreCase = true) -> {
-                repeat(44) { index ->
-                    val lane = ((index * 17) % 100) / 100f
-                    val depth = 0.62f + (index % 6) * 0.075f
-                    val radius = (34f + (index % 7) * 8f) * depth
-                    val drift = (phase * size.width * (0.18f + depth * 0.08f) + index * 73f) % (size.width + radius * 4f) - radius * 2f
-                    val verticalWave = kotlin.math.sin((phase * 6.28f) + index * 0.61f) * 18f * depth
-                    val y = drawTop + lane * drawHeight + verticalWave
-                    val x = drift
-                    val center = Offset(x, y)
-
-                    drawCircle(
-                        color = Color(0x242F3440),
-                        radius = radius * 1.18f,
-                        center = center + Offset(radius * 0.22f, radius * 0.24f)
-                    )
-                    drawCircle(
-                        color = Color(0x526E7480),
-                        radius = radius,
-                        center = center
-                    )
-                    drawCircle(
-                        color = Color(0x308E96A3),
-                        radius = radius * 0.68f,
-                        center = center + Offset(-radius * 0.24f, -radius * 0.2f)
-                    )
-                    drawCircle(
-                        color = Color(0x20D7DEE8),
-                        radius = radius * 0.34f,
-                        center = center + Offset(-radius * 0.38f, -radius * 0.32f)
-                    )
-                }
-                repeat(70) { index ->
-                    val lane = ((index * 31) % 100) / 100f
-                    val drift = (phase * size.width * 0.38f + index * 41f) % (size.width + 80f) - 40f
-                    val y = drawTop + lane * drawHeight + kotlin.math.sin(phase * 6.28f + index) * 9f
-                    drawCircle(
-                        color = Color(0x30353A42),
-                        radius = 1.8f + (index % 4),
-                        center = Offset(drift, y)
-                    )
                 }
             }
         }

@@ -15,7 +15,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks {
         super.onCreate(savedInstanceState)
         setContent { 
             MaterialTheme { 
-                Surface(Modifier.fillMaxSize()) { 
+                Surface(Modifier.fillMaxSize()) {
                     PoplurRoot() 
                 } 
             }

@@ -21,6 +21,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -126,7 +128,7 @@ fun FeedScreen(
                 (fadeIn() + scaleIn()).togetherWith(fadeOut() + scaleOut())
             },
             modifier = Modifier
-                .padding(bottom = 80.dp, start = 20.dp)
+                .padding(bottom = 58.dp, start = 20.dp)
                 .align(Alignment.BottomStart),
             label = "TrendingAnimation"
         ) { post ->
@@ -139,8 +141,8 @@ fun FeedScreen(
         // 4. Bottom Center placeholder space for the global Cube
         Spacer(
             modifier = Modifier
-                .padding(bottom = 60.dp)
-                .size(80.dp)
+                .padding(bottom = 86.dp)
+                .size(112.dp)
                 .align(Alignment.BottomCenter)
         )
 
@@ -151,7 +153,7 @@ fun FeedScreen(
                 (fadeIn() + slideInHorizontally { it }).togetherWith(fadeOut() + slideOutHorizontally { it })
             },
             modifier = Modifier
-                .padding(bottom = 60.dp, end = 20.dp)
+                .padding(bottom = 48.dp, end = 20.dp)
                 .align(Alignment.BottomEnd),
             label = "RadiusAnimation"
         ) { post ->
@@ -192,8 +194,14 @@ fun MediaContent(post: Post) {
                     val mediaSourceFactory = DefaultMediaSourceFactory(context)
                         .setDataSourceFactory(httpDataSourceFactory)
 
+                    val audioAttributes = AudioAttributes.Builder()
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                        .build()
+
                     ExoPlayer.Builder(context)
                         .setMediaSourceFactory(mediaSourceFactory)
+                        .setAudioAttributes(audioAttributes, true)
                         .build().apply {
                             // Optimized for fast start
                             val mediaItem = MediaItem.Builder()
