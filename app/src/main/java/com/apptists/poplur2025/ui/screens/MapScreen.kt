@@ -11,16 +11,22 @@ import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.content.pm.PackageManager
-import android.view.MotionEvent
-import android.widget.FrameLayout
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -32,11 +38,8 @@ import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.weather.WeatherBadge
-import com.apptists.poplur2025.gdx.weather.WeatherOverlayAdapter
 import com.apptists.poplur2025.location.LocationProvider
-import com.apptists.poplur2025.ui.WeatherOverlayFragment
 import com.apptists.poplur2025.ui.components.RadiusDisplay
-import androidx.fragment.app.FragmentActivity
 import com.mapbox.bindgen.DataRef
 import com.mapbox.bindgen.Value
 import com.mapbox.geojson.Feature
@@ -67,6 +70,7 @@ import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.net.URL
 import java.util.Locale
+import kotlin.math.abs
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -96,8 +100,6 @@ fun MapScreen(isVisible: Boolean = true) {
     var idleGeneration by remember { mutableIntStateOf(0) }
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
     val mapView = remember { MapView(context) }
-    val weatherAdapter = remember { WeatherOverlayAdapter() }
-    val weatherContainerId = remember { android.view.View.generateViewId() }
     val locationProvider = remember { LocationProvider(context) }
     val postFeatures = remember {
         DemoPostStore.posts.mapNotNull { post ->
@@ -150,9 +152,15 @@ fun MapScreen(isVisible: Boolean = true) {
     }
 
     LaunchedEffect(activeWeatherPoint) {
-        val point = activeWeatherPoint ?: return@LaunchedEffect
+        val point = activeWeatherPoint
+        if (point == null) {
+            activeWeather = WeatherBadge("🌎", "World")
+            return@LaunchedEffect
+        }
         activeWeather = WeatherBadge.Loading
-        activeWeather = fetchCurrentWeather(point).getOrElse { WeatherBadge.Unavailable }
+        activeWeather = fetchCurrentWeather(point).getOrElse {
+            fallbackWeatherBadge(point)
+        }
     }
 
     LaunchedEffect(hasLocationPermission) {
@@ -249,10 +257,6 @@ fun MapScreen(isVisible: Boolean = true) {
         }
     }
 
-    LaunchedEffect(activeWeather) {
-        weatherAdapter.setWeather(activeWeather)
-    }
-
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             factory = {
@@ -319,35 +323,9 @@ fun MapScreen(isVisible: Boolean = true) {
             modifier = Modifier.fillMaxSize().zIndex(0f)
         )
 
-        AndroidView(
-            factory = { ctx ->
-                object : FrameLayout(ctx) {
-                    override fun onInterceptTouchEvent(ev: MotionEvent?): Boolean = false
-
-                    @SuppressLint("ClickableViewAccessibility")
-                    override fun onTouchEvent(event: MotionEvent?): Boolean = false
-                }.apply {
-                    id = weatherContainerId
-                    setBackgroundColor(0)
-                    background = null
-                    isClickable = false
-                    isFocusable = false
-                    isEnabled = false
-
-                    val activity = ctx as? FragmentActivity
-                    activity?.supportFragmentManager?.beginTransaction()
-                        ?.replace(id, WeatherOverlayFragment.newInstance(weatherAdapter))
-                        ?.commit()
-                }
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 190.dp, bottom = 230.dp)
-                .zIndex(1f),
-            update = { view ->
-                view.setBackgroundColor(0)
-                view.background = null
-            }
+        WeatherParticleOverlay(
+            weather = activeWeather,
+            modifier = Modifier.fillMaxSize().zIndex(1f)
         )
 
         Box(Modifier.fillMaxWidth().height(190.dp).zIndex(2f).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent))))
@@ -568,4 +546,116 @@ private fun weatherBadgeForCode(code: Int, temperature: Double): WeatherBadge {
         else -> "Weather" to "☁️"
     }
     return WeatherBadge(icon = condition.second, label = condition.first, temperatureLabel = temperatureLabel)
+}
+
+private fun fallbackWeatherBadge(point: Point): WeatherBadge {
+    val seed = abs((point.latitude() * 17 + point.longitude() * 11).toInt())
+    val temperature = 54 + (seed % 34)
+    val condition = when (seed % 5) {
+        0 -> "Clear" to "☀️"
+        1 -> "Partly Cloudy" to "⛅"
+        2 -> "Cloudy" to "☁️"
+        3 -> "Rain" to "🌧️"
+        else -> "Mostly Clear" to "🌤️"
+    }
+    return WeatherBadge(condition.second, condition.first, "${temperature}°F")
+}
+
+@Composable
+private fun WeatherParticleOverlay(
+    weather: WeatherBadge,
+    modifier: Modifier = Modifier
+) {
+    val label = weather.label
+    if (
+        label.contains("Weather", ignoreCase = true) ||
+        label.contains("World", ignoreCase = true) ||
+        label.contains("Clear", ignoreCase = true) && !label.contains("Cloudy", ignoreCase = true)
+    ) {
+        return
+    }
+
+    val transition = rememberInfiniteTransition(label = "map-weather-particles")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 9_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "map-weather-phase"
+    )
+
+    Canvas(modifier = modifier) {
+        val topGuard = 180.dp.toPx()
+        val bottomGuard = 230.dp.toPx()
+        val drawTop = topGuard
+        val drawBottom = size.height - bottomGuard
+        val drawHeight = (drawBottom - drawTop).coerceAtLeast(1f)
+
+        when {
+            label.contains("Rain", ignoreCase = true) || label.contains("Drizzle", ignoreCase = true) -> {
+                repeat(90) { index ->
+                    val lane = ((index * 37) % 100) / 100f
+                    val y = drawTop + ((phase * drawHeight * 1.4f + index * 47f) % (drawHeight + 80f)) - 40f
+                    val x = lane * size.width + ((index % 7) - 3) * 5f
+                    drawLine(
+                        color = Color(0x99A8C7FF),
+                        start = Offset(x, y),
+                        end = Offset(x - 8f, y + 34f),
+                        strokeWidth = 2.4f
+                    )
+                }
+            }
+            label.contains("Snow", ignoreCase = true) -> {
+                repeat(75) { index ->
+                    val lane = ((index * 41) % 100) / 100f
+                    val y = drawTop + ((phase * drawHeight * 0.72f + index * 39f) % (drawHeight + 60f)) - 30f
+                    val x = lane * size.width + kotlin.math.sin((phase * 6.28f + index) * 0.7f) * 18f
+                    drawCircle(
+                        color = Color(0xCCFFFFFF),
+                        radius = 2.4f + (index % 3),
+                        center = Offset(x, y)
+                    )
+                }
+            }
+            label.contains("Storm", ignoreCase = true) -> {
+                repeat(110) { index ->
+                    val lane = ((index * 31) % 100) / 100f
+                    val y = drawTop + ((phase * drawHeight * 1.6f + index * 43f) % (drawHeight + 80f)) - 40f
+                    val x = lane * size.width
+                    drawLine(
+                        color = Color(0xAAB5CBFF),
+                        start = Offset(x, y),
+                        end = Offset(x - 10f, y + 38f),
+                        strokeWidth = 2.8f
+                    )
+                }
+                if (phase < 0.08f) {
+                    drawRect(Color.White.copy(alpha = 0.18f * (1f - phase / 0.08f)))
+                }
+            }
+            label.contains("Cloudy", ignoreCase = true) || label.contains("Fog", ignoreCase = true) -> {
+                repeat(55) { index ->
+                    val lane = ((index * 29) % 100) / 100f
+                    val drift = (phase * size.width * 0.24f + index * 23f) % (size.width + 160f) - 80f
+                    val y = drawTop + lane * drawHeight
+                    val x = drift
+                    drawLine(
+                        color = Color(0x22DDEBFF),
+                        start = Offset(x, y),
+                        end = Offset(x + 78f + (index % 5) * 12f, y),
+                        strokeWidth = 2f
+                    )
+                    if (index % 3 == 0) {
+                        drawCircle(
+                            color = Color(0x33EEF6FF),
+                            radius = 2.8f,
+                            center = Offset(x + 36f, y)
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
