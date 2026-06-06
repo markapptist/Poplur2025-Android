@@ -22,16 +22,15 @@ import androidx.core.content.ContextCompat
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.location.LocationProvider
 import com.apptists.poplur2025.ui.components.RadiusDisplay
+import com.mapbox.bindgen.Value
 import com.mapbox.geojson.Feature
 import com.mapbox.geojson.FeatureCollection
 import com.mapbox.geojson.Point
 import com.mapbox.maps.CameraOptions
 import com.mapbox.maps.MapView
 import com.mapbox.maps.Style
-import com.mapbox.maps.extension.style.expressions.generated.Expression
 import com.mapbox.maps.extension.style.atmosphere.generated.atmosphere
 import com.mapbox.maps.extension.style.layers.generated.circleLayer
-import com.mapbox.maps.extension.style.layers.generated.fillExtrusionLayer
 import com.mapbox.maps.extension.style.layers.properties.generated.ProjectionName
 import com.mapbox.maps.extension.style.projection.generated.projection
 import com.mapbox.maps.extension.style.sources.generated.geoJsonSource
@@ -97,8 +96,8 @@ fun MapScreen(isVisible: Boolean = true) {
                 mapView.mapboxMap.flyTo(
                     CameraOptions.Builder()
                         .center(point)
-                        .zoom(18.8)
-                        .pitch(67.5)
+                        .zoom(19.2)
+                        .pitch(72.0)
                         .bearing(22.0)
                         .build(),
                     mapAnimationOptions { duration(1600) }
@@ -147,8 +146,8 @@ fun MapScreen(isVisible: Boolean = true) {
             mapView.mapboxMap.flyTo(
                 CameraOptions.Builder()
                     .center(location)
-                    .zoom(18.8)
-                    .pitch(67.5)
+                    .zoom(19.2)
+                    .pitch(72.0)
                     .bearing(22.0)
                     .build(),
                 mapAnimationOptions { duration(3600) }
@@ -170,22 +169,9 @@ fun MapScreen(isVisible: Boolean = true) {
                             .build()
                     )
                     mapboxMap.loadStyle(
-                        style(Style.STANDARD_SATELLITE) {
+                        style(Style.STANDARD) {
                             +atmosphere { }
                             +projection(ProjectionName.GLOBE)
-                            +fillExtrusionLayer(BUILDING_LAYER_ID, MAPBOX_COMPOSITE_SOURCE_ID) {
-                                sourceLayer(MAPBOX_BUILDING_SOURCE_LAYER)
-                                minZoom(15.0)
-                                slot("middle")
-                                fillExtrusionColor("#d7d0c7")
-                                fillExtrusionOpacity(0.78)
-                                fillExtrusionHeight(Expression.fromRaw(BUILDING_HEIGHT_EXPRESSION))
-                                fillExtrusionBase(Expression.fromRaw(BUILDING_BASE_EXPRESSION))
-                                fillExtrusionVerticalScale(1.35)
-                                fillExtrusionVerticalGradient(true)
-                                fillExtrusionAmbientOcclusionIntensity(0.55)
-                                fillExtrusionAmbientOcclusionRadius(3.0)
-                            }
                             +geoJsonSource(POST_SOURCE_ID) {
                                 featureCollection(FeatureCollection.fromFeatures(postFeatures))
                             }
@@ -199,7 +185,11 @@ fun MapScreen(isVisible: Boolean = true) {
                                 circleEmissiveStrength(1.0)
                             }
                         }
-                    ) {
+                    ) { style ->
+                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "show3dObjects", Value.valueOf(true))
+                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "show3dBuildings", Value.valueOf(true))
+                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "show3dLandmarks", Value.valueOf(true))
+                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "lightPreset", Value.valueOf("day"))
                         mapReady = true
                     }
                 }
@@ -209,7 +199,7 @@ fun MapScreen(isVisible: Boolean = true) {
         Box(Modifier.fillMaxWidth().height(190.dp).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent))))
         Column(Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopStart)) {
             Text("Your Location", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-            Text("Tap the hybrid map to choose exactly where a post should live.", color = Color.White.copy(alpha = .9f), fontSize = 16.sp)
+            Text("Tap the 3D map to choose exactly where a post should live.", color = Color.White.copy(alpha = .9f), fontSize = 16.sp)
         }
         Surface(Modifier.padding(end = 16.dp).align(Alignment.CenterEnd), color = Color.Black.copy(alpha = .42f), shape = MaterialTheme.shapes.medium) {
             Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -239,9 +229,4 @@ fun MapScreen(isVisible: Boolean = true) {
 
 private const val POST_SOURCE_ID = "poplur-posts"
 private const val POST_LAYER_ID = "poplur-post-markers"
-private const val BUILDING_LAYER_ID = "poplur-building-extrusions"
-private const val MAPBOX_COMPOSITE_SOURCE_ID = "composite"
-private const val MAPBOX_BUILDING_SOURCE_LAYER = "building"
-private const val BUILDING_HEIGHT_EXPRESSION =
-    "[\"coalesce\",[\"get\",\"height\"],[\"*\",[\"coalesce\",[\"get\",\"levels\"],2],3.2],8]"
-private const val BUILDING_BASE_EXPRESSION = "[\"coalesce\",[\"get\",\"min_height\"],0]"
+private const val MAPBOX_BASEMAP_IMPORT_ID = "basemap"
