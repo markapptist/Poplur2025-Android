@@ -53,31 +53,6 @@ fun FeedScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            // Ultra-sensitive vertical swipe detection
-            .pointerInput(currentPostIndex) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                        var totalY = 0f
-                        var triggered = false
-                        drag(down.id) { change ->
-                            if (!triggered) {
-                                val delta = change.position.y - change.previousPosition.y
-                                totalY += delta
-                                if (abs(totalY) > 40f) { // Faster trigger threshold (40px)
-                                    if (totalY > 0) {
-                                        onIndexChange(currentPostIndex - 1)
-                                    } else {
-                                        onIndexChange(currentPostIndex + 1)
-                                    }
-                                    triggered = true
-                                    change.consume()
-                                }
-                            }
-                        }
-                    }
-                }
-            }
     ) {
         // 1. Background Content (TV Flip Effect)
         AnimatedContent(
@@ -93,14 +68,6 @@ fun FeedScreen(
                 when (slot) {
                     is FeedSlot.PostSlot -> {
                         MediaContent(post = slot.post)
-                        if (slot.post.videoUrl != null) {
-                            VideoBadge(
-                                modifier = Modifier
-                                    .statusBarsPadding()
-                                    .padding(top = 72.dp, end = 18.dp)
-                                    .align(Alignment.TopEnd)
-                            )
-                        }
                     }
                     is FeedSlot.AdSlot -> FeedAdContent(slot = slot)
                 }
@@ -194,6 +161,36 @@ fun FeedScreen(
                 unit = "mi"
             )
         }
+
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .feedSwipeDetector(currentPostIndex, onIndexChange)
+        )
+    }
+}
+
+private fun Modifier.feedSwipeDetector(
+    currentPostIndex: Int,
+    onIndexChange: (Int) -> Unit
+): Modifier = pointerInput(currentPostIndex) {
+    awaitPointerEventScope {
+        while (true) {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            var totalY = 0f
+            var triggered = false
+            drag(down.id) { change ->
+                if (!triggered) {
+                    val delta = change.position.y - change.previousPosition.y
+                    totalY += delta
+                    if (abs(totalY) > 28f) {
+                        onIndexChange(if (totalY > 0) currentPostIndex - 1 else currentPostIndex + 1)
+                        triggered = true
+                        change.consume()
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -234,22 +231,6 @@ private fun demoAdSlot(adIndex: Int): FeedSlot.AdSlot {
         FeedSlot.AdSlot("ad-$adIndex-3", "Creator Tools", "Turn live clips into local reach with smarter posting.", "Sponsored creator", 1420, 62, 11)
     )
     return ads[adIndex % ads.size].copy(id = "ad-$adIndex")
-}
-
-@Composable
-private fun VideoBadge(modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        color = Color.Black.copy(alpha = .46f),
-        shape = MaterialTheme.shapes.large
-    ) {
-        Text(
-            "VIDEO",
-            color = Color.White,
-            fontWeight = FontWeight.Black,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-        )
-    }
 }
 
 @Composable
