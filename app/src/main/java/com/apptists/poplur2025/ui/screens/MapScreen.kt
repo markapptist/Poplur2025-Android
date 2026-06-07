@@ -10,6 +10,7 @@ import android.graphics.LinearGradient
 import android.graphics.BlurMaskFilter
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PointF
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
@@ -110,6 +111,7 @@ import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -364,6 +366,24 @@ fun MapScreen(
         }
     }
 
+    val radiusPulse by rememberInfiniteTransition(label = "radiusPulse").animateFloat(
+        initialValue = 6f,
+        targetValue = 12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "radiusPulseValue"
+    )
+
+    LaunchedEffect(mapReady, radiusPulse) {
+        if (mapReady) {
+            mapView.mapboxMap.getStyle { style ->
+                style.setStyleLayerProperty(RADIUS_CIRCLE_LINE_LAYER_ID, "line-width", Value.valueOf(radiusPulse.toDouble()))
+            }
+        }
+    }
+
     LaunchedEffect(isVisible, mapReady, userLocation) {
         val location = userLocation
         if (isVisible && mapReady && location != null && !hasZoomedToLocation) {
@@ -494,7 +514,7 @@ fun MapScreen(
                             }
                             +fillLayer(RADIUS_CIRCLE_FILL_LAYER_ID, RADIUS_CIRCLE_SOURCE_ID) {
                                 fillColor("#d8892b")
-                                fillOpacity(0.42)
+                                fillOpacity(0.55)
                             }
                             +lineLayer(RADIUS_CIRCLE_LINE_LAYER_ID, RADIUS_CIRCLE_SOURCE_ID) {
                                 lineColor("#ffb347")
@@ -563,6 +583,7 @@ fun MapScreen(
                     popTone.startTone(ToneGenerator.TONE_PROP_BEEP, 80)
                 }
                 container.burstConfetti(confettiTrigger)
+                container.setRadiusSparkles(activeWeatherPoint, activeRadius)
             },
             modifier = Modifier.fillMaxSize().zIndex(0f)
         )
@@ -611,15 +632,15 @@ fun MapScreen(
                 }
             },
             modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = 34.dp, top = 36.dp)
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 158.dp, end = 20.dp)
                 .zIndex(3f)
         )
         Column(Modifier.padding(bottom = 58.dp, start = 20.dp).align(Alignment.BottomStart).zIndex(2f)) {
-            Text("476", color = Color(0xFFFF3B30), fontSize = 42.sp, fontWeight = FontWeight.Black)
-            HorizontalDivider(color = Color.White.copy(alpha = .5f), thickness = 1.dp, modifier = Modifier.width(100.dp).padding(vertical = 8.dp))
-            Text(DemoPostStore.posts.size.toString(), color = Color.White, fontSize = 56.sp, fontWeight = FontWeight.ExtraBold)
-            Text("posts", color = Color.White, fontSize = 18.sp)
+            Text("TRENDING", color = Color.White.copy(alpha = 0.88f), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
+            HorizontalDivider(color = Color.White, thickness = 2.dp, modifier = Modifier.width(90.dp).padding(vertical = 6.dp))
+            Text(DemoPostStore.posts.size.toString(), color = Color.White, fontSize = 62.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 62.sp)
+            Text("posts", color = Color.White.copy(alpha = 0.9f), fontSize = 18.sp, fontWeight = FontWeight.Bold)
         }
         selectedCoordinate?.let { point ->
             Surface(Modifier.align(Alignment.BottomCenter).padding(bottom = 158.dp, start = 20.dp, end = 20.dp).zIndex(2f), color = Color.Black.copy(alpha = .72f), shape = MaterialTheme.shapes.large) {
@@ -712,12 +733,14 @@ private class MapWeatherTouchContainer(
     private val weatherView = FullScreenWeatherView(context)
     private val trendPopView = GdxUprightTrendPopView(context, mapView)
     private val confettiView = GdxTrendConfettiView(context)
+    private val sparkleView = RadiusSparkleView(context, mapView)
     private var lastConfettiTrigger = 0
 
     init {
         addView(mapView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(weatherView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(trendPopView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(sparkleView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(confettiView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         trendPopView.isClickable = false
         trendPopView.isFocusable = false
@@ -725,7 +748,9 @@ private class MapWeatherTouchContainer(
         confettiView.isFocusable = false
         weatherView.isClickable = false
         weatherView.isFocusable = false
-        isClickable = true
+        sparkleView.isClickable = false
+        sparkleView.isFocusable = false
+        isClickable = false
     }
 
     fun setWeather(weather: WeatherBadge) {
@@ -734,6 +759,10 @@ private class MapWeatherTouchContainer(
 
     fun setTrendPops(stop: TourStop?, insight: AiTourInsight?, onPop: () -> Unit) {
         trendPopView.setTrend(stop, insight, onPop)
+    }
+
+    fun setRadiusSparkles(center: Point?, radiusKm: Int) {
+        sparkleView.setRadius(center, radiusKm)
     }
 
     fun burstConfetti(trigger: Int) {
@@ -759,6 +788,7 @@ private class GdxUprightTrendPopView(
     private var startMs = 0L
     private var onObjectPop: (() -> Unit)? = null
     private val poppedIndices = mutableSetOf<Int>()
+    private val frozenScreenPositions = mutableMapOf<Int, PointF>()
 
     private val animationTick = object : Runnable {
         override fun run() {
@@ -784,6 +814,7 @@ private class GdxUprightTrendPopView(
         if (nextStop == null || nextInsight == null) {
             objects = emptyList()
             poppedIndices.clear()
+            frozenScreenPositions.clear()
             removeCallbacks(animationTick)
             invalidate()
             return
@@ -791,6 +822,7 @@ private class GdxUprightTrendPopView(
         if (changed) {
             objects = buildTrendPopObjects(nextStop, nextInsight)
             poppedIndices.clear()
+            frozenScreenPositions.clear()
             startMs = SystemClock.uptimeMillis()
             removeCallbacks(animationTick)
             postOnAnimation(animationTick)
@@ -808,12 +840,15 @@ private class GdxUprightTrendPopView(
         val activeInsight = insight ?: return
         val elapsed = (SystemClock.uptimeMillis() - startMs).coerceAtLeast(0L)
         objects.forEachIndexed { index, item ->
-            val screen = mapView.mapboxMap.pixelForCoordinate(item.point)
-            val x = screen.x.toFloat()
-            val y = screen.y.toFloat()
-            if (x !in -160f..(width + 160f).toFloat() || y !in -220f..(height + 180f).toFloat()) return@forEachIndexed
             val localElapsed = elapsed - item.delayMs
             if (localElapsed < 0L) return@forEachIndexed
+            val frozenPosition = frozenScreenPositions.getOrPut(index) {
+                val screen = mapView.mapboxMap.pixelForCoordinate(item.point)
+                PointF(screen.x.toFloat(), screen.y.toFloat())
+            }
+            val x = frozenPosition.x
+            val y = frozenPosition.y
+            if (x !in -160f..(width + 160f).toFloat() || y !in -220f..(height + 180f).toFloat()) return@forEachIndexed
             val popPhase = (localElapsed / TREND_3D_POP_MS.toFloat()).coerceIn(0f, 1f)
             val scale = overshootScale(popPhase) * item.scale
             val bob = sin((elapsed + index * 157L) / 520f) * 3f
@@ -2175,6 +2210,104 @@ private fun fallbackWeatherBadge(point: Point): WeatherBadge {
         else -> "Mostly Clear" to "🌤️"
     }
     return WeatherBadge(condition.second, condition.first, "${temperature}°F")
+}
+
+private class RadiusSparkleView(
+    context: Context,
+    private val mapView: MapView
+) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var center: Point? = null
+    private var radiusKm: Int = 0
+    private val sparkles = List(450) { createRandomSparkle() }
+    private val startMs = SystemClock.uptimeMillis()
+
+    private fun createRandomSparkle() = Sparkle(
+        bearing = Math.random() * 360.0,
+        size = (2.5f + Math.random() * 8.5f).toFloat(),
+        alpha = (0.25f + Math.random() * 0.75f).toFloat(),
+        radialFactor = Math.random(),
+        phase = (Math.random() * Math.PI * 2.0).toFloat()
+    )
+
+    fun setRadius(center: Point?, radiusKm: Int) {
+        if (this.center != center || this.radiusKm != radiusKm) {
+            this.center = center
+            this.radiusKm = radiusKm
+            invalidate()
+        }
+    }
+
+    private val animationTick = object : Runnable {
+        override fun run() {
+            invalidate()
+            postOnAnimation(this)
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        postOnAnimation(animationTick)
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(animationTick)
+        super.onDetachedFromWindow()
+    }
+
+    override fun onDraw(canvas: AndroidCanvas) {
+        super.onDraw(canvas)
+        val center = center ?: return
+        if (radiusKm <= 0) return
+
+        val elapsed = SystemClock.uptimeMillis() - startMs
+        paint.style = Paint.Style.FILL
+
+        sparkles.forEach { sparkle ->
+            val r = radiusKm.toDouble() * sqrt(sparkle.radialFactor)
+            val coord = getPointOnCircle(center, r, sparkle.bearing)
+            val pixel = mapView.mapboxMap.pixelForCoordinate(coord)
+            
+            if (pixel.x in -60.0..(width + 60).toDouble() && pixel.y in -60.0..(height + 60).toDouble()) {
+                val twinkle = (sin(elapsed / 380.0 + sparkle.phase).toFloat() + 1f) / 2f
+                val currentAlpha = sparkle.alpha * (0.3f + 0.7f * twinkle)
+                val currentSize = sparkle.size * (0.7f + 0.3f * twinkle)
+                
+                // Glow
+                paint.color = AndroidColor.argb((currentAlpha * 95).toInt(), 255, 225, 120)
+                canvas.drawCircle(pixel.x.toFloat(), pixel.y.toFloat(), currentSize * 1.5f, paint)
+                
+                // Core
+                paint.color = AndroidColor.argb((currentAlpha * 255).toInt(), 255, 255, 235)
+                canvas.drawCircle(pixel.x.toFloat(), pixel.y.toFloat(), currentSize / 2f, paint)
+            }
+        }
+    }
+
+    private fun getPointOnCircle(center: Point, radiusKm: Double, bearingDegrees: Double): Point {
+        val angularDistance = radiusKm / EARTH_RADIUS_KM.toDouble()
+        val bearingRad = Math.toRadians(bearingDegrees)
+        val centerLat = Math.toRadians(center.latitude())
+        val centerLng = Math.toRadians(center.longitude())
+
+        val lat = asin(
+            sin(centerLat) * cos(angularDistance) +
+                cos(centerLat) * sin(angularDistance) * cos(bearingRad)
+        )
+        val lng = centerLng + atan2(
+            sin(bearingRad) * sin(angularDistance) * cos(centerLat),
+            cos(angularDistance) - sin(centerLat) * sin(lat)
+        )
+        return Point.fromLngLat(Math.toDegrees(lng), Math.toDegrees(lat))
+    }
+    
+    private data class Sparkle(
+        val bearing: Double,
+        val size: Float,
+        val alpha: Float,
+        val radialFactor: Double,
+        val phase: Float
+    )
 }
 
 @Composable

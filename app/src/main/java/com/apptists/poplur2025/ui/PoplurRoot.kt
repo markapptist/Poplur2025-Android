@@ -128,7 +128,7 @@ fun PoplurRoot(
                     .padding(bottom = CUBE_BOTTOM_OFFSET)
                     .size(CUBE_CONTAINER_SIZE),
                 update = { view ->
-                    view.visibility = if (tab == AppTab.Camera || tab == AppTab.Map) {
+                    view.visibility = if (tab == AppTab.Camera) {
                         android.view.View.GONE
                     } else {
                         android.view.View.VISIBLE
