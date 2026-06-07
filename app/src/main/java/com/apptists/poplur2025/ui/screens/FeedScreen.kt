@@ -19,8 +19,10 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.apptists.poplur2025.ads.AdManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -35,6 +37,8 @@ import com.apptists.poplur2025.data.Post
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.UserInfoOverlay
+import com.google.android.gms.ads.AdSize
+import com.google.android.gms.ads.AdView
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 
@@ -43,7 +47,7 @@ fun FeedScreen(
     currentPostIndex: Int,
     onIndexChange: (Int) -> Unit
 ) {
-    val currentPost = remember(currentPostIndex) { DemoPostStore.getPostForIndex(currentPostIndex) }
+    val currentSlot = remember(currentPostIndex) { resolveFeedSlot(currentPostIndex) }
 
     Box(
         modifier = Modifier
@@ -77,16 +81,29 @@ fun FeedScreen(
     ) {
         // 1. Background Content (TV Flip Effect)
         AnimatedContent(
-            targetState = currentPost,
+            targetState = currentSlot,
             transitionSpec = {
                 // TV style flip: Instant fade for speed
                 fadeIn(animationSpec = tween(100, easing = FastOutSlowInEasing))
                     .togetherWith(fadeOut(animationSpec = tween(100, easing = FastOutSlowInEasing)))
             },
             label = "ChannelFlip"
-        ) { post ->
+        ) { slot ->
             Box(modifier = Modifier.fillMaxSize()) {
-                MediaContent(post = post)
+                when (slot) {
+                    is FeedSlot.PostSlot -> {
+                        MediaContent(post = slot.post)
+                        if (slot.post.videoUrl != null) {
+                            VideoBadge(
+                                modifier = Modifier
+                                    .statusBarsPadding()
+                                    .padding(top = 72.dp, end = 18.dp)
+                                    .align(Alignment.TopEnd)
+                            )
+                        }
+                    }
+                    is FeedSlot.AdSlot -> FeedAdContent(slot = slot)
+                }
                 
                 // Gradient Overlay
                 Box(
@@ -105,7 +122,7 @@ fun FeedScreen(
 
         // 2. Top Overlay (Animated User Data)
         AnimatedContent(
-            targetState = currentPost,
+            targetState = currentSlot,
             transitionSpec = {
                 (fadeIn() + slideInVertically()).togetherWith(fadeOut() + slideOutVertically())
             },
@@ -114,16 +131,22 @@ fun FeedScreen(
                 .padding(16.dp)
                 .align(Alignment.TopStart),
             label = "UserInfoAnimation"
-        ) { post ->
-            UserInfoOverlay(
-                displayName = post.displayName,
-                location = post.locationName
-            )
+        ) { slot ->
+            when (slot) {
+                is FeedSlot.PostSlot -> UserInfoOverlay(
+                    displayName = slot.post.displayName,
+                    location = slot.post.locationName
+                )
+                is FeedSlot.AdSlot -> UserInfoOverlay(
+                    displayName = "Sponsored",
+                    location = slot.locationLabel
+                )
+            }
         }
 
         // 3. Bottom Left Overlay (Animated Post Data)
         AnimatedContent(
-            targetState = currentPost,
+            targetState = currentSlot,
             transitionSpec = {
                 (fadeIn() + scaleIn()).togetherWith(fadeOut() + scaleOut())
             },
@@ -131,11 +154,17 @@ fun FeedScreen(
                 .padding(bottom = 58.dp, start = 20.dp)
                 .align(Alignment.BottomStart),
             label = "TrendingAnimation"
-        ) { post ->
-            TrendingDisplay(
-                postsCount = post.userPostsCount,
-                radiusChange = post.radiusChange
-            )
+        ) { slot ->
+            when (slot) {
+                is FeedSlot.PostSlot -> TrendingDisplay(
+                    postsCount = slot.post.userPostsCount,
+                    radiusChange = slot.post.radiusChange
+                )
+                is FeedSlot.AdSlot -> TrendingDisplay(
+                    postsCount = slot.engagementCount,
+                    radiusChange = slot.radiusChange
+                )
+            }
         }
 
         // 4. Bottom Center placeholder space for the global Cube
@@ -148,7 +177,7 @@ fun FeedScreen(
 
         // 5. Bottom Right Overlay (Animated Radius Data)
         AnimatedContent(
-            targetState = currentPost,
+            targetState = currentSlot,
             transitionSpec = {
                 (fadeIn() + slideInHorizontally { it }).togetherWith(fadeOut() + slideOutHorizontally { it })
             },
@@ -156,10 +185,109 @@ fun FeedScreen(
                 .padding(bottom = 48.dp, end = 20.dp)
                 .align(Alignment.BottomEnd),
             label = "RadiusAnimation"
-        ) { post ->
+        ) { slot ->
             RadiusDisplay(
-                radius = post.radius,
+                radius = when (slot) {
+                    is FeedSlot.PostSlot -> slot.post.radius
+                    is FeedSlot.AdSlot -> slot.radius
+                },
                 unit = "mi"
+            )
+        }
+    }
+}
+
+private const val AD_FREQUENCY = 6
+private const val FEED_BANNER_AD_UNIT_ID = "ca-app-pub-3940256099942544/6300978111"
+
+private sealed interface FeedSlot {
+    data class PostSlot(val post: Post) : FeedSlot
+    data class AdSlot(
+        val id: String,
+        val headline: String,
+        val body: String,
+        val locationLabel: String,
+        val radius: Int,
+        val engagementCount: Int,
+        val radiusChange: Int
+    ) : FeedSlot
+}
+
+private fun resolveFeedSlot(index: Int): FeedSlot {
+    val normalized = if (index < 0) {
+        val cycle = AD_FREQUENCY * DemoPostStore.posts.size
+        (cycle + (index % cycle)) % cycle
+    } else {
+        index
+    }
+    if ((normalized + 1) % AD_FREQUENCY == 0) {
+        return demoAdSlot(normalized / AD_FREQUENCY)
+    }
+    val adsBefore = (normalized + 1) / AD_FREQUENCY
+    return FeedSlot.PostSlot(DemoPostStore.getPostForIndex(normalized - adsBefore))
+}
+
+private fun demoAdSlot(adIndex: Int): FeedSlot.AdSlot {
+    val ads = listOf(
+        FeedSlot.AdSlot("ad-$adIndex-1", "Poplur Pro", "Boost your next post where people are already watching.", "Sponsored nearby", 1250, 84, 18),
+        FeedSlot.AdSlot("ad-$adIndex-2", "Tonight's Drop", "Find events, food, and creator moments before they peak.", "Sponsored trend", 890, 126, 24),
+        FeedSlot.AdSlot("ad-$adIndex-3", "Creator Tools", "Turn live clips into local reach with smarter posting.", "Sponsored creator", 1420, 62, 11)
+    )
+    return ads[adIndex % ads.size].copy(id = "ad-$adIndex")
+}
+
+@Composable
+private fun VideoBadge(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        color = Color.Black.copy(alpha = .46f),
+        shape = MaterialTheme.shapes.large
+    ) {
+        Text(
+            "VIDEO",
+            color = Color.White,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+        )
+    }
+}
+
+@Composable
+private fun FeedAdContent(slot: FeedSlot.AdSlot) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(Color(0xFF2B1648), Color.Black),
+                    radius = 950f
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("SPONSORED", color = Color.White.copy(alpha = .62f), fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(16.dp))
+            Text(slot.headline, color = Color.White, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(10.dp))
+            Text(slot.body, color = Color.White.copy(alpha = .86f), style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(28.dp))
+            AndroidView(
+                factory = { context ->
+                    AdView(context).apply {
+                        setAdSize(AdSize.BANNER)
+                        adUnitId = FEED_BANNER_AD_UNIT_ID
+                        AdManager.loadBanner(this)
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
             )
         }
     }
