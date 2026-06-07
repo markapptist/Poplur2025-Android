@@ -2,6 +2,7 @@ package com.apptists.poplur2025.ui
 
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import android.opengl.GLSurfaceView
@@ -29,9 +30,15 @@ class LogoAnimationFragment : AndroidFragmentApplication() {
         
         view.setBackgroundColor(0)
         view.background = null
+        view.isClickable = false
+        view.isFocusable = false
         
         if (view is GLSurfaceView) {
-            view.setZOrderMediaOverlay(true)
+            view.setZOrderOnTop(true)
+            view.holder.setFormat(PixelFormat.TRANSLUCENT)
+        }
+        if (view is SurfaceView) {
+            view.setZOrderOnTop(true)
             view.holder.setFormat(PixelFormat.TRANSLUCENT)
         }
         

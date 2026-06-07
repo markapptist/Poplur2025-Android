@@ -1,76 +1,152 @@
 package com.apptists.poplur2025.ui
 
+import android.util.Log
 import com.badlogic.gdx.ApplicationAdapter
 import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.graphics.GL20
+import com.badlogic.gdx.graphics.PerspectiveCamera
 import com.badlogic.gdx.graphics.Texture
-import com.badlogic.gdx.graphics.g2d.SpriteBatch
+import com.badlogic.gdx.graphics.VertexAttributes.Usage
+import com.badlogic.gdx.graphics.g3d.Environment
+import com.badlogic.gdx.graphics.g3d.Material
+import com.badlogic.gdx.graphics.g3d.Model
+import com.badlogic.gdx.graphics.g3d.ModelBatch
+import com.badlogic.gdx.graphics.g3d.ModelInstance
+import com.badlogic.gdx.graphics.g3d.attributes.BlendingAttribute
+import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute
+import com.badlogic.gdx.graphics.g3d.attributes.TextureAttribute
+import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight
+import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder
 import com.badlogic.gdx.math.Interpolation
-import android.util.Log
+import com.badlogic.gdx.math.Quaternion
+import com.badlogic.gdx.math.Vector3
+import kotlin.math.sin
 
 class LogoAnimationAdapter : ApplicationAdapter() {
-    private var spriteBatch: SpriteBatch? = null
+    private var camera: PerspectiveCamera? = null
+    private var modelBatch: ModelBatch? = null
     private var logoTexture: Texture? = null
-    private var logoScale = 0f
-    private var logoAlpha = 0f
-    private var logoAnimTime = 1.2f // Start finished
-    private var isLogoAnimating = false
+    private var logoModel: Model? = null
+    private var logoInstance: ModelInstance? = null
+    private var environment: Environment? = null
+    private var animTime = LOGO_POP_TOTAL_SECONDS
+    private var animating = false
+    private var pendingTrigger = true
 
     override fun create() {
         try {
-            Log.d("LogoAnimationAdapter", "create() started")
-            spriteBatch = SpriteBatch()
-            try {
-                logoTexture = Texture(Gdx.files.internal("logo.png"))
-                logoTexture?.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
-            } catch (e: Exception) {
-                Log.e("LogoAnimationAdapter", "Failed to load logo.png", e)
+            Gdx.graphics.setContinuousRendering(true)
+            Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
+            Gdx.gl.glEnable(GL20.GL_BLEND)
+            Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA)
+
+            val width = Gdx.graphics.width.toFloat().coerceAtLeast(1f)
+            val height = Gdx.graphics.height.toFloat().coerceAtLeast(1f)
+            camera = PerspectiveCamera(38f, width, height).apply {
+                position.set(0f, 0f, 5.2f)
+                lookAt(0f, 0f, 0f)
+                near = 0.1f
+                far = 100f
+                update()
             }
-            Log.d("LogoAnimationAdapter", "create() finished successfully")
+            modelBatch = ModelBatch()
+            logoTexture = Texture(Gdx.files.internal("logo.png")).apply {
+                setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
+            }
+
+            val material = Material(
+                TextureAttribute.createDiffuse(logoTexture),
+                ColorAttribute.createDiffuse(1f, 1f, 1f, 1f),
+                BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, 1f)
+            )
+            logoModel = ModelBuilder().createBox(
+                2.2f,
+                2.2f,
+                0.18f,
+                material,
+                (Usage.Position or Usage.Normal or Usage.TextureCoordinates).toLong()
+            )
+            logoInstance = ModelInstance(logoModel)
+            environment = Environment().apply {
+                set(ColorAttribute(ColorAttribute.AmbientLight, 0.88f, 0.88f, 0.92f, 1f))
+                add(DirectionalLight().set(0.75f, 0.72f, 0.82f, -0.2f, -0.5f, -1f))
+            }
+            if (pendingTrigger) triggerLogoPop()
         } catch (e: Exception) {
-            Log.e("LogoAnimationAdapter", "CRITICAL ERROR in create()", e)
+            Log.e("LogoAnimationAdapter", "Failed to create 3D logo animation", e)
         }
     }
 
     fun triggerLogoPop() {
-        isLogoAnimating = true
-        logoAnimTime = 0f
+        pendingTrigger = true
+        animating = true
+        animTime = 0f
+        Gdx.graphics.requestRendering()
+    }
+
+    override fun resize(width: Int, height: Int) {
+        camera?.viewportWidth = width.toFloat().coerceAtLeast(1f)
+        camera?.viewportHeight = height.toFloat().coerceAtLeast(1f)
+        camera?.update()
     }
 
     override fun render() {
-        if (isLogoAnimating) {
-            logoAnimTime += Gdx.graphics.deltaTime
-            if (logoAnimTime < 0.6f) {
-                val p = (logoAnimTime / 0.6f)
-                logoScale = Interpolation.swingOut.apply(0f, 1.2f, p)
-                logoAlpha = Interpolation.fade.apply(0f, 1f, p)
-            } else if (logoAnimTime < 1.2f) {
-                val p = (logoAnimTime - 0.6f) / 0.6f
-                logoScale = 1.2f - p * 0.2f
-                logoAlpha = 1f - p
-            } else {
-                isLogoAnimating = false
-                logoScale = 0f
-                logoAlpha = 0f
+        Gdx.gl.glViewport(0, 0, Gdx.graphics.width, Gdx.graphics.height)
+        Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
+        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
+
+        if (!animating) return
+
+        animTime += Gdx.graphics.deltaTime
+        val alpha: Float
+        val scale: Float
+        when {
+            animTime < 0.42f -> {
+                val progress = (animTime / 0.42f).coerceIn(0f, 1f)
+                scale = Interpolation.swingOut.apply(0.15f, 1.08f, progress)
+                alpha = Interpolation.fade.apply(0f, 1f, progress)
+            }
+            animTime < 2.35f -> {
+                val breathe = sin((animTime - 0.42f) * 5.4f) * 0.025f
+                scale = 1.03f + breathe
+                alpha = 1f
+            }
+            animTime < LOGO_POP_TOTAL_SECONDS -> {
+                val progress = ((animTime - 2.35f) / (LOGO_POP_TOTAL_SECONDS - 2.35f)).coerceIn(0f, 1f)
+                scale = Interpolation.fade.apply(1.03f, 0.72f, progress)
+                alpha = 1f - progress
+            }
+            else -> {
+                animating = false
+                pendingTrigger = false
+                return
             }
         }
 
-        // CRITICAL: Ensure clear color is transparent EVERY frame
-        Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
-        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
+        logoModel?.materials?.firstOrNull()?.set(
+            BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, alpha)
+        )
+        val yaw = sin(animTime * 2.2f) * 7f
+        val pitch = -5f + sin(animTime * 1.7f) * 2.5f
+        logoInstance?.transform?.set(Vector3.Zero, Quaternion().setEulerAngles(yaw, pitch, 0f))
+        logoInstance?.transform?.scale(scale, scale, scale)
 
-        if (logoAlpha > 0f && logoTexture != null) {
-            spriteBatch?.begin()
-            val w = 340f * logoScale
-            val h = 340f * logoScale
-            spriteBatch?.setColor(1f, 1f, 1f, logoAlpha)
-            spriteBatch?.draw(logoTexture, (Gdx.graphics.width - w) / 2f, (Gdx.graphics.height - h) / 2f, w, h)
-            spriteBatch?.end()
+        val batch = modelBatch ?: return
+        val cam = camera ?: return
+        logoInstance?.let {
+            batch.begin(cam)
+            batch.render(it, environment)
+            batch.end()
         }
     }
 
     override fun dispose() {
-        spriteBatch?.dispose()
+        modelBatch?.dispose()
+        logoModel?.dispose()
         logoTexture?.dispose()
+    }
+
+    companion object {
+        private const val LOGO_POP_TOTAL_SECONDS = 3f
     }
 }

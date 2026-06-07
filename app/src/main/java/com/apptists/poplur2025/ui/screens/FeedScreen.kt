@@ -1,5 +1,6 @@
 package com.apptists.poplur2025.ui.screens
 
+import android.view.View
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -23,6 +24,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.apptists.poplur2025.ads.AdManager
+import androidx.fragment.app.FragmentActivity
+import androidx.fragment.app.FragmentContainerView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -34,6 +37,7 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.Post
+import com.apptists.poplur2025.ui.LogoAnimationFragment
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.UserInfoOverlay
@@ -48,6 +52,13 @@ fun FeedScreen(
     onIndexChange: (Int) -> Unit
 ) {
     val currentSlot = remember(currentPostIndex) { resolveFeedSlot(currentPostIndex) }
+    var showFeedLogo by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        showFeedLogo = true
+        delay(3_000)
+        showFeedLogo = false
+    }
 
     Box(
         modifier = Modifier
@@ -160,6 +171,51 @@ fun FeedScreen(
                 },
                 unit = "mi"
             )
+        }
+
+        if (showFeedLogo) {
+            key("feed-tv-logo") {
+                val logoContainerId = remember { android.view.View.generateViewId() }
+                val logoFragment = remember { LogoAnimationFragment() }
+                AndroidView(
+                    factory = { context ->
+                        FragmentContainerView(context).apply {
+                            id = logoContainerId
+                            setBackgroundColor(0)
+                            background = null
+                            isClickable = false
+                            isFocusable = false
+
+                            val activity = context as? FragmentActivity
+                            val attachLogo = {
+                                if (!logoFragment.isAdded && isAttachedToWindow) {
+                                    activity?.supportFragmentManager?.beginTransaction()
+                                        ?.replace(id, logoFragment)
+                                        ?.commitAllowingStateLoss()
+                                    post { logoFragment.triggerLogoPop() }
+                                }
+                            }
+                            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                                override fun onViewAttachedToWindow(v: View) {
+                                    attachLogo()
+                                }
+
+                                override fun onViewDetachedFromWindow(v: View) {
+                                    if (logoFragment.isAdded) {
+                                        activity?.supportFragmentManager?.beginTransaction()
+                                            ?.remove(logoFragment)
+                                            ?.commitAllowingStateLoss()
+                                    }
+                                }
+                            })
+                            post { attachLogo() }
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(260.dp)
+                )
+            }
         }
 
         Box(
