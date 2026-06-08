@@ -17,7 +17,6 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.content.pm.PackageManager
 import android.media.AudioManager
-import android.media.ToneGenerator
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
@@ -60,6 +59,7 @@ import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.AudioAttributes
+import androidx.compose.ui.platform.LocalInspectionMode
 import com.apptists.poplur2025.ui.MapViewModel
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -97,6 +97,9 @@ import com.mapbox.maps.plugin.animation.MapAnimationOptions.Companion.mapAnimati
 import com.mapbox.maps.plugin.animation.flyTo
 import com.mapbox.maps.plugin.gestures.addOnMapClickListener
 import com.mapbox.maps.plugin.locationcomponent.location
+import androidx.compose.ui.tooling.preview.Preview
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -118,6 +121,20 @@ import kotlin.math.sqrt
 fun MapScreen(
     isVisible: Boolean = true,
     mapViewModel: MapViewModel = viewModel()
+) {
+    MapScreenContent(
+        isVisible = isVisible,
+        centerOnUserTrigger = mapViewModel.centerOnUserTrigger,
+        postCoordinateTrigger = mapViewModel.postCoordinateTrigger
+    )
+}
+
+@SuppressLint("MissingPermission")
+@Composable
+fun MapScreenContent(
+    isVisible: Boolean = true,
+    centerOnUserTrigger: Flow<Unit> = emptyFlow(),
+    postCoordinateTrigger: Flow<Point> = emptyFlow()
 ) {
     val context = LocalContext.current
     var hasLocationPermission by remember {
@@ -144,10 +161,11 @@ fun MapScreen(
     var confettiTrigger by remember { mutableIntStateOf(0) }
     var userLocation by remember { mutableStateOf<Point?>(null) }
     var idleGeneration by remember { mutableIntStateOf(0) }
+    val isPreview = LocalInspectionMode.current
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
-    val mapView = remember { MapView(context) }
+    val mapView = remember { if (isPreview) null else MapView(context) }
     val locationProvider = remember { LocationProvider(context) }
-    val popTone = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 82) }
+    val popTone = remember { if (isPreview) null else RealPopTonePlayer() }
     val postFeatures = remember {
         DemoPostStore.posts.mapNotNull { post ->
             val lat = post.latitude
@@ -190,7 +208,7 @@ fun MapScreen(
     )
 
     DisposableEffect(popTone) {
-        onDispose { popTone.release() }
+        onDispose { popTone?.release() }
     }
 
     LaunchedEffect(activeMusicStop?.cityName, activeAiInsight?.id, isVisible) {
@@ -218,11 +236,11 @@ fun MapScreen(
 
     LaunchedEffect(mapReady, hasLocationPermission) {
         if (mapReady) {
-            mapView.location.updateSettings {
+            mapView?.location?.updateSettings {
                 enabled = hasLocationPermission
                 pulsingEnabled = true
             }
-            mapView.mapboxMap.addOnMapClickListener { point ->
+            mapView?.mapboxMap?.addOnMapClickListener { point ->
                 val current = selectedCoordinate
                 if (current != null) {
                     // If user taps very close to the current selection or we just want to clear on any tap:
@@ -252,10 +270,10 @@ fun MapScreen(
                 activeWeatherPoint = point
                 activeAiInsight = null
                 idleGeneration++
-                mapView.mapboxMap.getStyle { style ->
+                mapView?.mapboxMap?.getStyle { style ->
                     style.clearTrendPopSource()
                 }
-                mapView.mapboxMap.flyTo(
+                mapView?.mapboxMap?.flyTo(
                     CameraOptions.Builder()
                         .center(point)
                         .zoom(17.6)
@@ -296,7 +314,7 @@ fun MapScreen(
     LaunchedEffect(mapReady, userLocation) {
         val location = userLocation ?: return@LaunchedEffect
         if (mapReady) {
-            mapView.mapboxMap.getStyle { style ->
+            mapView?.mapboxMap?.getStyle { style ->
                 style.getSourceAs<GeoJsonSource>(CURRENT_PIN_SOURCE_ID)?.geometry(location)
                 style.setRadiusCircleSource(location, DEFAULT_RADIUS_KM)
             }
@@ -306,17 +324,17 @@ fun MapScreen(
     LaunchedEffect(mapReady, userLocation) {
         val location = userLocation ?: return@LaunchedEffect
         if (mapReady) {
-            mapView.mapboxMap.getStyle { style ->
+            mapView?.mapboxMap?.getStyle { style ->
                 style.setRadiusCircleSource(location, DEFAULT_RADIUS_KM)
             }
         }
     }
 
     LaunchedEffect(mapReady, userLocation) {
-        mapViewModel.centerOnUserTrigger.collect {
+        centerOnUserTrigger.collect {
             val location = userLocation ?: return@collect
             if (mapReady) {
-                mapView.mapboxMap.flyTo(
+                mapView?.mapboxMap?.flyTo(
                     CameraOptions.Builder()
                         .center(location)
                         .zoom(16.9)
@@ -331,7 +349,7 @@ fun MapScreen(
 
     LaunchedEffect(mapReady, activeMusicStop) {
         if (mapReady) {
-            mapView.mapboxMap.getStyle { style ->
+            mapView?.mapboxMap?.getStyle { style ->
                 style.setMusicWaveSource(activeMusicStop?.coordinate)
             }
         }
@@ -341,10 +359,10 @@ fun MapScreen(
         if (!mapReady) return@LaunchedEffect
         val insight = activeAiInsight
         if (insight == null) {
-            mapView.mapboxMap.getStyle { style -> style.clearTrendPopSource() }
+            mapView?.mapboxMap?.getStyle { style -> style.clearTrendPopSource() }
             return@LaunchedEffect
         }
-        mapView.mapboxMap.getStyle { style ->
+        mapView?.mapboxMap?.getStyle { style ->
             style.setTrendPopIcon(insight)
             style.clearTrendPopSource()
         }
@@ -354,7 +372,7 @@ fun MapScreen(
         if (!mapReady || activeMusicStop == null) return@LaunchedEffect
         var frame = 0
         while (true) {
-            mapView.mapboxMap.getStyle { style ->
+            mapView?.mapboxMap?.getStyle { style ->
                 style.setStyleLayerProperty(
                     MUSIC_WAVE_LAYER_ID,
                     "icon-image",
@@ -378,7 +396,7 @@ fun MapScreen(
 
     LaunchedEffect(mapReady, radiusPulse) {
         if (mapReady) {
-            mapView.mapboxMap.getStyle { style ->
+            mapView?.mapboxMap?.getStyle { style ->
                 style.setStyleLayerProperty(RADIUS_CIRCLE_LINE_LAYER_ID, "line-width", Value.valueOf(radiusPulse.toDouble()))
             }
         }
@@ -391,7 +409,7 @@ fun MapScreen(
             activeRadius = DEFAULT_RADIUS_KM
             activeWeatherPoint = location
             activeAiInsight = null
-            mapView.mapboxMap.setCamera(
+            mapView?.mapboxMap?.setCamera(
                 CameraOptions.Builder()
                     .center(globeView)
                     .zoom(0.45)
@@ -400,7 +418,7 @@ fun MapScreen(
                     .build()
             )
             delay(1150)
-            mapView.mapboxMap.flyTo(
+            mapView?.mapboxMap?.flyTo(
                 CameraOptions.Builder()
                     .center(location)
                     .zoom(7.0)
@@ -410,7 +428,7 @@ fun MapScreen(
                 mapAnimationOptions { duration(1900) }
             )
             delay(2050)
-            mapView.mapboxMap.flyTo(
+            mapView?.mapboxMap?.flyTo(
                 CameraOptions.Builder()
                     .center(location)
                     .zoom(16.9)
@@ -431,7 +449,7 @@ fun MapScreen(
                 activeCityName = "World"
                 activeRadius = EARTH_RADIUS_KM
                 activeWeatherPoint = null
-                mapView.mapboxMap.flyTo(
+                mapView?.mapboxMap?.flyTo(
                     CameraOptions.Builder()
                         .center(globeView)
                         .zoom(0.55)
@@ -446,7 +464,7 @@ fun MapScreen(
                 activeWeatherPoint = stop.coordinate
                 val insight = spoofAiTourInsight(stop)
                 activeAiInsight = insight
-                mapView.mapboxMap.flyTo(
+                mapView?.mapboxMap?.flyTo(
                     CameraOptions.Builder()
                         .center(stop.coordinate)
                         .zoom(stop.zoom)
@@ -456,11 +474,11 @@ fun MapScreen(
                     mapAnimationOptions { duration(4200) }
                 )
                 delay(TREND_POP_START_DELAY_MS)
-                mapView.mapboxMap.getStyle { style ->
+                mapView?.mapboxMap?.getStyle { style ->
                     style.setTrendPopIcon(insight)
                     style.clearTrendPopSource()
                 }
-                popTone.startTone(ToneGenerator.TONE_PROP_BEEP, 130)
+                popTone?.play(130)
                 confettiTrigger++
                 delay((TOUR_STOP_DWELL_MS - TREND_POP_START_DELAY_MS).coerceAtLeast(0L))
             }
@@ -468,125 +486,132 @@ fun MapScreen(
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(
-            factory = {
-                MapWeatherTouchContainer(context, mapView).apply {
-                    setWeather(activeWeather)
-                    mapView.apply {
-                    mapboxMap.setCamera(
-                        CameraOptions.Builder()
-                            .center(globeView)
-                            .zoom(0.45)
-                            .pitch(0.0)
-                            .bearing(0.0)
-                            .build()
-                    )
-                    mapboxMap.loadStyle(
-                        style(Style.STANDARD) {
-                            +atmosphere { }
-                            +projection(ProjectionName.GLOBE)
-                            +geoJsonSource(POST_SOURCE_ID) {
-                                featureCollection(FeatureCollection.fromFeatures(postFeatures))
-                            }
-                            +geoJsonSource(CURRENT_PIN_SOURCE_ID) {
-                                geometry(fallbackLocation)
-                            }
-                            +geoJsonSource(RADIUS_CIRCLE_SOURCE_ID) {
-                                geometry(radiusCirclePolygon(fallbackLocation, DEFAULT_RADIUS_KM))
-                            }
-                            +geoJsonSource(LANDMARK_PIN_SOURCE_ID) {
-                                featureCollection(landmarkFeatures)
-                            }
-                            +geoJsonSource(MUSIC_WAVE_SOURCE_ID) {
-                                featureCollection(emptyFeatureCollection())
-                            }
-                            +geoJsonSource(TREND_POP_SOURCE_ID) {
-                                featureCollection(emptyFeatureCollection())
-                            }
-                            +circleLayer(POST_LAYER_ID, POST_SOURCE_ID) {
-                                circleRadius(18.0)
-                                circleColor("#ff2d8a")
-                                circleOpacity(0.46)
-                                circleStrokeColor("#ffffff")
-                                circleStrokeOpacity(0.9)
-                                circleStrokeWidth(2.5)
-                                circleEmissiveStrength(1.0)
-                            }
-                            +fillLayer(RADIUS_CIRCLE_FILL_LAYER_ID, RADIUS_CIRCLE_SOURCE_ID) {
-                                fillColor("#d8892b")
-                                fillOpacity(0.55)
-                            }
-                            +lineLayer(RADIUS_CIRCLE_LINE_LAYER_ID, RADIUS_CIRCLE_SOURCE_ID) {
-                                lineColor("#ffb347")
-                                lineOpacity(0.98)
-                                lineWidth(6.0)
-                            }
-                            +symbolLayer(LANDMARK_PIN_LAYER_ID, LANDMARK_PIN_SOURCE_ID) {
-                                iconImage(PINK_PIN_IMAGE_ID)
-                                iconAnchor(IconAnchor.BOTTOM)
-                                iconAllowOverlap(true)
-                                iconIgnorePlacement(true)
-                                iconSize(0.28)
-                                iconOffset(listOf(0.0, -4.0))
-                            }
-                            +symbolLayer(MUSIC_WAVE_LAYER_ID, MUSIC_WAVE_SOURCE_ID) {
-                                iconImage(MUSIC_WAVE_IMAGE_IDS.first())
-                                iconAnchor(IconAnchor.BOTTOM)
-                                iconAllowOverlap(true)
-                                iconIgnorePlacement(true)
-                                iconSize(0.36)
-                                iconOffset(listOf(31.0, -67.0))
-                            }
-                            +symbolLayer(TREND_POP_LAYER_ID, TREND_POP_SOURCE_ID) {
-                                iconImage(TrendCategory.Clothes.imageId)
-                                iconAnchor(IconAnchor.CENTER)
-                                iconAllowOverlap(true)
-                                iconIgnorePlacement(true)
-                                iconPitchAlignment(IconPitchAlignment.MAP)
-                                iconRotationAlignment(IconRotationAlignment.MAP)
-                                iconSize(0.42)
-                            }
-                            +symbolLayer(CURRENT_PIN_LAYER_ID, CURRENT_PIN_SOURCE_ID) {
-                                iconImage(BLUE_PIN_IMAGE_ID)
-                                iconAnchor(IconAnchor.BOTTOM)
-                                iconAllowOverlap(true)
-                                iconIgnorePlacement(true)
-                                iconSize(0.32)
-                                iconOffset(listOf(0.0, -4.0))
+        if (!isPreview) {
+            AndroidView(
+                factory = {
+                    MapWeatherTouchContainer(context, mapView!!).apply {
+                        setWeather(activeWeather)
+                        mapView.apply {
+                            mapboxMap.setCamera(
+                                CameraOptions.Builder()
+                                    .center(globeView)
+                                    .zoom(0.45)
+                                    .pitch(0.0)
+                                    .bearing(0.0)
+                                    .build()
+                            )
+                            mapboxMap.loadStyle(
+                                style(Style.STANDARD) {
+                                    +atmosphere { }
+                                    +projection(ProjectionName.GLOBE)
+                                    +geoJsonSource(POST_SOURCE_ID) {
+                                        featureCollection(FeatureCollection.fromFeatures(postFeatures))
+                                    }
+                                    +geoJsonSource(CURRENT_PIN_SOURCE_ID) {
+                                        geometry(fallbackLocation)
+                                    }
+                                    +geoJsonSource(RADIUS_CIRCLE_SOURCE_ID) {
+                                        geometry(radiusCirclePolygon(fallbackLocation, DEFAULT_RADIUS_KM))
+                                    }
+                                    +geoJsonSource(LANDMARK_PIN_SOURCE_ID) {
+                                        featureCollection(landmarkFeatures)
+                                    }
+                                    +geoJsonSource(MUSIC_WAVE_SOURCE_ID) {
+                                        featureCollection(emptyFeatureCollection())
+                                    }
+                                    +geoJsonSource(TREND_POP_SOURCE_ID) {
+                                        featureCollection(emptyFeatureCollection())
+                                    }
+                                    +circleLayer(POST_LAYER_ID, POST_SOURCE_ID) {
+                                        circleRadius(18.0)
+                                        circleColor("#ff2d8a")
+                                        circleOpacity(0.46)
+                                        circleStrokeColor("#ffffff")
+                                        circleStrokeOpacity(0.9)
+                                        circleStrokeWidth(2.5)
+                                        circleEmissiveStrength(1.0)
+                                    }
+                                    +fillLayer(RADIUS_CIRCLE_FILL_LAYER_ID, RADIUS_CIRCLE_SOURCE_ID) {
+                                        fillColor("#d8892b")
+                                        fillOpacity(0.55)
+                                    }
+                                    +lineLayer(RADIUS_CIRCLE_LINE_LAYER_ID, RADIUS_CIRCLE_SOURCE_ID) {
+                                        lineColor("#ffb347")
+                                        lineOpacity(0.98)
+                                        lineWidth(6.0)
+                                    }
+                                    +symbolLayer(LANDMARK_PIN_LAYER_ID, LANDMARK_PIN_SOURCE_ID) {
+                                        iconImage(PINK_PIN_IMAGE_ID)
+                                        iconAnchor(IconAnchor.BOTTOM)
+                                        iconAllowOverlap(true)
+                                        iconIgnorePlacement(true)
+                                        iconSize(0.28)
+                                        iconOffset(listOf(0.0, -4.0))
+                                    }
+                                    +symbolLayer(MUSIC_WAVE_LAYER_ID, MUSIC_WAVE_SOURCE_ID) {
+                                        iconImage(MUSIC_WAVE_IMAGE_IDS.first())
+                                        iconAnchor(IconAnchor.BOTTOM)
+                                        iconAllowOverlap(true)
+                                        iconIgnorePlacement(true)
+                                        iconSize(0.36)
+                                        iconOffset(listOf(31.0, -67.0))
+                                    }
+                                    +symbolLayer(TREND_POP_LAYER_ID, TREND_POP_SOURCE_ID) {
+                                        iconImage(TrendCategory.Clothes.imageId)
+                                        iconAnchor(IconAnchor.CENTER)
+                                        iconAllowOverlap(true)
+                                        iconIgnorePlacement(true)
+                                        iconPitchAlignment(IconPitchAlignment.MAP)
+                                        iconRotationAlignment(IconRotationAlignment.MAP)
+                                        iconSize(0.42)
+                                    }
+                                    +symbolLayer(CURRENT_PIN_LAYER_ID, CURRENT_PIN_SOURCE_ID) {
+                                        iconImage(BLUE_PIN_IMAGE_ID)
+                                        iconAnchor(IconAnchor.BOTTOM)
+                                        iconAllowOverlap(true)
+                                        iconIgnorePlacement(true)
+                                        iconSize(0.32)
+                                        iconOffset(listOf(0.0, -4.0))
+                                    }
+                                }
+                            ) { style ->
+                                style.addStyleImage(BLUE_PIN_IMAGE_ID, 1.0f, createGdxStylePinImage(BLUE_PIN_THEME), false, emptyList(), emptyList(), null)
+                                style.addStyleImage(PINK_PIN_IMAGE_ID, 1.0f, createGdxStylePinImage(PINK_PIN_THEME), false, emptyList(), emptyList(), null)
+                                MUSIC_WAVE_IMAGE_IDS.forEachIndexed { index, imageId ->
+                                    style.addStyleImage(imageId, 1.0f, createGdxMusicWaveImage(index), false, emptyList(), emptyList(), null)
+                                }
+                                TrendCategory.values().forEach { category ->
+                                    style.addStyleImage(category.imageId, 1.0f, createTrendPopImage(category), false, emptyList(), emptyList(), null)
+                                }
+                                style.setMusicWaveSource(activeMusicStop?.coordinate)
+                                style.setTrendPopIcon(activeAiInsight)
+                                style.setRadiusCircleSource(userLocation ?: fallbackLocation, DEFAULT_RADIUS_KM)
+                                style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "show3dObjects", Value.valueOf(true))
+                                style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "showPointOfInterestLabels", Value.valueOf(true))
+                                style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "showRoadLabels", Value.valueOf(true))
+                                style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "showPlaceLabels", Value.valueOf(true))
+                                style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "lightPreset", Value.valueOf("dusk"))
+                                mapReady = true
                             }
                         }
-                    ) { style ->
-                        style.addStyleImage(BLUE_PIN_IMAGE_ID, 1.0f, createGdxStylePinImage(BLUE_PIN_THEME), false, emptyList(), emptyList(), null)
-                        style.addStyleImage(PINK_PIN_IMAGE_ID, 1.0f, createGdxStylePinImage(PINK_PIN_THEME), false, emptyList(), emptyList(), null)
-                        MUSIC_WAVE_IMAGE_IDS.forEachIndexed { index, imageId ->
-                            style.addStyleImage(imageId, 1.0f, createGdxMusicWaveImage(index), false, emptyList(), emptyList(), null)
-                        }
-                        TrendCategory.values().forEach { category ->
-                            style.addStyleImage(category.imageId, 1.0f, createTrendPopImage(category), false, emptyList(), emptyList(), null)
-                        }
-                        style.setMusicWaveSource(activeMusicStop?.coordinate)
-                        style.setTrendPopIcon(activeAiInsight)
-                        style.setRadiusCircleSource(userLocation ?: fallbackLocation, DEFAULT_RADIUS_KM)
-                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "show3dObjects", Value.valueOf(true))
-                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "showPointOfInterestLabels", Value.valueOf(true))
-                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "showRoadLabels", Value.valueOf(true))
-                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "showPlaceLabels", Value.valueOf(true))
-                        style.setStyleImportConfigProperty(MAPBOX_BASEMAP_IMPORT_ID, "lightPreset", Value.valueOf("dusk"))
-                        mapReady = true
                     }
-                }
-                }
-            },
-            update = { container ->
-                container.setWeather(activeWeather)
-                container.setTrendPops(activeMusicStop, activeAiInsight) {
-                    popTone.startTone(ToneGenerator.TONE_PROP_BEEP, 80)
-                }
-                container.burstConfetti(confettiTrigger)
-                container.setRadiusSparkles(activeWeatherPoint, activeRadius)
-            },
-            modifier = Modifier.fillMaxSize().zIndex(0f)
-        )
+                },
+                update = { container ->
+                    container.setWeather(activeWeather)
+                    container.setTrendPops(activeMusicStop, activeAiInsight) {
+                        popTone?.play(80)
+                    }
+                    container.burstConfetti(confettiTrigger)
+                    container.setRadiusSparkles(activeWeatherPoint, activeRadius)
+                },
+                modifier = Modifier.fillMaxSize().zIndex(0f)
+            )
+        } else {
+            // Placeholder for map in preview
+            Box(Modifier.fillMaxSize().background(Color.DarkGray), contentAlignment = Alignment.Center) {
+                Text("Map Preview Placeholder", color = Color.White)
+            }
+        }
 
         Box(Modifier.fillMaxWidth().height(190.dp).zIndex(2f).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.68f), Color.Transparent))))
         Column(Modifier.statusBarsPadding().padding(16.dp).align(Alignment.TopStart).zIndex(2f)) {
@@ -620,15 +645,17 @@ fun MapScreen(
             onZoomChange = { requestedZoom ->
                 zoomSliderValue = requestedZoom
                 if (mapReady) {
-                    val cameraState = mapView.mapboxMap.cameraState
-                    mapView.mapboxMap.setCamera(
-                        CameraOptions.Builder()
-                            .center(cameraState.center)
-                            .zoom(requestedZoom.toDouble())
-                            .pitch(cameraState.pitch)
-                            .bearing(cameraState.bearing)
-                            .build()
-                    )
+                    val cameraState = mapView?.mapboxMap?.cameraState
+                    cameraState?.let {
+                        mapView?.mapboxMap?.setCamera(
+                            CameraOptions.Builder()
+                                .center(it.center)
+                                .zoom(requestedZoom.toDouble())
+                                .pitch(it.pitch)
+                                .bearing(it.bearing)
+                                .build()
+                        )
+                    }
                 }
             },
             modifier = Modifier
@@ -1133,28 +1160,31 @@ private fun CityTourMusicPlayer(
     aiInsight: AiTourInsight?
 ) {
     val context = LocalContext.current
+    val isPreview = LocalInspectionMode.current
     val chartTrackCache = remember { mutableStateMapOf<String, List<CityMusicTrack>>() }
     val radioTrackCache = remember { mutableStateMapOf<String, List<CityMusicTrack>>() }
     val sportsRadioTrackCache = remember { mutableStateMapOf<String, List<CityMusicTrack>>() }
     val player = remember {
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(C.USAGE_MEDIA)
-            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-            .build()
+        if (isPreview) null else {
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                .build()
 
-        ExoPlayer.Builder(context)
-            .setAudioAttributes(audioAttributes, true)
-            .build()
-            .apply {
-                repeatMode = Player.REPEAT_MODE_ONE
-                volume = 0.72f
-            }
+            ExoPlayer.Builder(context)
+                .setAudioAttributes(audioAttributes, true)
+                .build()
+                .apply {
+                    repeatMode = Player.REPEAT_MODE_ONE
+                    volume = 0.72f
+                }
+        }
     }
 
     LaunchedEffect(tourStop?.cityName, isVisible, aiInsight?.id) {
-        if (!isVisible || tourStop == null) {
-            player.pause()
-            player.clearMediaItems()
+        if (!isVisible || tourStop == null || player == null) {
+            player?.pause()
+            player?.clearMediaItems()
             return@LaunchedEffect
         }
 
@@ -1186,7 +1216,7 @@ private fun CityTourMusicPlayer(
 
     DisposableEffect(player) {
         onDispose {
-            player.release()
+            player?.release()
         }
     }
 }
@@ -2384,5 +2414,33 @@ private fun WeatherParticleOverlay(
                 }
             }
         }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF000000)
+@Composable
+fun MapScreenPreview() {
+    MaterialTheme {
+        MapScreenContent(
+            isVisible = true,
+            centerOnUserTrigger = emptyFlow(),
+            postCoordinateTrigger = emptyFlow()
+        )
+    }
+}
+
+private class RealPopTonePlayer {
+    private val generator = try {
+        android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, 82)
+    } catch (e: Exception) {
+        null
+    }
+
+    fun play(duration: Int) {
+        generator?.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, duration)
+    }
+
+    fun release() {
+        generator?.release()
     }
 }
