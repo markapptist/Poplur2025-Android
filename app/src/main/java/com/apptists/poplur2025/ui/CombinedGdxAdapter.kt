@@ -36,6 +36,7 @@ class CombinedGdxAdapter(
     private val initialTabIndex: Int = 1,
     private val onVerticalSwipe: ((Boolean) -> Unit)? = null,
     private val onLongPress: (() -> Unit)? = null,
+    private val onTap: (() -> Unit)? = null,
     private val onTabSelected: (Int) -> Unit
 ) : ApplicationAdapter() {
 
@@ -118,6 +119,11 @@ class CombinedGdxAdapter(
                 override fun touchUp(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
                     dragging = false
                     if (isVerticalSwipe && !isSwipeTriggered) Gdx.app.postRunnable { onVerticalSwipe?.invoke((screenY - downY) < 0) }
+                    val moved = abs(screenX - downX) > 15f || abs(screenY - downY) > 15f
+                    if (!moved && !longPressSent) {
+                        Gdx.app.postRunnable { onTap?.invoke() }
+                        return true
+                    }
                     val snappedIndex = snappedTabIndex(currentYawDegrees)
                     startBounceTo(-90f * snappedIndex)
                     if (isRotation || abs(screenX - downX) > 15f) Gdx.app.postRunnable { onTabSelected(snappedIndex) }
@@ -175,16 +181,9 @@ class CombinedGdxAdapter(
         sr.color = Color(0.06f, 0.07f, 0.16f, 1f)
         sr.filledRoundRect(pad, pad, size - pad*2, size - pad*2, r)
         
-        // Quilted Diamond Pattern
-        sr.set(ShapeRenderer.ShapeType.Line)
-        val step = 64f
-        for (i in -10..10) {
-            sr.color = Color(0f, 0f, 0f, 0.3f); Gdx.gl.glLineWidth(3f); sr.line(0f, i * step, size.toFloat(), i * step + size); sr.line(0f, i * step + size, size.toFloat(), i * step)
-            sr.color = Color(1f, 1f, 1f, 0.05f); Gdx.gl.glLineWidth(1.2f); sr.line(2f, i * step + 2f, size.toFloat() + 2f, i * step + size + 2f)
-        }
-        
         // Quilted Dots
         sr.set(ShapeRenderer.ShapeType.Filled)
+        val step = 64f
         for (ix in 0..6) {
             for (iy in 0..6) {
                 val px = ix * step; val py = iy * step

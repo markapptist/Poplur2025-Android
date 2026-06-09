@@ -39,14 +39,31 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
+import androidx.compose.ui.tooling.preview.Preview
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.ui.ConfettiAnimationFragment
 import kotlinx.coroutines.delay
 
 @Composable
 fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
+    WelcomeAuthScreenContent(
+        onSignIn = { email, password, onResult ->
+            authViewModel.signIn(email, password, onResult)
+        },
+        onSignUp = { email, password, onResult ->
+            authViewModel.signUp(email, password, onResult)
+        }
+    )
+}
+
+@Composable
+internal fun WelcomeAuthScreenContent(
+    initialMode: AuthMode = AuthMode.Welcome,
+    onSignIn: (String, String, (Boolean, String?) -> Unit) -> Unit,
+    onSignUp: (String, String, (Boolean, String?) -> Unit) -> Unit
+) {
     val context = LocalContext.current
-    var mode by remember { mutableStateOf(AuthMode.Welcome) }
+    var mode by remember { mutableStateOf(initialMode) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -86,7 +103,10 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
             val confettiContainerId = remember { android.view.View.generateViewId() }
             AndroidView(
                 factory = { ctx ->
-                    FragmentContainerView(ctx).apply {
+                    object : android.widget.FrameLayout(ctx) {
+                        override fun dispatchTouchEvent(ev: android.view.MotionEvent?) = false
+                        override fun onInterceptTouchEvent(ev: android.view.MotionEvent?) = false
+                    }.apply {
                         id = confettiContainerId
                         setBackgroundColor(0)
                         background = null
@@ -170,12 +190,12 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
                         loading = true
                         error = null
                         if (mode == AuthMode.Login) {
-                            authViewModel.signIn(email, password) { ok, msg ->
+                            onSignIn(email, password) { ok, msg ->
                                 loading = false
                                 if (!ok) error = msg
                             }
                         } else {
-                            authViewModel.signUp(email, password) { ok, msg ->
+                            onSignUp(email, password) { ok, msg ->
                                 loading = false
                                 if (!ok) error = msg
                             }
@@ -486,4 +506,29 @@ private fun WelcomeLogo(logoBitmap: androidx.compose.ui.graphics.ImageBitmap?, m
 @Composable
 private fun LogoFallback(modifier: Modifier) { Surface(modifier = modifier.clip(RoundedCornerShape(42.dp)), color = Color(0xFF2A1238)) { Box(contentAlignment = Alignment.Center) { Text(text = "P", color = Color.White, fontSize = 92.sp, fontWeight = FontWeight.Bold) } } }
 
-private enum class AuthMode { Welcome, Login, SignUp }
+internal enum class AuthMode { Welcome, Login, SignUp }
+
+@Preview(showBackground = true)
+@Composable
+fun WelcomeAuthScreenPreview() {
+    MaterialTheme {
+        WelcomeAuthScreenContent(
+            initialMode = AuthMode.Welcome,
+            onSignIn = { _, _, _ -> },
+            onSignUp = { _, _, _ -> }
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun WelcomeAuthScreenLoginPreview() {
+    MaterialTheme {
+        WelcomeAuthScreenContent(
+            initialMode = AuthMode.Login,
+            onSignIn = { _, _, _ -> },
+            onSignUp = { _, _, _ -> }
+        )
+    }
+}
+

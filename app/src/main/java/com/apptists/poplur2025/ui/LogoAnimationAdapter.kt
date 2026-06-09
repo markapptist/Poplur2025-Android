@@ -126,8 +126,8 @@ class LogoAnimationAdapter : ApplicationAdapter() {
         logoModel?.materials?.firstOrNull()?.set(
             BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, alpha)
         )
-        val yaw = sin(animTime * 2.2f) * 7f
-        val pitch = -5f + sin(animTime * 1.7f) * 2.5f
+        val yaw = sin(animTime * 2.2f) * 8f
+        val pitch = sin(animTime * 1.8f) * 4f
         logoInstance?.transform?.set(Vector3.Zero, Quaternion().setEulerAngles(yaw, pitch, 0f))
         logoInstance?.transform?.scale(scale, scale, scale)
 

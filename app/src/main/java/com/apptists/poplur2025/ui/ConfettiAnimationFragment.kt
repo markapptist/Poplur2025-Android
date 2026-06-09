@@ -29,12 +29,17 @@ class ConfettiAnimationFragment : AndroidFragmentApplication() {
         view.background = null
         view.isClickable = false
         view.isFocusable = false
+        view.isEnabled = false
+        view.setOnTouchListener { _, _ -> false }
 
         if (view is GLSurfaceView) {
-            view.setZOrderOnTop(true)
+            view.setZOrderOnTop(false)
+            view.setZOrderMediaOverlay(false)
             view.holder.setFormat(PixelFormat.TRANSLUCENT)
         }
         if (view is SurfaceView) {
+            view.setZOrderOnTop(false)
+            view.setZOrderMediaOverlay(false)
             view.holder.setFormat(PixelFormat.TRANSLUCENT)
         }
 

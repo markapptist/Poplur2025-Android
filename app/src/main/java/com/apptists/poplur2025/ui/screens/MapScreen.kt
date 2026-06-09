@@ -631,13 +631,18 @@ fun MapScreenContent(
                 isTouring = activeMusicStop != null
             )
         }
-        Surface(Modifier.padding(end = 16.dp).align(Alignment.CenterEnd).zIndex(2f), color = Color.Black.copy(alpha = .42f), shape = MaterialTheme.shapes.medium) {
-            Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(activeWeather.icon, fontSize = 36.sp)
-                Text(activeWeather.label, color = Color.White, fontWeight = FontWeight.Bold)
-                activeWeather.temperatureLabel?.let { temperature ->
-                    Text(temperature, color = Color.White.copy(alpha = .78f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
+        Column(
+            Modifier
+                .padding(end = 16.dp)
+                .align(Alignment.CenterEnd)
+                .zIndex(2f)
+                .padding(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(activeWeather.icon, fontSize = 36.sp)
+            Text(activeWeather.label, color = Color.White, fontWeight = FontWeight.Bold)
+            activeWeather.temperatureLabel?.let { temperature ->
+                Text(temperature, color = Color.White.copy(alpha = .78f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
         MapZoomSlider(
@@ -659,15 +664,15 @@ fun MapScreenContent(
                 }
             },
             modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 158.dp, end = 20.dp)
+                .align(Alignment.BottomStart)
+                .padding(bottom = 210.dp, start = 20.dp)
                 .zIndex(3f)
         )
         Column(Modifier.padding(bottom = 58.dp, start = 20.dp).align(Alignment.BottomStart).zIndex(2f)) {
-            Text("TRENDING", color = Color.White.copy(alpha = 0.88f), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
-            HorizontalDivider(color = Color.White, thickness = 2.dp, modifier = Modifier.width(90.dp).padding(vertical = 6.dp))
-            Text(DemoPostStore.posts.size.toString(), color = Color.White, fontSize = 62.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 62.sp)
-            Text("posts", color = Color.White.copy(alpha = 0.9f), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text("TRENDING", color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
+            HorizontalDivider(color = Color.White, thickness = 2.dp, modifier = Modifier.width(60.dp).padding(vertical = 6.dp))
+            Text(DemoPostStore.posts.size.toString(), color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 42.sp)
+            Text("posts", color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
         selectedCoordinate?.let { point ->
             Surface(Modifier.align(Alignment.BottomCenter).padding(bottom = 158.dp, start = 20.dp, end = 20.dp).zIndex(2f), color = Color.Black.copy(alpha = .72f), shape = MaterialTheme.shapes.large) {
@@ -678,7 +683,7 @@ fun MapScreenContent(
                 }
             }
         }
-        Spacer(Modifier.padding(bottom = 86.dp).size(112.dp).align(Alignment.BottomCenter).zIndex(2f))
+        // Removed navigation cube placeholder
         RadiusDisplay(Modifier.padding(bottom = 48.dp, end = 20.dp).align(Alignment.BottomEnd).zIndex(2f), radius = activeRadius)
     }
 }

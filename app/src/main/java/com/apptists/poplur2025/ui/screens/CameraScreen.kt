@@ -1,43 +1,72 @@
 package com.apptists.poplur2025.ui.screens
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.net.Uri
+import android.provider.MediaStore
+import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.FallbackStrategy
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
+import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BrightnessLow
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.FlipCameraAndroid
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect as ComposeRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
@@ -45,32 +74,56 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import coil.compose.AsyncImage
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.face.Face
+import com.google.mlkit.vision.face.Face as MLFace
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.concurrent.Executors
 
+@OptIn(androidx.camera.core.ExperimentalGetImage::class)
 @Composable
-fun CameraScreen() {
+fun CameraScreen(
+    photoTrigger: Int = 0,
+    recordTrigger: Int = 0,
+    initialShowFilters: Boolean = false,
+    onFiltersToggle: (Boolean) -> Unit = {}
+) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
+    val isPreview = LocalInspectionMode.current
     var hasCameraPermission by remember {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+        mutableStateOf(if (isPreview) true else ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
     var useFrontCamera by remember { mutableStateOf(false) }
     var torchEnabled by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf(false) }
     var selectedMedia by remember { mutableStateOf<Uri?>(null) }
-    var selectedFilter by remember { mutableStateOf(ArFilter.None) }
+    var selectedFilter by remember { mutableStateOf(ArFilter.Beauty) }
+    var showFilterPicker by remember { mutableStateOf(initialShowFilters) }
+    
+    LaunchedEffect(showFilterPicker) {
+        onFiltersToggle(showFilterPicker)
+    }
+
+    var captureOutput by remember { mutableStateOf<String?>(null) }
+    var capturedPreview by remember { mutableStateOf<CapturedPreview?>(null) }
     var detectedFaces by remember { mutableStateOf<List<DetectedFace>>(emptyList()) }
     var analysisSize by remember { mutableStateOf(IntSize.Zero) }
     var overlaySize by remember { mutableStateOf(IntSize.Zero) }
     var isAnalyzingFrame by remember { mutableStateOf(false) }
+    var boundCamera by remember { mutableStateOf<Camera?>(null) }
+    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
+    var activeRecording by remember { mutableStateOf<Recording?>(null) }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val faceDetector = remember {
-        FaceDetection.getClient(
+        if (isPreview) null else FaceDetection.getClient(
             FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
                 .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
@@ -83,70 +136,238 @@ fun CameraScreen() {
         hasCameraPermission = granted
     }
     val photoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> selectedMedia = uri }
+    val toggleCamera = {
+        useFrontCamera = !useFrontCamera
+        torchEnabled = false
+        detectedFaces = emptyList()
+    }
+    val capturePhoto = {
+        val capture = imageCapture
+        if (capture == null) {
+            captureOutput = "Camera not ready"
+        } else {
+            val name = "Poplur_${timestampName()}"
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Poplur")
+            }
+            val outputOptions = ImageCapture.OutputFileOptions.Builder(
+                context.contentResolver,
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                values
+            ).build()
+            capture.takePicture(
+                outputOptions,
+                mainExecutor,
+                object : ImageCapture.OnImageSavedCallback {
+                    override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                        val uri = outputFileResults.savedUri
+                        captureOutput = "Photo captured"
+                        if (uri != null) capturedPreview = CapturedPreview(uri, isVideo = false)
+                    }
+
+                    override fun onError(exception: ImageCaptureException) {
+                        captureOutput = "Photo failed"
+                        exception.printStackTrace()
+                    }
+                }
+            )
+        }
+    }
+    val startTenSecondRecording = {
+        val video = videoCapture
+        if (video == null) {
+            captureOutput = "Video not ready"
+        } else if (activeRecording == null) {
+            val name = "Poplur_${timestampName()}"
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/Poplur")
+            }
+            val outputOptions = MediaStoreOutputOptions.Builder(
+                context.contentResolver,
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            ).setContentValues(values).build()
+            val hasAudioPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            var pendingRecording = video.output.prepareRecording(context, outputOptions)
+            if (hasAudioPermission) pendingRecording = pendingRecording.withAudioEnabled()
+            recording = true
+            captureOutput = "Recording"
+            activeRecording = pendingRecording.start(mainExecutor) { event ->
+                when (event) {
+                    is VideoRecordEvent.Finalize -> {
+                        recording = false
+                        activeRecording = null
+                        if (!event.hasError()) {
+                            val uri = event.outputResults.outputUri
+                            captureOutput = "Video captured"
+                            capturedPreview = CapturedPreview(uri, isVideo = true)
+                        } else {
+                            captureOutput = "Video failed"
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            analysisExecutor.shutdown()
-            faceDetector.close()
+    LaunchedEffect(photoTrigger) {
+        if (photoTrigger > 0) {
+            activeRecording?.stop()
+            capturePhoto()
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (hasCameraPermission) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    PreviewView(ctx).apply {
-                        scaleType = PreviewView.ScaleType.FILL_CENTER
-                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+    LaunchedEffect(recordTrigger) {
+        if (recordTrigger > 0) {
+            if (recording) return@LaunchedEffect
+            startTenSecondRecording()
+            delay(10_000)
+            activeRecording?.stop()
+        }
+    }
+
+    LaunchedEffect(torchEnabled, boundCamera, useFrontCamera) {
+        if (!useFrontCamera) {
+            boundCamera?.cameraControl?.enableTorch(torchEnabled)
+        }
+    }
+
+    LaunchedEffect(captureOutput) {
+        if (captureOutput != null) {
+            delay(2000)
+            captureOutput = null
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            activeRecording?.close()
+            analysisExecutor.shutdown()
+            faceDetector?.close()
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { /* Capture is handled ONLY via the navigation cube in PoplurRoot */ },
+                    onDoubleTap = { toggleCamera() },
+                    onLongPress = {
+                        showFilterPicker = true
                     }
-                },
-                update = { view ->
-                    val providerFuture = ProcessCameraProvider.getInstance(context)
-                    providerFuture.addListener({
-                        val provider = providerFuture.get()
-                        val preview = Preview.Builder().build().also { it.setSurfaceProvider(view.surfaceProvider) }
-                        val analysis = ImageAnalysis.Builder()
-                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                            .build()
-                            .also { imageAnalysis ->
-                                imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
-                                    val mediaImage = imageProxy.image
-                                    if (mediaImage == null || isAnalyzingFrame) {
-                                        imageProxy.close()
-                                        return@setAnalyzer
-                                    }
-                                    isAnalyzingFrame = true
-                                    analysisSize = IntSize(imageProxy.width, imageProxy.height)
-                                    val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                                    faceDetector.process(inputImage)
-                                        .addOnSuccessListener { faces ->
-                                            detectedFaces = faces.map { it.toDetectedFace(useFrontCamera) }
-                                        }
-                                        .addOnFailureListener {
-                                            detectedFaces = emptyList()
-                                        }
-                                        .addOnCompleteListener {
-                                            isAnalyzingFrame = false
+                )
+            }
+            .pointerInput(useFrontCamera, torchEnabled) {
+                var totalDragY = 0f
+                detectDragGestures(
+                    onDragStart = { totalDragY = 0f },
+                    onDrag = { change, dragAmount ->
+                        totalDragY += dragAmount.y
+                        change.consume()
+                    },
+                    onDragEnd = {
+                        if (kotlin.math.abs(totalDragY) > 70f && !useFrontCamera) {
+                            torchEnabled = !torchEnabled
+                            captureOutput = if (torchEnabled) "Flash on" else "Flash off"
+                        }
+                    }
+                )
+            }
+    ) {
+        if (hasCameraPermission) {
+            if (isPreview) {
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.DarkGray),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Camera Preview Placeholder", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        PreviewView(ctx).apply {
+                            scaleType = PreviewView.ScaleType.FILL_CENTER
+                            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                        }
+                    },
+                    update = { view ->
+                        val providerFuture = ProcessCameraProvider.getInstance(context)
+                        providerFuture.addListener({
+                            val provider = providerFuture.get()
+                            val preview = Preview.Builder().build().also { it.setSurfaceProvider(view.surfaceProvider) }
+                            val photo = ImageCapture.Builder()
+                                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                                .build()
+                            val recorder = Recorder.Builder()
+                                .setQualitySelector(
+                                    QualitySelector.from(
+                                        Quality.HD,
+                                        FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
+                                    )
+                                )
+                                .build()
+                            val video = VideoCapture.withOutput(recorder)
+                            val analysis = ImageAnalysis.Builder()
+                                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                .build()
+                                .also { imageAnalysis ->
+                                    imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                                        @OptIn(androidx.camera.core.ExperimentalGetImage::class)
+                                        val mediaImage = imageProxy.image
+                                        if (mediaImage == null || isAnalyzingFrame) {
                                             imageProxy.close()
+                                            return@setAnalyzer
                                         }
+                                        isAnalyzingFrame = true
+                                        analysisSize = IntSize(imageProxy.width, imageProxy.height)
+                                        val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                                        faceDetector?.process(inputImage)
+                                            ?.addOnSuccessListener { faces ->
+                                                detectedFaces = faces.map { it.toDetectedFace(useFrontCamera) }
+                                            }
+                                            ?.addOnFailureListener {
+                                                detectedFaces = emptyList()
+                                            }
+                                            ?.addOnCompleteListener {
+                                                isAnalyzingFrame = false
+                                                imageProxy.close()
+                                            }
+                                    }
+                                }
+                            val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+                            try {
+                                provider.unbindAll()
+                                boundCamera = provider.bindToLifecycle(owner, selector, preview, photo, video, analysis)
+                                imageCapture = photo
+                                videoCapture = video
+                            } catch (e: Exception) {
+                                try {
+                                    provider.unbindAll()
+                                    boundCamera = provider.bindToLifecycle(owner, selector, preview, photo, video)
+                                    imageCapture = photo
+                                    videoCapture = video
+                                    detectedFaces = emptyList()
+                                } catch (fallback: Exception) {
+                                    fallback.printStackTrace()
+                                    imageCapture = null
+                                    videoCapture = null
                                 }
                             }
-                        val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
-                        try {
-                            provider.unbindAll()
-                            val camera = provider.bindToLifecycle(owner, selector, preview, analysis)
-                            camera.cameraControl.enableTorch(torchEnabled && !useFrontCamera)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    }, ContextCompat.getMainExecutor(context))
-                }
-            )
+                        }, ContextCompat.getMainExecutor(context))
+                    }
+                )
+            }
         } else {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Button(onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) }) {
@@ -166,82 +387,106 @@ fun CameraScreen() {
                 .onSizeChanged { overlaySize = it }
         )
 
-        CameraStatusPill(
-            faceCount = detectedFaces.size,
-            isRecording = recording,
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(top = 14.dp, start = 16.dp)
-                .align(Alignment.TopStart)
-        )
-
-        Row(
-            Modifier
-                .statusBarsPadding()
-                .padding(top = 14.dp, end = 16.dp)
-                .align(Alignment.TopEnd),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            CameraPill(
-                onClick = { torchEnabled = !torchEnabled },
-                active = torchEnabled && !useFrontCamera,
-                enabled = !useFrontCamera
+        // Top Left: Flash Control
+        // For debugging/development: showing the button if it's NOT the front camera
+        // In production, we'd check hasFlashUnit(), but some devices report this late.
+        if (!useFrontCamera) {
+            IconButton(
+                onClick = {
+                    torchEnabled = !torchEnabled
+                    captureOutput = if (torchEnabled) "Flash on" else "Flash off"
+                },
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .padding(top = 14.dp, start = 16.dp)
+                    .align(Alignment.TopStart),
+                colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.3f))
             ) {
-                Icon(if (torchEnabled && !useFrontCamera) Icons.Default.FlashOn else Icons.Default.FlashOff, null, tint = Color.White)
-            }
-            CameraPill(onClick = { useFrontCamera = !useFrontCamera; torchEnabled = false }) {
-                Icon(Icons.Default.Cameraswitch, null, tint = Color.White)
-            }
-        }
-
-        ArFilterSelector(
-            selected = selectedFilter,
-            onSelect = { selectedFilter = it },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 190.dp)
-        )
-
-        Surface(
-            modifier = Modifier
-                .padding(bottom = 62.dp, start = 20.dp)
-                .size(58.dp)
-                .align(Alignment.BottomStart),
-            color = Color.Black.copy(alpha = .34f),
-            shape = RoundedCornerShape(12.dp),
-            onClick = { photoPickerLauncher.launch("image/*") }
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.PhotoLibrary, "Gallery", tint = Color.White, modifier = Modifier.size(32.dp))
-            }
-        }
-
-        Surface(
-            modifier = Modifier
-                .padding(bottom = 70.dp)
-                .size(82.dp)
-                .align(Alignment.BottomCenter),
-            color = Color.White.copy(alpha = if (recording) .22f else .16f),
-            shape = CircleShape,
-            onClick = { recording = !recording }
-        ) {
-            Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    Icons.Default.RadioButtonChecked,
-                    "Capture",
-                    tint = if (recording) Color(0xFFFF3B30) else Color.White,
-                    modifier = Modifier.size(62.dp)
+                    if (torchEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                    "Toggle Flash",
+                    tint = if (torchEnabled) Color.Yellow else Color.White
                 )
             }
         }
 
-        RadiusDisplay(
-            Modifier
-                .padding(bottom = 48.dp, end = 20.dp)
-                .align(Alignment.BottomEnd),
-            radius = 0
-        )
+        // Top Right: Switch Camera
+        IconButton(
+            onClick = { toggleCamera() },
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(top = 14.dp, end = 16.dp)
+                .align(Alignment.TopEnd),
+            colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.3f))
+        ) {
+            Icon(Icons.Default.FlipCameraAndroid, "Switch Camera", tint = Color.White)
+        }
+
+        // Recording Indicator
+        if (recording) {
+            Surface(
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .padding(top = 18.dp)
+                    .align(Alignment.TopCenter),
+                color = Color.Red,
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    "REC",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                )
+            }
+        }
+
+        if (showFilterPicker) {
+            ArFilterSelector(
+                selected = selectedFilter,
+                onSelect = {
+                    selectedFilter = it
+                },
+                onDismiss = { showFilterPicker = false },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 220.dp)
+            )
+        }
+
+        // Bottom Controls Row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 48.dp, start = 32.dp, end = 20.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom
+        ) {
+            // Gallery Thumbnail (Bottom Left)
+            Surface(
+                modifier = Modifier
+                    .padding(bottom = 14.dp)
+                    .size(64.dp),
+                color = Color.Black.copy(alpha = .34f),
+                shape = RoundedCornerShape(12.dp),
+                onClick = { photoPickerLauncher.launch("image/*") }
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.PhotoLibrary, "Gallery", tint = Color.White, modifier = Modifier.size(32.dp))
+                }
+            }
+
+            // Radius (Bottom Right)
+            RadiusDisplay(
+                radius = 0,
+                totalRadius = 6371,
+                unit = "km",
+                modifier = Modifier.widthIn(min = 112.dp)
+            )
+        }
+
 
         selectedMedia?.let {
             Text(
@@ -253,67 +498,161 @@ fun CameraScreen() {
                     .padding(start = 20.dp, bottom = 132.dp)
             )
         }
-    }
-}
-
-@Composable
-private fun CameraStatusPill(faceCount: Int, isRecording: Boolean, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        color = Color.Black.copy(alpha = .38f),
-        shape = RoundedCornerShape(28.dp)
-    ) {
-        Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(Icons.Default.Face, null, tint = Color.White, modifier = Modifier.size(19.dp))
-            Text(
-                when {
-                    isRecording -> "Recording"
-                    faceCount == 0 -> "Scanning"
-                    faceCount == 1 -> "1 face"
-                    else -> "$faceCount faces"
-                },
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
+        capturedPreview?.let { preview ->
+            CapturedPreviewSheet(
+                preview = preview,
+                onDismiss = { capturedPreview = null },
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 24.dp)
             )
+        }
+        captureOutput?.let { output ->
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 174.dp),
+                color = Color.Black.copy(alpha = .58f),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Text(
+                    output,
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun ArFilterSelector(selected: ArFilter, onSelect: (ArFilter) -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+private fun CapturedPreviewSheet(preview: CapturedPreview, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = Color.Black.copy(alpha = .78f),
+        shape = RoundedCornerShape(26.dp)
     ) {
-        ArFilter.entries.forEach { filter ->
-            FilterChip(
-                selected = selected == filter,
-                onClick = { onSelect(filter) },
-                label = { Text(filter.label, fontWeight = FontWeight.Bold) },
-                leadingIcon = { Text(filter.icon) },
-                colors = FilterChipDefaults.filterChipColors(
-                    containerColor = Color.Black.copy(alpha = .36f),
-                    labelColor = Color.White,
-                    iconColor = Color.White,
-                    selectedContainerColor = Color(0xFFFF2D8A).copy(alpha = .86f),
-                    selectedLabelColor = Color.White,
-                    selectedLeadingIconColor = Color.White
-                ),
-                border = FilterChipDefaults.filterChipBorder(
-                    enabled = true,
-                    selected = selected == filter,
-                    borderColor = Color.White.copy(alpha = .34f),
-                    selectedBorderColor = Color.White.copy(alpha = .74f)
+        Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(360.dp)
+                    .background(Color.Black, RoundedCornerShape(18.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (preview.isVideo) {
+                    AndroidView(
+                        factory = { context ->
+                            VideoView(context).apply {
+                                setVideoURI(preview.uri)
+                                setOnPreparedListener { player ->
+                                    player.isLooping = true
+                                    player.setVolume(0f, 0f)
+                                    start()
+                                }
+                            }
+                        },
+                        update = { view ->
+                            view.setVideoURI(preview.uri)
+                            view.start()
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    AsyncImage(
+                        model = preview.uri,
+                        contentDescription = "Captured photo",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                Text(
+                    if (preview.isVideo) "Video output" else "Captured output",
+                    color = Color.White,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Black
                 )
-            )
+                TextButton(onClick = onDismiss) { Text("Close", color = Color.White, fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArFilterSelector(
+    selected: ArFilter,
+    onSelect: (ArFilter) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ArFilter.entries.forEach { filter ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .padding(horizontal = 10.dp)
+                        .clickable { onSelect(filter) }
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(76.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (selected == filter) {
+                                    Brush.linearGradient(listOf(Color(0xFF8E8EFA), Color(0xFFE08EFA)))
+                                } else {
+                                    Brush.linearGradient(listOf(Color.White.copy(alpha = 0.15f), Color.White.copy(alpha = 0.05f)))
+                                }
+                            )
+                            .padding(if (selected == filter) 3.dp else 1.5.dp) // Glow/Ring effect
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.6f))
+                    ) {
+                        Icon(
+                            filter.iconVector,
+                            contentDescription = filter.label,
+                            tint = Color.White,
+                            modifier = Modifier.size(if (selected == filter) 36.dp else 30.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        filter.label,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = if (selected == filter) FontWeight.Black else FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // Dismiss button
+        Surface(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 12.dp)
+                .size(36.dp),
+            color = Color.Black.copy(alpha = 0.5f),
+            shape = CircleShape,
+            onClick = onDismiss
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(18.dp))
+            }
         }
     }
 }
@@ -339,6 +678,8 @@ private fun FaceArOverlay(
                 mirrored = mirrored
             )
 
+            /* Bounding box removed - ML is background only */
+            /*
             drawRoundRect(
                 color = Color(0xFF66E7FF).copy(alpha = .84f),
                 topLeft = Offset(box.left, box.top),
@@ -346,67 +687,17 @@ private fun FaceArOverlay(
                 cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx()),
                 style = Stroke(width = 2.4.dp.toPx())
             )
+            */
 
             when (selectedFilter) {
                 ArFilter.None -> Unit
-                ArFilter.Spark -> drawSparkFilter(box)
-                ArFilter.Crown -> drawCrownFilter(box)
-                ArFilter.Visor -> drawVisorFilter(box)
-                ArFilter.Pop -> drawPopFilter(box)
+                ArFilter.Smooth -> Unit // Implement these later
+                ArFilter.Beauty -> Unit
+                ArFilter.Brighten -> Unit
+                ArFilter.Glow -> Unit
             }
         }
     }
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSparkFilter(face: ComposeRect) {
-    val center = Offset(face.center.x, face.top - face.height * .08f)
-    repeat(7) { index ->
-        val x = face.left + face.width * (.12f + index * .13f)
-        val y = center.y + if (index % 2 == 0) -12.dp.toPx() else 10.dp.toPx()
-        drawCircle(Color(0xFFFFD84A).copy(alpha = .9f), 5.dp.toPx(), Offset(x, y))
-        drawCircle(Color(0xFFFF2D8A).copy(alpha = .7f), 2.6.dp.toPx(), Offset(x + 8.dp.toPx(), y - 8.dp.toPx()))
-    }
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCrownFilter(face: ComposeRect) {
-    val crownHeight = face.height * .25f
-    val baseY = face.top - face.height * .08f
-    val crown = Path().apply {
-        moveTo(face.left + face.width * .14f, baseY)
-        lineTo(face.left + face.width * .26f, baseY - crownHeight)
-        lineTo(face.left + face.width * .39f, baseY)
-        lineTo(face.left + face.width * .5f, baseY - crownHeight * 1.18f)
-        lineTo(face.left + face.width * .61f, baseY)
-        lineTo(face.left + face.width * .74f, baseY - crownHeight)
-        lineTo(face.left + face.width * .86f, baseY)
-        close()
-    }
-    drawPath(crown, Color(0xFFFF2D8A).copy(alpha = .72f))
-    drawPath(crown, Color.White.copy(alpha = .75f), style = Stroke(width = 2.dp.toPx()))
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawVisorFilter(face: ComposeRect) {
-    val visorTop = face.top + face.height * .34f
-    val visorHeight = face.height * .18f
-    drawRoundRect(
-        color = Color(0xFF111827).copy(alpha = .72f),
-        topLeft = Offset(face.left + face.width * .18f, visorTop),
-        size = Size(face.width * .64f, visorHeight),
-        cornerRadius = CornerRadius(visorHeight / 2f, visorHeight / 2f)
-    )
-    drawRoundRect(
-        color = Color(0xFF66E7FF).copy(alpha = .52f),
-        topLeft = Offset(face.left + face.width * .22f, visorTop + visorHeight * .2f),
-        size = Size(face.width * .56f, visorHeight * .22f),
-        cornerRadius = CornerRadius(visorHeight / 2f, visorHeight / 2f)
-    )
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPopFilter(face: ComposeRect) {
-    val bubbleSize = face.width * .22f
-    drawCircle(Color(0xFFFF2D8A).copy(alpha = .72f), bubbleSize, Offset(face.left + face.width * .18f, face.top + face.height * .18f))
-    drawCircle(Color(0xFF66E7FF).copy(alpha = .62f), bubbleSize * .72f, Offset(face.right - face.width * .16f, face.top + face.height * .22f))
-    drawCircle(Color.White.copy(alpha = .8f), bubbleSize * .18f, Offset(face.left + face.width * .22f, face.top + face.height * .12f))
 }
 
 private fun Rect.toOverlayRect(
@@ -433,7 +724,7 @@ private fun Rect.toOverlayRect(
     )
 }
 
-private fun Face.toDetectedFace(mirrored: Boolean): DetectedFace {
+private fun MLFace.toDetectedFace(mirrored: Boolean): DetectedFace {
     return DetectedFace(
         bounds = boundingBox,
         trackingId = trackingId,
@@ -442,6 +733,10 @@ private fun Face.toDetectedFace(mirrored: Boolean): DetectedFace {
     )
 }
 
+private fun timestampName(): String = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(System.currentTimeMillis())
+
+private data class CapturedPreview(val uri: Uri, val isVideo: Boolean)
+
 private data class DetectedFace(
     val bounds: Rect,
     val trackingId: Int?,
@@ -449,32 +744,18 @@ private data class DetectedFace(
     val mirrored: Boolean
 )
 
-private enum class ArFilter(val label: String, val icon: String) {
-    None("Clean", "Off"),
-    Spark("Spark", "*"),
-    Crown("Crown", "^"),
-    Visor("Visor", "[]"),
-    Pop("Pop", "P")
+private enum class ArFilter(val label: String, val iconVector: ImageVector) {
+    None("None", Icons.Default.Close),
+    Smooth("Smooth", Icons.Default.AutoAwesome),
+    Beauty("Beauty", Icons.Default.Face),
+    Brighten("Brighten", Icons.Default.LightMode),
+    Glow("Glow", Icons.Default.WbSunny)
 }
 
+@androidx.compose.ui.tooling.preview.Preview
 @Composable
-private fun CameraPill(
-    onClick: () -> Unit,
-    active: Boolean = false,
-    enabled: Boolean = true,
-    content: @Composable () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        shape = CircleShape,
-        color = when {
-            active -> Color(0xFFFF2D8A)
-            enabled -> Color.Black.copy(alpha = .38f)
-            else -> Color.Black.copy(alpha = .18f)
-        },
-        modifier = Modifier.size(50.dp)
-    ) {
-        Box(contentAlignment = Alignment.Center) { content() }
+fun CameraScreenPreview() {
+    MaterialTheme {
+        CameraScreen(initialShowFilters = true)
     }
 }

@@ -23,23 +23,34 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.tooling.preview.Preview
 import coil.compose.AsyncImage
+
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.components.RadiusDisplay
+import com.apptists.poplur2025.ui.components.TrendingDisplay
 
 @Composable
 fun ProfileScreen(profile: UserProfile = UserProfile(), authViewModel: AuthViewModel? = null) {
-    var selectedTab by remember { mutableStateOf(0) }
+    ProfileScreenContent(profile = profile) { authViewModel?.signOut() }
+}
+
+@Composable
+fun ProfileScreenContent(
+    profile: UserProfile = UserProfile(),
+    onSignOut: (() -> Unit)? = null,
+) {
+    var selectedTab by remember { mutableIntStateOf(0) }
     var currentProfile by remember { mutableStateOf(profile) }
     var sheet by remember { mutableStateOf<ProfileSheet?>(null) }
 
     when (sheet) {
         ProfileSheet.Edit -> EditProfileScreen(currentProfile, onSave = { updated, _ -> currentProfile = updated; sheet = null }, onDismiss = { sheet = null })
-        ProfileSheet.Messages -> MessagesScreen()
-        ProfileSheet.Settings -> SettingsScreen(onSignOut = { authViewModel?.signOut() })
-        null -> ProfileHome(currentProfile, selectedTab, { selectedTab = it }, { sheet = it }, authViewModel)
+        ProfileSheet.Messages -> MessagesScreen(onBack = { sheet = null })
+        ProfileSheet.Settings -> SettingsScreen(onBack = { sheet = null }, onSignOut = onSignOut)
+        null -> ProfileHome(currentProfile, selectedTab, { selectedTab = it }, { sheet = it }, onSignOut)
     }
 }
 
@@ -49,23 +60,22 @@ private fun ProfileHome(
     selectedTab: Int,
     onTab: (Int) -> Unit,
     onSheet: (ProfileSheet) -> Unit,
-    authViewModel: AuthViewModel?
+    onSignOut: (() -> Unit)? = null
 ) {
     Box(Modifier.fillMaxSize().background(Color.White)) {
         Row(
-            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(start = 24.dp, end = 24.dp, top = 96.dp),
+            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(start = 24.dp, end = 24.dp, top = 24.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Icons.Default.Email, "Messages", tint = Color.DarkGray, modifier = Modifier.size(32.dp).clickable { onSheet(ProfileSheet.Messages) })
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 Icon(Icons.Default.Settings, "Settings", tint = Color.DarkGray, modifier = Modifier.size(32.dp).clickable { onSheet(ProfileSheet.Settings) })
-                Icon(Icons.Default.Edit, "Edit profile", tint = Color.DarkGray, modifier = Modifier.size(30.dp).clickable { onSheet(ProfileSheet.Edit) })
-                if (authViewModel != null) Icon(Icons.AutoMirrored.Filled.Logout, "Log out", tint = Color.DarkGray, modifier = Modifier.size(30.dp).clickable { authViewModel.signOut() })
+                if (onSignOut != null) Icon(Icons.AutoMirrored.Filled.Logout, "Log out", tint = Color.DarkGray, modifier = Modifier.size(30.dp).clickable { onSignOut() })
             }
         }
 
-        Column(Modifier.fillMaxSize().padding(top = 158.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.fillMaxSize().padding(top = 112.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             AsyncImage(
                 model = profile.avatarUrl,
                 contentDescription = "Avatar",
@@ -97,14 +107,21 @@ private fun ProfileHome(
             }
         }
 
-        Column(Modifier.padding(bottom = 80.dp, start = 20.dp).align(Alignment.BottomStart)) {
-            Text("TRENDING", color = Color.LightGray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f), thickness = 2.dp, modifier = Modifier.width(80.dp).padding(vertical = 4.dp))
-            Text("0", color = Color.LightGray, fontSize = 48.sp, fontWeight = FontWeight.ExtraBold)
-            Text("posts", color = Color.LightGray, fontSize = 18.sp)
-        }
-        Spacer(Modifier.padding(bottom = 86.dp).size(112.dp).align(Alignment.BottomCenter))
-        RadiusDisplay(Modifier.padding(bottom = 48.dp, end = 20.dp).align(Alignment.BottomEnd), radius = 56, unit = "mi")
+        TrendingDisplay(
+            postsCount = 0,
+            radiusChange = 0,
+            contentColor = Color.DarkGray,
+            modifier = Modifier
+                .padding(bottom = 48.dp, start = 20.dp)
+                .align(Alignment.BottomStart)
+        )
+        // Removed navigation cube placeholder
+        RadiusDisplay(
+            modifier = Modifier.padding(bottom = 48.dp, end = 20.dp).align(Alignment.BottomEnd),
+            radius = 56,
+            unit = "mi",
+            contentColor = Color.DarkGray
+        )
     }
 }
 
@@ -135,3 +152,12 @@ fun MediaItem(url: String? = null, radius: Int = 5000) {
 }
 
 enum class ProfileSheet { Edit, Messages, Settings }
+
+@Preview(showBackground = true)
+@Composable
+fun ProfileScreenPreview() {
+    MaterialTheme {
+        ProfileScreenContent(profile = UserProfile())
+    }
+}
+

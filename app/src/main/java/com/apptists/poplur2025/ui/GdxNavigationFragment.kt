@@ -14,12 +14,14 @@ class GdxNavigationFragment() : AndroidFragmentApplication() {
     var onTabSelected: ((Int) -> Unit)? = null
     var onVerticalSwipe: ((Boolean) -> Unit)? = null
     var onLongPress: (() -> Unit)? = null
+    var onTap: (() -> Unit)? = null
     var initialTabIndex: Int = 1
 
-    constructor(initialTabIndex: Int, onVerticalSwipe: ((Boolean) -> Unit)? = null, onLongPress: (() -> Unit)? = null, onTabSelected: (Int) -> Unit) : this() {
+    constructor(initialTabIndex: Int, onVerticalSwipe: ((Boolean) -> Unit)? = null, onLongPress: (() -> Unit)? = null, onTap: (() -> Unit)? = null, onTabSelected: (Int) -> Unit) : this() {
         this.initialTabIndex = initialTabIndex
         this.onVerticalSwipe = onVerticalSwipe
         this.onLongPress = onLongPress
+        this.onTap = onTap
         this.onTabSelected = onTabSelected
     }
 
@@ -34,7 +36,8 @@ class GdxNavigationFragment() : AndroidFragmentApplication() {
         
         val adapter = CombinedGdxAdapter(initialTabIndex, 
             onVerticalSwipe = { isUp -> activity?.runOnUiThread { onVerticalSwipe?.invoke(isUp) } },
-            onLongPress = { activity?.runOnUiThread { onLongPress?.invoke() } }
+            onLongPress = { activity?.runOnUiThread { onLongPress?.invoke() } },
+            onTap = { activity?.runOnUiThread { onTap?.invoke() } }
         ) { index ->
             activity?.runOnUiThread { onTabSelected?.invoke(index) }
         }

@@ -1,12 +1,14 @@
 package com.apptists.poplur2025.ui.screens
 
-import android.view.View
+import android.graphics.BitmapFactory
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Error
@@ -16,16 +18,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
 import com.apptists.poplur2025.ads.AdManager
-import androidx.fragment.app.FragmentActivity
-import androidx.fragment.app.FragmentContainerView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -37,7 +40,6 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.Post
-import com.apptists.poplur2025.ui.LogoAnimationFragment
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.UserInfoOverlay
@@ -49,10 +51,17 @@ import kotlin.math.abs
 @Composable
 fun FeedScreen(
     currentPostIndex: Int,
+    isVisible: Boolean = true,
     onIndexChange: (Int) -> Unit
 ) {
+    val context = LocalContext.current
     val currentSlot = remember(currentPostIndex) { resolveFeedSlot(currentPostIndex) }
     var showFeedLogo by remember { mutableStateOf(true) }
+    val logoBitmap = remember {
+        runCatching {
+            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+        }.getOrNull()
+    }
 
     LaunchedEffect(Unit) {
         showFeedLogo = true
@@ -78,7 +87,7 @@ fun FeedScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 when (slot) {
                     is FeedSlot.PostSlot -> {
-                        MediaContent(post = slot.post)
+                        MediaContent(post = slot.post, isVisible = isVisible)
                     }
                     is FeedSlot.AdSlot -> FeedAdContent(slot = slot)
                 }
@@ -129,29 +138,27 @@ fun FeedScreen(
                 (fadeIn() + scaleIn()).togetherWith(fadeOut() + scaleOut())
             },
             modifier = Modifier
-                .padding(bottom = 58.dp, start = 20.dp)
+                .padding(bottom = 48.dp, start = 20.dp)
                 .align(Alignment.BottomStart),
             label = "TrendingAnimation"
         ) { slot ->
             when (slot) {
                 is FeedSlot.PostSlot -> TrendingDisplay(
                     postsCount = slot.post.userPostsCount,
-                    radiusChange = slot.post.radiusChange
+                    radiusChange = slot.post.radiusChange,
+                    modifier = Modifier,
+                    contentColor = Color.White
                 )
                 is FeedSlot.AdSlot -> TrendingDisplay(
                     postsCount = slot.engagementCount,
-                    radiusChange = slot.radiusChange
+                    radiusChange = slot.radiusChange,
+                    modifier = Modifier,
+                    contentColor = Color.White
                 )
             }
         }
 
-        // 4. Bottom Center placeholder space for the global Cube
-        Spacer(
-            modifier = Modifier
-                .padding(bottom = 86.dp)
-                .size(112.dp)
-                .align(Alignment.BottomCenter)
-        )
+        // 4. Removed navigation cube placeholder
 
         // 5. Bottom Right Overlay (Animated Radius Data)
         AnimatedContent(
@@ -174,46 +181,23 @@ fun FeedScreen(
         }
 
         if (showFeedLogo) {
-            key("feed-tv-logo") {
-                val logoContainerId = remember { android.view.View.generateViewId() }
-                val logoFragment = remember { LogoAnimationFragment() }
-                AndroidView(
-                    factory = { context ->
-                        FragmentContainerView(context).apply {
-                            id = logoContainerId
-                            setBackgroundColor(0)
-                            background = null
-                            isClickable = false
-                            isFocusable = false
-
-                            val activity = context as? FragmentActivity
-                            val attachLogo = {
-                                if (!logoFragment.isAdded && isAttachedToWindow) {
-                                    activity?.supportFragmentManager?.beginTransaction()
-                                        ?.replace(id, logoFragment)
-                                        ?.commitAllowingStateLoss()
-                                    post { logoFragment.triggerLogoPop() }
-                                }
-                            }
-                            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                                override fun onViewAttachedToWindow(v: View) {
-                                    attachLogo()
-                                }
-
-                                override fun onViewDetachedFromWindow(v: View) {
-                                    if (logoFragment.isAdded) {
-                                        activity?.supportFragmentManager?.beginTransaction()
-                                            ?.remove(logoFragment)
-                                            ?.commitAllowingStateLoss()
-                                    }
-                                }
-                            })
-                            post { attachLogo() }
-                        }
-                    },
+            val logoAlpha by animateFloatAsState(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 260),
+                label = "feedLogoAlpha"
+            )
+            logoBitmap?.let { bitmap ->
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = "Poplur",
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .size(260.dp)
+                        .size(230.dp)
+                        .graphicsLayer {
+                            alpha = logoAlpha
+                            scaleX = 0.96f + logoAlpha * 0.04f
+                            scaleY = 0.96f + logoAlpha * 0.04f
+                        }
                 )
             }
         }
@@ -252,6 +236,7 @@ private fun Modifier.feedSwipeDetector(
 
 private const val AD_FREQUENCY = 6
 private const val FEED_BANNER_AD_UNIT_ID = "ca-app-pub-3940256099942544/6300978111"
+private const val ENABLE_FEED_VIDEO_AUTOPLAY = false
 
 private sealed interface FeedSlot {
     data class PostSlot(val post: Post) : FeedSlot
@@ -332,7 +317,7 @@ private fun FeedAdContent(slot: FeedSlot.AdSlot) {
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-fun MediaContent(post: Post) {
+fun MediaContent(post: Post, isVisible: Boolean = true) {
     val context = LocalContext.current
     var hasError by remember(post.id) { mutableStateOf(false) }
     var isLoading by remember(post.id) { mutableStateOf(true) }
@@ -340,7 +325,7 @@ fun MediaContent(post: Post) {
 
     LaunchedEffect(post.id, post.videoUrl) {
         enableVideo = false
-        if (post.videoUrl != null) {
+        if (ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null) {
             delay(900)
             enableVideo = true
         }
@@ -348,7 +333,7 @@ fun MediaContent(post: Post) {
     
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         when {
-            post.videoUrl != null && enableVideo && !hasError -> {
+            ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null && enableVideo && !hasError -> {
                 val exoPlayer = remember(post.videoUrl) {
                     val httpDataSourceFactory = DefaultHttpDataSource.Factory()
                         .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
@@ -385,8 +370,12 @@ fun MediaContent(post: Post) {
                                 }
                             })
                             prepare()
-                            playWhenReady = true
+                            playWhenReady = isVisible
                         }
+                }
+                
+                LaunchedEffect(isVisible) {
+                    exoPlayer.playWhenReady = isVisible
                 }
                 
                 DisposableEffect(exoPlayer) {
@@ -460,3 +449,15 @@ fun MediaContent(post: Post) {
         }
     }
 }
+
+@Preview(showBackground = true)
+@Composable
+fun FeedScreenPreview() {
+    MaterialTheme {
+        FeedScreen(
+            currentPostIndex = 0,
+            onIndexChange = {}
+        )
+    }
+}
+
