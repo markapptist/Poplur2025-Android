@@ -24,6 +24,10 @@ class LogoAnimationFragment : AndroidFragmentApplication() {
             useImmersiveMode = false
             r = 8; g = 8; b = 8; a = 8
         }
+
+        // Safety for LibGDX multi-instance managed assets
+        com.badlogic.gdx.graphics.glutils.ShaderProgram.prependVertexCode = ""
+        com.badlogic.gdx.graphics.glutils.ShaderProgram.prependFragmentCode = ""
         
         adapter = LogoAnimationAdapter()
         val view = initializeForView(adapter!!, config)

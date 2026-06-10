@@ -108,6 +108,10 @@ class CombinedGdxAdapter(
 
     override fun create() {
         try {
+            // Disable LibGDX asset management to avoid multi-instance conflicts
+            com.badlogic.gdx.graphics.glutils.ShaderProgram.prependVertexCode = ""
+            com.badlogic.gdx.graphics.glutils.ShaderProgram.prependFragmentCode = ""
+
             Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
             Gdx.gl.glEnable(GL20.GL_DEPTH_TEST)
             Gdx.gl.glEnable(GL20.GL_BLEND)

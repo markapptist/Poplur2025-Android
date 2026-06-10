@@ -1,9 +1,11 @@
 package com.apptists.poplur2025.ui.screens
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.graphics.Color as AndroidColor
 import android.graphics.drawable.GradientDrawable
+import android.media.MediaPlayer
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -14,7 +16,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
@@ -27,6 +31,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -36,10 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.fragment.app.FragmentActivity
-import androidx.fragment.app.FragmentContainerView
 import com.apptists.poplur2025.ads.AdManager
-import com.apptists.poplur2025.ui.LogoAnimationFragment
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -69,10 +72,35 @@ fun FeedScreen(
     val context = LocalContext.current
     val currentSlot = remember(currentPostIndex) { resolveFeedSlot(currentPostIndex) }
     var showFeedLogo by remember { mutableStateOf(true) }
+    
+    val logoBitmap = remember {
+        runCatching {
+            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+        }.getOrNull()
+    }
+
+    val mediaPlayer = remember {
+        MediaPlayer().apply {
+            try {
+                val afd = context.assets.openFd("pop.mp3")
+                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                afd.close()
+                prepareAsync()
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { mediaPlayer.release() }
+    }
 
     LaunchedEffect(Unit) {
         showFeedLogo = true
-        delay(3_000)
+        mediaPlayer.setOnPreparedListener { it.start() }
+        if (!mediaPlayer.isPlaying) {
+            try { mediaPlayer.start() } catch (e: Exception) {}
+        }
+        delay(2_500)
         showFeedLogo = false
     }
 
@@ -188,24 +216,25 @@ fun FeedScreen(
         }
 
         if (showFeedLogo) {
-            val logoContainerId = remember { android.view.View.generateViewId() }
-            AndroidView(
-                factory = { ctx ->
-                    FragmentContainerView(ctx).apply {
-                        id = logoContainerId
-                        setBackgroundColor(0)
-                        background = null
-                        val activity = ctx as? FragmentActivity
-                        activity?.supportFragmentManager?.beginTransaction()
-                            ?.replace(id, LogoAnimationFragment())
-                            ?.commitAllowingStateLoss()
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(280.dp)
-                    .zIndex(100f)
+            val logoAlpha by animateFloatAsState(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 400),
+                label = "feedLogoAlpha"
             )
+            logoBitmap?.let { bitmap ->
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = "Poplur",
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(240.dp)
+                        .graphicsLayer {
+                            alpha = logoAlpha
+                            scaleX = 0.9f + logoAlpha * 0.1f
+                            scaleY = 0.9f + logoAlpha * 0.1f
+                        }
+                )
+            }
         }
 
         Box(
@@ -242,7 +271,7 @@ private fun Modifier.feedSwipeDetector(
 
 private const val AD_FREQUENCY = 6
 private const val FEED_NATIVE_AD_UNIT_ID = "ca-app-pub-3940256099942544/2247696110"
-private const val ENABLE_FEED_VIDEO_AUTOPLAY = false
+private const val ENABLE_FEED_VIDEO_AUTOPLAY = true
 
 private sealed interface FeedSlot {
     data class PostSlot(val post: Post) : FeedSlot
@@ -530,11 +559,7 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
     var enableVideo by remember(post.id) { mutableStateOf(false) }
 
     LaunchedEffect(post.id, post.videoUrl) {
-        enableVideo = false
-        if (ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null) {
-            delay(900)
-            enableVideo = true
-        }
+        enableVideo = ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null
     }
     
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

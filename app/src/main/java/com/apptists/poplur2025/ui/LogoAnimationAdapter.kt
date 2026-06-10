@@ -38,6 +38,10 @@ class LogoAnimationAdapter : ApplicationAdapter() {
 
     override fun create() {
         try {
+            // Disable LibGDX asset management to avoid multi-instance conflicts
+            com.badlogic.gdx.graphics.glutils.ShaderProgram.prependVertexCode = ""
+            com.badlogic.gdx.graphics.glutils.ShaderProgram.prependFragmentCode = ""
+
             Gdx.graphics.setContinuousRendering(true)
             Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
             Gdx.gl.glEnable(GL20.GL_BLEND)
@@ -103,9 +107,12 @@ class LogoAnimationAdapter : ApplicationAdapter() {
         if (!animating) return
 
         if (!hasPlayedSound && animTime >= 0f) {
-            // Sound loading can be asynchronous, so we try multiple times if needed
-            // But since this is render loop, it will try again next frame if play fails
-            if (popSound?.play() != -1L) {
+            try {
+                if (popSound?.play() != -1L) {
+                    hasPlayedSound = true
+                }
+            } catch (e: Exception) {
+                // Silently ignore audio issues to prevent crash
                 hasPlayedSound = true
             }
         }
@@ -150,10 +157,14 @@ class LogoAnimationAdapter : ApplicationAdapter() {
 
         val batch = modelBatch ?: return
         val cam = camera ?: return
-        logoInstance?.let {
-            batch.begin(cam)
-            batch.render(it, environment)
-            batch.end()
+        try {
+            logoInstance?.let {
+                batch.begin(cam)
+                batch.render(it, environment)
+                batch.end()
+            }
+        } catch (e: Exception) {
+            Log.e("LogoAnimationAdapter", "Render error", e)
         }
     }
 
