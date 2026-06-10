@@ -33,6 +33,7 @@ import com.apptists.poplur2025.data.AppTab
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.Post
 import com.apptists.poplur2025.ui.screens.*
+import com.apptists.poplur2025.ui.previews.CubeDevelopmentScreen
 import com.mapbox.geojson.Point
 import kotlin.random.Random
 
@@ -45,7 +46,14 @@ fun PoplurRoot(
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val isSignedIn by authViewModel.isSignedIn.collectAsState()
-    if (!isSignedIn) {
+    
+    if (isSignedIn == null) {
+        // Still initializing auth - show nothing (or a subtle loader)
+        Box(Modifier.fillMaxSize().background(Color.White))
+        return
+    }
+    
+    if (isSignedIn == false) {
         WelcomeAuthScreen(authViewModel)
         return
     }
@@ -130,11 +138,20 @@ fun PoplurRoot(
         }
     }
 
+    val currentOnVerticalSwipe by rememberUpdatedState(onVerticalSwipe)
+    val currentOnLongPressCube by rememberUpdatedState(onLongPressCube)
+    val currentOnTapCube by rememberUpdatedState(onTapCube)
+    val currentOnTabChange by rememberUpdatedState(onTabChange)
+
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().zIndex(0f)) {
             when (tab) {
                 AppTab.Feed -> FeedScreen(currentPostIndex, isVisible = isAppVisible, onIndexChange = { currentPostIndex = it; playPopSound() })
-                AppTab.Profile -> ProfileScreen(authViewModel = authViewModel)
+                AppTab.Profile -> ProfileScreen(
+                    authViewModel = authViewModel,
+                    onOpenSettings = { tab = AppTab.Settings },
+                    onOpenMessages = { tab = AppTab.Messages }
+                )
                 AppTab.Map -> MapScreen(isVisible = isAppVisible, mapViewModel = mapViewModel)
                 AppTab.Camera -> CameraScreen(
                     photoTrigger = cameraPhotoTrigger,
@@ -143,41 +160,46 @@ fun PoplurRoot(
                 )
                 AppTab.Home -> HomeScreen(onOpenCamera = { tab = AppTab.Camera }, onOpenMap = { tab = AppTab.Map })
                 AppTab.Messages -> MessagesScreen(onBack = { tab = AppTab.Profile })
-                AppTab.Settings -> SettingsScreen(onSignOut = { authViewModel.signOut() })
+                AppTab.Settings -> SettingsScreen(onBack = { tab = AppTab.Profile }, onSignOut = { authViewModel.signOut() }, onOpenCubeDebug = { tab = AppTab.CubeDebug })
+                AppTab.CubeDebug -> CubeDevelopmentScreen(onBack = { tab = AppTab.Settings })
             }
         }
 
         // Keep the navigation cube fixed in one bottom-center position across screens.
-        // Hide it on the Messages screen and when Camera filters are active.
-        if (tab != AppTab.Messages && !filtersVisible) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(10f),
-                contentAlignment = Alignment.BottomCenter
-            ) {
-                AndroidView(
-                    factory = { ctx ->
-                        FragmentContainerView(ctx).apply {
-                            id = containerId
-                            setBackgroundColor(0)
-                            background = null
-                            val activity = ctx as? FragmentActivity
-                            activity?.supportFragmentManager?.beginTransaction()
-                                ?.replace(id, GdxNavigationFragment(CUBE_FEED_INDEX, onVerticalSwipe, onLongPressCube, onTapCube, onTabChange))
-                                ?.commit()
-                        }
-                    },
-                    modifier = Modifier
-                        .padding(bottom = CUBE_BOTTOM_OFFSET)
-                        .size(CUBE_CONTAINER_SIZE),
-                    update = { view ->
-                        view.visibility = android.view.View.VISIBLE
-                        view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                        view.background = null
+        // Hide it on the Messages screen, Settings screen, Cube Debug screen, and when Camera filters are active.
+        val isCubeVisible = tab != AppTab.Messages && tab != AppTab.Settings && tab != AppTab.CubeDebug && !filtersVisible
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(10f),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    FragmentContainerView(ctx).apply {
+                        id = containerId
+                        setBackgroundColor(0)
+                        background = null
+                        val activity = ctx as? FragmentActivity
+                        activity?.supportFragmentManager?.beginTransaction()
+                            ?.replace(id, GdxNavigationFragment(CUBE_FEED_INDEX, 
+                                { isUp -> currentOnVerticalSwipe(isUp) }, 
+                                { currentOnLongPressCube() }, 
+                                { currentOnTapCube() }, 
+                                { index -> currentOnTabChange(index) }))
+                            ?.commit()
                     }
-                )
-            }
+                },
+                modifier = Modifier
+                    .padding(bottom = CUBE_BOTTOM_OFFSET)
+                    .size(CUBE_CONTAINER_SIZE)
+                    .alpha(if (isCubeVisible) 1f else 0f),
+                update = { view ->
+                    view.visibility = android.view.View.VISIBLE
+                    view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    view.background = null
+                }
+            )
         }
 
         if (showingPostTimeline) {
@@ -202,7 +224,7 @@ fun PoplurRoot(
 
 private const val CUBE_FEED_INDEX = 1
 private val CUBE_CONTAINER_SIZE = 300.dp
-private val CUBE_BOTTOM_OFFSET = 86.dp
+private val CUBE_BOTTOM_OFFSET = 82.dp
 
 private fun Post.initial(): String = displayName.firstOrNull()?.uppercaseChar()?.toString() ?: username.firstOrNull()?.uppercaseChar()?.toString() ?: "P"
 

@@ -2,7 +2,7 @@ package com.apptists.poplur2025.data
 
 import com.google.firebase.Timestamp
 
-enum class AppTab(val label: String) { Home("Home"), Map("Map"), Camera("Camera"), Feed("Feed"), Messages("Messages"), Profile("Profile"), Settings("Settings") }
+enum class AppTab(val label: String) { Home("Home"), Map("Map"), Camera("Camera"), Feed("Feed"), Messages("Messages"), Profile("Profile"), Settings("Settings"), CubeDebug("Cube Debug") }
 
 data class UserProfile(
     val id: String = "demo-user",

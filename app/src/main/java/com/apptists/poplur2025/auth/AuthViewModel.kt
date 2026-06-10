@@ -12,8 +12,8 @@ import kotlinx.coroutines.withContext
 class AuthViewModel : ViewModel() {
     private var auth: FirebaseAuth? = null
     private var listener: FirebaseAuth.AuthStateListener? = null
-    private val _isSignedIn = MutableStateFlow(false)
-    val isSignedIn: StateFlow<Boolean> = _isSignedIn
+    private val _isSignedIn = MutableStateFlow<Boolean?>(null)
+    val isSignedIn: StateFlow<Boolean?> = _isSignedIn
     val currentUserId: String? get() = auth?.currentUser?.uid
     val currentEmail: String? get() = auth?.currentUser?.email
 

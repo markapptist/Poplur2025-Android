@@ -10,7 +10,7 @@ import android.graphics.PixelFormat
 import com.badlogic.gdx.backends.android.AndroidApplicationConfiguration
 import com.badlogic.gdx.backends.android.AndroidFragmentApplication
 
-class GdxNavigationFragment() : AndroidFragmentApplication() {
+open class GdxNavigationFragment() : AndroidFragmentApplication() {
     var onTabSelected: ((Int) -> Unit)? = null
     var onVerticalSwipe: ((Boolean) -> Unit)? = null
     var onLongPress: (() -> Unit)? = null

@@ -1,14 +1,23 @@
 package com.apptists.poplur2025.ui.screens
 
-import android.graphics.BitmapFactory
+import android.content.Context
+import android.graphics.Typeface
+import android.graphics.Color as AndroidColor
+import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Error
@@ -18,17 +27,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.fragment.app.FragmentActivity
+import androidx.fragment.app.FragmentContainerView
 import com.apptists.poplur2025.ads.AdManager
+import com.apptists.poplur2025.ui.LogoAnimationFragment
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -43,8 +54,9 @@ import com.apptists.poplur2025.data.Post
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.UserInfoOverlay
-import com.google.android.gms.ads.AdSize
-import com.google.android.gms.ads.AdView
+import com.google.android.gms.ads.nativead.MediaView
+import com.google.android.gms.ads.nativead.NativeAd
+import com.google.android.gms.ads.nativead.NativeAdView
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 
@@ -57,11 +69,6 @@ fun FeedScreen(
     val context = LocalContext.current
     val currentSlot = remember(currentPostIndex) { resolveFeedSlot(currentPostIndex) }
     var showFeedLogo by remember { mutableStateOf(true) }
-    val logoBitmap = remember {
-        runCatching {
-            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
-        }.getOrNull()
-    }
 
     LaunchedEffect(Unit) {
         showFeedLogo = true
@@ -181,25 +188,24 @@ fun FeedScreen(
         }
 
         if (showFeedLogo) {
-            val logoAlpha by animateFloatAsState(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 260),
-                label = "feedLogoAlpha"
+            val logoContainerId = remember { android.view.View.generateViewId() }
+            AndroidView(
+                factory = { ctx ->
+                    FragmentContainerView(ctx).apply {
+                        id = logoContainerId
+                        setBackgroundColor(0)
+                        background = null
+                        val activity = ctx as? FragmentActivity
+                        activity?.supportFragmentManager?.beginTransaction()
+                            ?.replace(id, LogoAnimationFragment())
+                            ?.commitAllowingStateLoss()
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(280.dp)
+                    .zIndex(100f)
             )
-            logoBitmap?.let { bitmap ->
-                Image(
-                    bitmap = bitmap,
-                    contentDescription = "Poplur",
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(230.dp)
-                        .graphicsLayer {
-                            alpha = logoAlpha
-                            scaleX = 0.96f + logoAlpha * 0.04f
-                            scaleY = 0.96f + logoAlpha * 0.04f
-                        }
-                )
-            }
         }
 
         Box(
@@ -235,7 +241,7 @@ private fun Modifier.feedSwipeDetector(
 }
 
 private const val AD_FREQUENCY = 6
-private const val FEED_BANNER_AD_UNIT_ID = "ca-app-pub-3940256099942544/6300978111"
+private const val FEED_NATIVE_AD_UNIT_ID = "ca-app-pub-3940256099942544/2247696110"
 private const val ENABLE_FEED_VIDEO_AUTOPLAY = false
 
 private sealed interface FeedSlot {
@@ -276,43 +282,243 @@ private fun demoAdSlot(adIndex: Int): FeedSlot.AdSlot {
 
 @Composable
 private fun FeedAdContent(slot: FeedSlot.AdSlot) {
+    val context = LocalContext.current
+    var nativeAd by remember(slot.id) { mutableStateOf<NativeAd?>(null) }
+    var adLoadFailed by remember(slot.id) { mutableStateOf(false) }
+
+    DisposableEffect(slot.id) {
+        var disposed = false
+        AdManager.loadNativeAd(
+            context = context,
+            adUnitId = FEED_NATIVE_AD_UNIT_ID,
+            onLoaded = { loadedAd ->
+                if (disposed) {
+                    loadedAd.destroy()
+                } else {
+                    nativeAd?.destroy()
+                    nativeAd = loadedAd
+                    adLoadFailed = false
+                }
+            },
+            onFailed = {
+                adLoadFailed = true
+            }
+        )
+        onDispose {
+            disposed = true
+            nativeAd?.destroy()
+            nativeAd = null
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        if (nativeAd != null) {
+            AndroidView(
+                factory = { createFullScreenNativeAdView(it) },
+                update = { view ->
+                    nativeAd?.let { bindFullScreenNativeAd(view, it) }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            FeedAdFallback(slot = slot, loading = !adLoadFailed)
+        }
+    }
+}
+
+@Composable
+private fun FeedAdFallback(slot: FeedSlot.AdSlot, loading: Boolean) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                Brush.radialGradient(
-                    colors = listOf(Color(0xFF2B1648), Color.Black),
-                    radius = 950f
+                Brush.verticalGradient(
+                    colors = listOf(Color(0xFF101820), Color(0xFF31103A), Color.Black)
                 )
-            ),
-        contentAlignment = Alignment.Center
+            )
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(Color(0xFFED3B8F).copy(alpha = 0.42f), Color.Transparent),
+                        radius = 900f
+                    )
+                )
+        )
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .align(Alignment.BottomStart)
+                .navigationBarsPadding()
+                .padding(start = 28.dp, end = 28.dp, bottom = 160.dp),
+            horizontalAlignment = Alignment.Start
         ) {
-            Text("SPONSORED", color = Color.White.copy(alpha = .62f), fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(16.dp))
-            Text(slot.headline, color = Color.White, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black)
+            Text("SPONSORED", color = Color.White.copy(alpha = .74f), fontWeight = FontWeight.Black)
+            Spacer(Modifier.height(14.dp))
+            Text(slot.headline, color = Color.White, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Black)
             Spacer(Modifier.height(10.dp))
-            Text(slot.body, color = Color.White.copy(alpha = .86f), style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(28.dp))
-            AndroidView(
-                factory = { context ->
-                    AdView(context).apply {
-                        setAdSize(AdSize.BANNER)
-                        adUnitId = FEED_BANNER_AD_UNIT_ID
-                        AdManager.loadBanner(this)
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(64.dp)
-            )
+            Text(slot.body, color = Color.White.copy(alpha = .9f), style = MaterialTheme.typography.titleLarge)
+            if (loading) {
+                Spacer(Modifier.height(22.dp))
+                LinearProgressIndicator(
+                    color = Color.White,
+                    trackColor = Color.White.copy(alpha = .18f),
+                    modifier = Modifier.width(132.dp)
+                )
+            }
         }
     }
+}
+
+private fun createFullScreenNativeAdView(context: Context): NativeAdView {
+    val adView = NativeAdView(context)
+    val media = MediaView(context).apply { tag = NativeAdAsset.Media }
+    val icon = ImageView(context).apply { tag = NativeAdAsset.Icon }
+    val sponsoredText = TextView(context)
+    val headlineText = TextView(context).apply { tag = NativeAdAsset.Headline }
+    val bodyText = TextView(context).apply { tag = NativeAdAsset.Body }
+    val advertiserText = TextView(context).apply { tag = NativeAdAsset.Advertiser }
+    val ctaText = TextView(context).apply { tag = NativeAdAsset.CallToAction }
+
+    adView.setBackgroundColor(AndroidColor.BLACK)
+
+    media.layoutParams = FrameLayout.LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.MATCH_PARENT
+    )
+    adView.addView(media)
+    adView.mediaView = media
+
+    adView.addView(
+        View(context).apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(AndroidColor.TRANSPARENT, AndroidColor.argb(230, 0, 0, 0))
+            )
+        },
+        FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            (context.resources.displayMetrics.heightPixels * 0.55f).toInt(),
+            Gravity.BOTTOM
+        )
+    )
+
+    val content = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.START
+        setPadding(context.dp(28), context.dp(20), context.dp(28), context.dp(148))
+    }
+    adView.addView(
+        content,
+        FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM
+        )
+    )
+
+    val sponsorRow = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+    }
+    content.addView(
+        sponsorRow,
+        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+    )
+
+    icon.scaleType = ImageView.ScaleType.CENTER_CROP
+    icon.background = roundedDrawable(AndroidColor.WHITE, context.dp(12).toFloat())
+    sponsorRow.addView(icon, LinearLayout.LayoutParams(context.dp(44), context.dp(44)).apply { rightMargin = context.dp(12) })
+    adView.iconView = icon
+
+    val sponsorColumn = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+    }
+    sponsorRow.addView(sponsorColumn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+
+    sponsoredText.text = "SPONSORED"
+    sponsoredText.setTextColor(AndroidColor.argb(190, 255, 255, 255))
+    sponsoredText.textSize = 12f
+    sponsoredText.typeface = Typeface.DEFAULT_BOLD
+    sponsorColumn.addView(sponsoredText)
+
+    advertiserText.setTextColor(AndroidColor.WHITE)
+    advertiserText.textSize = 15f
+    advertiserText.typeface = Typeface.DEFAULT_BOLD
+    advertiserText.maxLines = 1
+    advertiserText.ellipsize = TextUtils.TruncateAt.END
+    sponsorColumn.addView(advertiserText)
+    adView.advertiserView = advertiserText
+
+    headlineText.setTextColor(AndroidColor.WHITE)
+    headlineText.textSize = 44f
+    headlineText.typeface = Typeface.DEFAULT_BOLD
+    headlineText.maxLines = 3
+    headlineText.ellipsize = TextUtils.TruncateAt.END
+    content.addView(headlineText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(22) })
+    adView.headlineView = headlineText
+
+    bodyText.setTextColor(AndroidColor.argb(230, 255, 255, 255))
+    bodyText.textSize = 18f
+    bodyText.maxLines = 3
+    bodyText.ellipsize = TextUtils.TruncateAt.END
+    content.addView(bodyText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(10) })
+    adView.bodyView = bodyText
+
+    ctaText.gravity = Gravity.CENTER
+    ctaText.setTextColor(AndroidColor.BLACK)
+    ctaText.textSize = 18f
+    ctaText.typeface = Typeface.DEFAULT_BOLD
+    ctaText.background = roundedDrawable(AndroidColor.WHITE, context.dp(26).toFloat())
+    content.addView(ctaText, LinearLayout.LayoutParams(context.dp(190), context.dp(54)).apply { topMargin = context.dp(24) })
+    adView.callToActionView = ctaText
+
+    return adView
+}
+
+private fun bindFullScreenNativeAd(adView: NativeAdView, nativeAd: NativeAd) {
+    val media = adView.findNativeAsset<MediaView>(NativeAdAsset.Media)
+    val icon = adView.findNativeAsset<ImageView>(NativeAdAsset.Icon)
+    val headlineText = adView.findNativeAsset<TextView>(NativeAdAsset.Headline)
+    val bodyText = adView.findNativeAsset<TextView>(NativeAdAsset.Body)
+    val advertiserText = adView.findNativeAsset<TextView>(NativeAdAsset.Advertiser)
+    val ctaText = adView.findNativeAsset<TextView>(NativeAdAsset.CallToAction)
+
+    media.mediaContent = nativeAd.mediaContent
+    headlineText.text = nativeAd.headline.orEmpty()
+    bodyText.text = nativeAd.body.orEmpty()
+    bodyText.visibility = if (nativeAd.body.isNullOrBlank()) View.GONE else View.VISIBLE
+    advertiserText.text = nativeAd.advertiser ?: nativeAd.store ?: "Sponsored"
+    ctaText.text = nativeAd.callToAction ?: "Learn More"
+
+    val iconDrawable = nativeAd.icon?.drawable
+    if (iconDrawable != null) {
+        icon.setImageDrawable(iconDrawable)
+        icon.visibility = View.VISIBLE
+    } else {
+        icon.visibility = View.GONE
+    }
+
+    adView.setNativeAd(nativeAd)
+}
+
+private enum class NativeAdAsset { Media, Icon, Headline, Body, Advertiser, CallToAction }
+
+@Suppress("UNCHECKED_CAST")
+private fun <T : View> NativeAdView.findNativeAsset(asset: NativeAdAsset): T =
+    findViewWithTag<View>(asset) as T
+
+private fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+private fun roundedDrawable(color: Int, radius: Float): GradientDrawable =
+    GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = radius
 }
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -460,4 +666,3 @@ fun FeedScreenPreview() {
         )
     }
 }
-

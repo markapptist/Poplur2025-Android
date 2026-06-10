@@ -31,13 +31,14 @@ class CubeNavigationAdapter(private val onTabSelected: (Int) -> Unit) : Applicat
         
     private var isDragging = false
     private var lastX = 0f
+    private var time = 0f
 
     override fun create() {
         Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
         val w = Gdx.graphics.width.toFloat()
         val h = Gdx.graphics.height.toFloat()
         val pCam = PerspectiveCamera(67f, w, h)
-        pCam.position.set(0f, 0f, 5f)
+        pCam.position.set(0f, 1.2f, 5f)
         pCam.lookAt(0f, 0f, 0f)
         pCam.near = 1f
         pCam.far = 300f
@@ -91,6 +92,9 @@ class CubeNavigationAdapter(private val onTabSelected: (Int) -> Unit) : Applicat
     }
 
     override fun render() {
+        val deltaTime = Gdx.graphics.deltaTime
+        time += deltaTime
+
         if (!isDragging) {
             currentRotation += (targetRotation - currentRotation) * 0.1f
         }
@@ -99,7 +103,8 @@ class CubeNavigationAdapter(private val onTabSelected: (Int) -> Unit) : Applicat
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
 
         instance?.let { inst ->
-            inst.transform.set(Vector3.Zero, Quaternion().setEulerAngles(currentRotation, 0f, 0f))
+            val hoverY = Math.sin(time.toDouble() * 2.0).toFloat() * 0.15f
+            inst.transform.set(Vector3(0f, hoverY, 0f), Quaternion().setEulerAngles(currentRotation, 0f, 0f))
             modelBatch?.let { batch ->
                 batch.begin(cam)
                 batch.render(inst, environment)

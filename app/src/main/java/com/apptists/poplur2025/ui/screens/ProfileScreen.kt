@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Settings
@@ -33,24 +32,47 @@ import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 
 @Composable
-fun ProfileScreen(profile: UserProfile = UserProfile(), authViewModel: AuthViewModel? = null) {
-    ProfileScreenContent(profile = profile) { authViewModel?.signOut() }
+fun ProfileScreen(
+    profile: UserProfile = UserProfile(),
+    authViewModel: AuthViewModel? = null,
+    onOpenSettings: () -> Unit = {},
+    onOpenMessages: () -> Unit = {}
+) {
+    ProfileScreenContent(
+        profile = profile,
+        onOpenSettings = onOpenSettings,
+        onOpenMessages = onOpenMessages
+    )
 }
 
 @Composable
 fun ProfileScreenContent(
     profile: UserProfile = UserProfile(),
-    onSignOut: (() -> Unit)? = null,
+    onOpenSettings: () -> Unit = {},
+    onOpenMessages: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var currentProfile by remember { mutableStateOf(profile) }
-    var sheet by remember { mutableStateOf<ProfileSheet?>(null) }
+    var isEditing by remember { mutableStateOf(false) }
 
-    when (sheet) {
-        ProfileSheet.Edit -> EditProfileScreen(currentProfile, onSave = { updated, _ -> currentProfile = updated; sheet = null }, onDismiss = { sheet = null })
-        ProfileSheet.Messages -> MessagesScreen(onBack = { sheet = null })
-        ProfileSheet.Settings -> SettingsScreen(onBack = { sheet = null }, onSignOut = onSignOut)
-        null -> ProfileHome(currentProfile, selectedTab, { selectedTab = it }, { sheet = it }, onSignOut)
+    if (isEditing) {
+        EditProfileScreen(
+            profile = currentProfile,
+            onSave = { updated, _ -> 
+                currentProfile = updated
+                isEditing = false 
+            },
+            onDismiss = { isEditing = false }
+        )
+    } else {
+        ProfileHome(
+            profile = currentProfile,
+            selectedTab = selectedTab,
+            onTab = { selectedTab = it },
+            onOpenSettings = onOpenSettings,
+            onOpenMessages = onOpenMessages,
+            onEdit = { isEditing = true }
+        )
     }
 }
 
@@ -59,8 +81,9 @@ private fun ProfileHome(
     profile: UserProfile,
     selectedTab: Int,
     onTab: (Int) -> Unit,
-    onSheet: (ProfileSheet) -> Unit,
-    onSignOut: (() -> Unit)? = null
+    onOpenSettings: () -> Unit,
+    onOpenMessages: () -> Unit,
+    onEdit: () -> Unit
 ) {
     Box(Modifier.fillMaxSize().background(Color.White)) {
         Row(
@@ -68,11 +91,18 @@ private fun ProfileHome(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Default.Email, "Messages", tint = Color.DarkGray, modifier = Modifier.size(32.dp).clickable { onSheet(ProfileSheet.Messages) })
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                Icon(Icons.Default.Settings, "Settings", tint = Color.DarkGray, modifier = Modifier.size(32.dp).clickable { onSheet(ProfileSheet.Settings) })
-                if (onSignOut != null) Icon(Icons.AutoMirrored.Filled.Logout, "Log out", tint = Color.DarkGray, modifier = Modifier.size(30.dp).clickable { onSignOut() })
-            }
+            Icon(
+                Icons.Default.Email, 
+                "Messages", 
+                tint = Color.DarkGray, 
+                modifier = Modifier.size(32.dp).clickable { onOpenMessages() }
+            )
+            Icon(
+                Icons.Default.Settings, 
+                "Settings", 
+                tint = Color.DarkGray, 
+                modifier = Modifier.size(32.dp).clickable { onOpenSettings() }
+            )
         }
 
         Column(Modifier.fillMaxSize().padding(top = 112.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -83,7 +113,21 @@ private fun ProfileHome(
                 contentScale = ContentScale.Crop
             )
             Spacer(Modifier.height(18.dp))
-            Text(profile.displayName.uppercase(), fontSize = 30.sp, fontWeight = FontWeight.Black, color = Color.Black)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    profile.displayName.uppercase(), 
+                    fontSize = 30.sp, 
+                    fontWeight = FontWeight.Black, 
+                    color = Color.Black
+                )
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    Icons.Default.Edit,
+                    contentDescription = "Edit Profile",
+                    tint = Color.Gray,
+                    modifier = Modifier.size(20.dp).clickable { onEdit() }
+                )
+            }
             Row(Modifier.fillMaxWidth().padding(top = 28.dp), horizontalArrangement = Arrangement.Center) {
                 ProfileTabItem("Media", selectedTab == 0) { onTab(0) }
                 Spacer(Modifier.width(56.dp))
@@ -115,20 +159,13 @@ private fun ProfileHome(
                 .padding(bottom = 48.dp, start = 20.dp)
                 .align(Alignment.BottomStart)
         )
-        // Removed navigation cube placeholder
+        
         RadiusDisplay(
             modifier = Modifier.padding(bottom = 48.dp, end = 20.dp).align(Alignment.BottomEnd),
             radius = 56,
             unit = "mi",
             contentColor = Color.DarkGray
         )
-    }
-}
-
-@Composable private fun Stat(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, fontWeight = FontWeight.Black, color = Color.Black)
-        Text(label, color = Color.Gray, fontSize = 12.sp)
     }
 }
 
@@ -151,8 +188,6 @@ fun MediaItem(url: String? = null, radius: Int = 5000) {
     }
 }
 
-enum class ProfileSheet { Edit, Messages, Settings }
-
 @Preview(showBackground = true)
 @Composable
 fun ProfileScreenPreview() {
@@ -160,4 +195,3 @@ fun ProfileScreenPreview() {
         ProfileScreenContent(profile = UserProfile())
     }
 }
-

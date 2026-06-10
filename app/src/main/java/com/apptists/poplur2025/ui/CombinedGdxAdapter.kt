@@ -46,7 +46,46 @@ class CombinedGdxAdapter(
     private var instance: ModelInstance? = null
     private var environment: Environment? = null
 
-    private var currentYawDegrees = -90f * initialTabIndex
+    var cubeScale: Float = 0.65f
+        set(value) {
+            field = value
+            Gdx.app?.postRunnable { rebuildModel() }
+        }
+
+    var cornerRadius: Float = 92f
+        set(value) {
+            field = value
+            Gdx.app?.postRunnable { 
+                rebuildTextures()
+                rebuildModel() 
+            }
+        }
+
+    var opacity: Float = 1.0f
+        set(value) {
+            field = value
+            Gdx.app?.postRunnable { 
+                rebuildMaterialsOpacity() 
+            }
+        }
+
+    var currentIconTitle: String = "Record"
+        set(value) {
+            field = value
+            Gdx.app?.postRunnable {
+                rebuildTextures()
+                rebuildModel()
+            }
+        }
+
+    var yawDegrees: Float = -90f * initialTabIndex
+        set(value) {
+            field = value
+            currentYawDegrees = value
+            targetYawDegrees = value
+        }
+
+    private var currentYawDegrees = yawDegrees
     private var targetYawDegrees = currentYawDegrees
     private var startYawDegrees = currentYawDegrees
     private var animationTime = 0f
@@ -61,8 +100,10 @@ class CombinedGdxAdapter(
     private var downY = 0f
     private var lastX = 0f
     private var touchStartMillis = 0L
+    private var time = 0f
 
     private val textures = mutableListOf<Texture>()
+    private val materials = mutableListOf<Material>()
     private var font: BitmapFont? = null
 
     override fun create() {
@@ -75,7 +116,7 @@ class CombinedGdxAdapter(
             val w = Gdx.graphics.width.toFloat().coerceAtLeast(1f)
             val h = Gdx.graphics.height.toFloat().coerceAtLeast(1f)
             camera = PerspectiveCamera(40f, w, h).apply {
-                position.set(0f, 0f, 5f)
+                position.set(0f, 1.2f, 5f)
                 lookAt(0f, 0f, 0f)
                 near = 0.1f
                 far = 100f
@@ -88,9 +129,8 @@ class CombinedGdxAdapter(
                 setUseIntegerPositions(false)
             }
 
-            val materials = buildFaceMaterials()
-            model = buildCube(materials)
-            instance = ModelInstance(model)
+            rebuildTextures()
+            rebuildModel()
 
             environment = Environment().apply {
                 set(ColorAttribute(ColorAttribute.AmbientLight, 0.6f, 0.6f, 0.6f, 1f))
@@ -135,22 +175,48 @@ class CombinedGdxAdapter(
         }
     }
 
-    private fun buildFaceMaterials(): List<Material> {
-        return listOf("Record", "Feed", "Profile", "Map").map { title ->
+    private fun rebuildTextures() {
+        textures.forEach { it.dispose() }
+        textures.clear()
+        materials.clear()
+        
+        // In debug mode, we might want to see the same icon on all faces or just test one
+        val titles = if (Gdx.app.type == com.badlogic.gdx.Application.ApplicationType.Android && currentIconTitle != "Record") {
+             // If we are specifically testing an icon title, we can put it on the front face at least
+             listOf(currentIconTitle, "Feed", "Profile", "Map")
+        } else {
+             listOf("Record", "Feed", "Profile", "Map")
+        }
+
+        titles.forEach { title ->
             val texture = createFaceTexture(title)
             textures += texture
-            Material(
+            materials += Material(
                 TextureAttribute.createDiffuse(texture),
                 ColorAttribute.createDiffuse(Color.WHITE),
-                BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA)
+                BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, opacity)
             )
         }
+    }
+
+    private fun rebuildMaterialsOpacity() {
+        materials.forEach { material ->
+            val blending = material.get(BlendingAttribute.Type) as? BlendingAttribute
+            blending?.opacity = opacity
+        }
+    }
+
+    private fun rebuildModel() {
+        val oldModel = model
+        model = buildCube(materials)
+        instance = ModelInstance(model)
+        oldModel?.dispose()
     }
 
     private fun buildCube(materials: List<Material>): Model {
         val mb = ModelBuilder()
         val attr = (Usage.Position or Usage.Normal or Usage.TextureCoordinates).toLong()
-        val s = 0.65f
+        val s = cubeScale
         mb.begin()
         mb.part("f", GL20.GL_TRIANGLES, attr, materials[0]).rect(-s,-s,s, s,-s,s, s,s,s, -s,s,s, 0f,0f,1f)
         mb.part("r", GL20.GL_TRIANGLES, attr, materials[1]).rect(s,-s,s, s,-s,-s, s,s,-s, s,s,s, 1f,0f,0f)
@@ -176,7 +242,7 @@ class CombinedGdxAdapter(
         sr.begin(ShapeRenderer.ShapeType.Filled)
         
         // Soft rounded panel base
-        val r = 92f
+        val r = cornerRadius
         val pad = 20f
         sr.color = Color(0.06f, 0.07f, 0.16f, 1f)
         sr.filledRoundRect(pad, pad, size - pad*2, size - pad*2, r)
@@ -257,14 +323,19 @@ class CombinedGdxAdapter(
     }
 
     override fun resize(width: Int, height: Int) {
-        camera?.viewportWidth = width.toFloat(); camera?.viewportHeight = height.toFloat(); camera?.update()
+        camera?.viewportWidth = width.toFloat().coerceAtLeast(1f); camera?.viewportHeight = height.toFloat().coerceAtLeast(1f); camera?.update()
     }
 
     override fun render() {
+        val deltaTime = Gdx.graphics.deltaTime
+        time += deltaTime
         if (dragging || bouncePhase != BouncePhase.Idle) updateAnimation()
         Gdx.gl.glViewport(0, 0, Gdx.graphics.width, Gdx.graphics.height); Gdx.gl.glClearColor(0f, 0f, 0f, 0f); Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
         instance?.let { cube ->
-            cube.transform.set(Vector3.Zero, Quaternion().setEulerAngles(currentYawDegrees, 0f, 0f))
+            val hoverY = Math.sin(time.toDouble() * 2.0).toFloat() * 0.12f
+            cube.transform.setToTranslation(0f, hoverY, 0f)
+                .rotate(Vector3.Y, currentYawDegrees)
+                .scale(cubeScale.coerceAtLeast(0.01f), cubeScale.coerceAtLeast(0.01f), cubeScale.coerceAtLeast(0.01f))
             modelBatch?.begin(camera); modelBatch?.render(cube, environment); modelBatch?.end()
         }
     }

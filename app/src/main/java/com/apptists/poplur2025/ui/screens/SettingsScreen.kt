@@ -31,9 +31,11 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit = {},
-    onSignOut: (() -> Unit)? = null
+    onSignOut: (() -> Unit)? = null,
+    onOpenCubeDebug: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) } // Default to Statistics
+    val cubeDebugCallback by rememberUpdatedState(onOpenCubeDebug)
 
     Column(
         Modifier
@@ -85,7 +87,7 @@ fun SettingsScreen(
             if (selectedTab == 0) {
                 StatisticsTab()
             } else {
-                SettingsTab(onSignOut)
+                SettingsTab(onSignOut, cubeDebugCallback)
             }
         }
     }
@@ -175,7 +177,7 @@ private fun StatisticsTab() {
 }
 
 @Composable
-private fun SettingsTab(onSignOut: (() -> Unit)?) {
+private fun SettingsTab(onSignOut: (() -> Unit)?, onOpenCubeDebug: () -> Unit) {
     Column(
         Modifier
             .fillMaxSize()
@@ -196,6 +198,10 @@ private fun SettingsTab(onSignOut: (() -> Unit)?) {
         SettingsActionRow("Password") {}
 
         Spacer(Modifier.height(32.dp))
+
+        DesignButton("Launch Cube Debug", containerColor = Color(0xFF7B78FF)) {
+            onOpenCubeDebug()
+        }
 
         DesignButton("Limit videos to 10 seconds", subtext = "Current limit: 15s") {}
         DesignButton("Seed NA (1000)") {}

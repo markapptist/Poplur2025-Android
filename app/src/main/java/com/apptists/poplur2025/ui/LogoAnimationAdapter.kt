@@ -3,6 +3,7 @@ package com.apptists.poplur2025.ui
 import android.util.Log
 import com.badlogic.gdx.ApplicationAdapter
 import com.badlogic.gdx.Gdx
+import com.badlogic.gdx.audio.Sound
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.PerspectiveCamera
 import com.badlogic.gdx.graphics.Texture
@@ -29,9 +30,11 @@ class LogoAnimationAdapter : ApplicationAdapter() {
     private var logoModel: Model? = null
     private var logoInstance: ModelInstance? = null
     private var environment: Environment? = null
+    private var popSound: Sound? = null
     private var animTime = LOGO_POP_TOTAL_SECONDS
     private var animating = false
     private var pendingTrigger = true
+    private var hasPlayedSound = false
 
     override fun create() {
         try {
@@ -71,6 +74,7 @@ class LogoAnimationAdapter : ApplicationAdapter() {
                 set(ColorAttribute(ColorAttribute.AmbientLight, 0.88f, 0.88f, 0.92f, 1f))
                 add(DirectionalLight().set(0.75f, 0.72f, 0.82f, -0.2f, -0.5f, -1f))
             }
+            popSound = Gdx.audio.newSound(Gdx.files.internal("pop.mp3"))
             if (pendingTrigger) triggerLogoPop()
         } catch (e: Exception) {
             Log.e("LogoAnimationAdapter", "Failed to create 3D logo animation", e)
@@ -81,6 +85,7 @@ class LogoAnimationAdapter : ApplicationAdapter() {
         pendingTrigger = true
         animating = true
         animTime = 0f
+        hasPlayedSound = false
         Gdx.graphics.requestRendering()
     }
 
@@ -96,6 +101,14 @@ class LogoAnimationAdapter : ApplicationAdapter() {
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
 
         if (!animating) return
+
+        if (!hasPlayedSound && animTime >= 0f) {
+            // Sound loading can be asynchronous, so we try multiple times if needed
+            // But since this is render loop, it will try again next frame if play fails
+            if (popSound?.play() != -1L) {
+                hasPlayedSound = true
+            }
+        }
 
         animTime += Gdx.graphics.deltaTime
         val alpha: Float
@@ -128,8 +141,12 @@ class LogoAnimationAdapter : ApplicationAdapter() {
         )
         val yaw = sin(animTime * 2.2f) * 8f
         val pitch = sin(animTime * 1.8f) * 4f
-        logoInstance?.transform?.set(Vector3.Zero, Quaternion().setEulerAngles(yaw, pitch, 0f))
-        logoInstance?.transform?.scale(scale, scale, scale)
+        val s = scale.coerceAtLeast(0.01f)
+        logoInstance?.transform?.setToTranslation(0f, 0f, 0f)
+            ?.rotate(Vector3.Y, yaw)
+            ?.rotate(Vector3.X, pitch)
+            ?.rotate(Vector3.Z, 90f)
+            ?.scale(s, s, s)
 
         val batch = modelBatch ?: return
         val cam = camera ?: return
@@ -144,6 +161,7 @@ class LogoAnimationAdapter : ApplicationAdapter() {
         modelBatch?.dispose()
         logoModel?.dispose()
         logoTexture?.dispose()
+        popSound?.dispose()
     }
 
     companion object {
