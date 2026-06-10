@@ -161,7 +161,7 @@ fun FeedScreen(
                 )
                 is FeedSlot.AdSlot -> UserInfoOverlay(
                     displayName = "Sponsored",
-                    location = slot.locationLabel
+                    location = "Nearby"
                 )
             }
         }
@@ -185,8 +185,8 @@ fun FeedScreen(
                     contentColor = Color.White
                 )
                 is FeedSlot.AdSlot -> TrendingDisplay(
-                    postsCount = slot.engagementCount,
-                    radiusChange = slot.radiusChange,
+                    postsCount = 84, // Real ad engagement could be synced if available
+                    radiusChange = 18,
                     modifier = Modifier,
                     contentColor = Color.White
                 )
@@ -209,7 +209,7 @@ fun FeedScreen(
             RadiusDisplay(
                 radius = when (slot) {
                     is FeedSlot.PostSlot -> slot.post.radius
-                    is FeedSlot.AdSlot -> slot.radius
+                    is FeedSlot.AdSlot -> 1250 // Ad radius
                 },
                 unit = "mi"
             )
@@ -275,15 +275,7 @@ private const val ENABLE_FEED_VIDEO_AUTOPLAY = true
 
 private sealed interface FeedSlot {
     data class PostSlot(val post: Post) : FeedSlot
-    data class AdSlot(
-        val id: String,
-        val headline: String,
-        val body: String,
-        val locationLabel: String,
-        val radius: Int,
-        val engagementCount: Int,
-        val radiusChange: Int
-    ) : FeedSlot
+    data class AdSlot(val id: String) : FeedSlot
 }
 
 private fun resolveFeedSlot(index: Int): FeedSlot {
@@ -294,19 +286,10 @@ private fun resolveFeedSlot(index: Int): FeedSlot {
         index
     }
     if ((normalized + 1) % AD_FREQUENCY == 0) {
-        return demoAdSlot(normalized / AD_FREQUENCY)
+        return FeedSlot.AdSlot("ad-$normalized")
     }
     val adsBefore = (normalized + 1) / AD_FREQUENCY
     return FeedSlot.PostSlot(DemoPostStore.getPostForIndex(normalized - adsBefore))
-}
-
-private fun demoAdSlot(adIndex: Int): FeedSlot.AdSlot {
-    val ads = listOf(
-        FeedSlot.AdSlot("ad-$adIndex-1", "Poplur Pro", "Boost your next post where people are already watching.", "Sponsored nearby", 1250, 84, 18),
-        FeedSlot.AdSlot("ad-$adIndex-2", "Tonight's Drop", "Find events, food, and creator moments before they peak.", "Sponsored trend", 890, 126, 24),
-        FeedSlot.AdSlot("ad-$adIndex-3", "Creator Tools", "Turn live clips into local reach with smarter posting.", "Sponsored creator", 1420, 62, 11)
-    )
-    return ads[adIndex % ads.size].copy(id = "ad-$adIndex")
 }
 
 @Composable
@@ -389,16 +372,14 @@ private fun FeedAdFallback(slot: FeedSlot.AdSlot, loading: Boolean) {
         ) {
             Text("SPONSORED", color = Color.White.copy(alpha = .74f), fontWeight = FontWeight.Black)
             Spacer(Modifier.height(14.dp))
-            Text(slot.headline, color = Color.White, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(10.dp))
-            Text(slot.body, color = Color.White.copy(alpha = .9f), style = MaterialTheme.typography.titleLarge)
             if (loading) {
-                Spacer(Modifier.height(22.dp))
                 LinearProgressIndicator(
                     color = Color.White,
                     trackColor = Color.White.copy(alpha = .18f),
                     modifier = Modifier.width(132.dp)
                 )
+            } else {
+                Text("Ad currently unavailable", color = Color.White.copy(alpha = 0.5f))
             }
         }
     }
