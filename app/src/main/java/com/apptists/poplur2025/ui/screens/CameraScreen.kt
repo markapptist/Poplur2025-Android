@@ -7,6 +7,7 @@ import android.graphics.Rect
 import android.net.Uri
 import android.provider.MediaStore
 import android.widget.VideoView
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
@@ -91,7 +92,8 @@ fun CameraScreen(
     photoTrigger: Int = 0,
     recordTrigger: Int = 0,
     initialShowFilters: Boolean = false,
-    onFiltersToggle: (Boolean) -> Unit = {}
+    onFiltersToggle: (Boolean) -> Unit = {},
+    onMediaCaptured: (Uri, Boolean) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
@@ -111,7 +113,6 @@ fun CameraScreen(
     }
 
     var captureOutput by remember { mutableStateOf<String?>(null) }
-    var capturedPreview by remember { mutableStateOf<CapturedPreview?>(null) }
     var detectedFaces by remember { mutableStateOf<List<DetectedFace>>(emptyList()) }
     var analysisSize by remember { mutableStateOf(IntSize.Zero) }
     var overlaySize by remember { mutableStateOf(IntSize.Zero) }
@@ -164,7 +165,9 @@ fun CameraScreen(
                     override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                         val uri = outputFileResults.savedUri
                         captureOutput = "Photo captured"
-                        if (uri != null) capturedPreview = CapturedPreview(uri, isVideo = false)
+                        if (uri != null) {
+                            onMediaCaptured(uri, false)
+                        }
                     }
 
                     override fun onError(exception: ImageCaptureException) {
@@ -175,10 +178,11 @@ fun CameraScreen(
             )
         }
     }
-    val startTenSecondRecording = {
+    val startTenSecondRecording: () -> Recording? = {
         val video = videoCapture
         if (video == null) {
             captureOutput = "Video not ready"
+            null
         } else if (activeRecording == null) {
             val name = "Poplur_${timestampName()}"
             val values = ContentValues().apply {
@@ -195,7 +199,7 @@ fun CameraScreen(
             if (hasAudioPermission) pendingRecording = pendingRecording.withAudioEnabled()
             recording = true
             captureOutput = "Recording"
-            activeRecording = pendingRecording.start(mainExecutor) { event ->
+            val startedRecording = pendingRecording.start(mainExecutor) { event ->
                 when (event) {
                     is VideoRecordEvent.Finalize -> {
                         recording = false
@@ -203,13 +207,17 @@ fun CameraScreen(
                         if (!event.hasError()) {
                             val uri = event.outputResults.outputUri
                             captureOutput = "Video captured"
-                            capturedPreview = CapturedPreview(uri, isVideo = true)
+                            onMediaCaptured(uri, true)
                         } else {
                             captureOutput = "Video failed"
                         }
                     }
                 }
             }
+            activeRecording = startedRecording
+            startedRecording
+        } else {
+            activeRecording
         }
     }
 
@@ -227,9 +235,9 @@ fun CameraScreen(
     LaunchedEffect(recordTrigger) {
         if (recordTrigger > 0) {
             if (recording) return@LaunchedEffect
-            startTenSecondRecording()
+            val startedRecording = startTenSecondRecording()
             delay(10_000)
-            activeRecording?.stop()
+            startedRecording?.stop()
         }
     }
 
@@ -498,15 +506,7 @@ fun CameraScreen(
                     .padding(start = 20.dp, bottom = 132.dp)
             )
         }
-        capturedPreview?.let { preview ->
-            CapturedPreviewSheet(
-                preview = preview,
-                onDismiss = { capturedPreview = null },
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 24.dp)
-            )
-        }
+
         captureOutput?.let { output ->
             Surface(
                 modifier = Modifier
@@ -528,60 +528,107 @@ fun CameraScreen(
 }
 
 @Composable
-private fun CapturedPreviewSheet(preview: CapturedPreview, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = Color.Black.copy(alpha = .78f),
-        shape = RoundedCornerShape(26.dp)
+fun CapturedOutputScreen(
+    uri: Uri,
+    isVideo: Boolean,
+    onBack: () -> Unit,
+    onPost: () -> Unit = {}
+) {
+    BackHandler(onBack = onBack)
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
     ) {
-        Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(360.dp)
-                    .background(Color.Black, RoundedCornerShape(18.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (preview.isVideo) {
-                    AndroidView(
-                        factory = { context ->
-                            VideoView(context).apply {
-                                setVideoURI(preview.uri)
-                                setOnPreparedListener { player ->
-                                    player.isLooping = true
-                                    player.setVolume(0f, 0f)
-                                    start()
-                                }
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isVideo) {
+                AndroidView(
+                    factory = { context ->
+                        VideoView(context).apply {
+                            setVideoURI(uri)
+                            setOnPreparedListener { player ->
+                                player.isLooping = true
+                                player.setVolume(0.7f, 0.7f)
+                                start()
                             }
-                        },
-                        update = { view ->
-                            view.setVideoURI(preview.uri)
-                            view.start()
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    AsyncImage(
-                        model = preview.uri,
-                        contentDescription = "Captured photo",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                    )
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Text(
-                    if (preview.isVideo) "Video output" else "Captured output",
-                    color = Color.White,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Black
+                        }
+                    },
+                    update = { view ->
+                        view.setVideoURI(uri)
+                        view.start()
+                    },
+                    modifier = Modifier.fillMaxSize()
                 )
-                TextButton(onClick = onDismiss) { Text("Close", color = Color.White, fontWeight = FontWeight.Bold) }
+            } else {
+                AsyncImage(
+                    model = uri,
+                    contentDescription = "Captured photo",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+            }
+        }
+
+        // Top bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.5f))
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+            }
+            
+            Text(
+                text = if (isVideo) "VIDEO OUTPUT" else "PHOTO OUTPUT",
+                color = Color.White,
+                fontWeight = FontWeight.Black,
+                fontSize = 14.sp,
+                letterSpacing = 1.sp
+            )
+            
+            // Empty placeholder for symmetry or additional actions
+            Box(Modifier.size(48.dp))
+        }
+
+        // Bottom Actions
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Button(
+                onClick = onPost,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+            ) {
+                Text("Post to Feed", fontWeight = FontWeight.Black, fontSize = 16.sp)
+            }
+            
+            Spacer(Modifier.height(16.dp))
+            
+            TextButton(onClick = onBack) {
+                Text("Discard", color = Color.White.copy(alpha = 0.7f), fontWeight = FontWeight.Bold)
             }
         }
     }
 }
+
 
 @Composable
 private fun ArFilterSelector(
@@ -735,7 +782,6 @@ private fun MLFace.toDetectedFace(mirrored: Boolean): DetectedFace {
 
 private fun timestampName(): String = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(System.currentTimeMillis())
 
-private data class CapturedPreview(val uri: Uri, val isVideo: Boolean)
 
 private data class DetectedFace(
     val bounds: Rect,

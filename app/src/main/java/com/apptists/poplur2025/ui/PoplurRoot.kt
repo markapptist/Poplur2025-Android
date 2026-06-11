@@ -65,6 +65,9 @@ fun PoplurRoot(
     var cameraRecordTrigger by remember { mutableIntStateOf(0) }
     var isAppVisible by remember { mutableStateOf(true) }
     var filtersVisible by remember { mutableStateOf(false) }
+    
+    var capturedMediaUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var isCapturedVideo by remember { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -156,8 +159,30 @@ fun PoplurRoot(
                 AppTab.Camera -> CameraScreen(
                     photoTrigger = cameraPhotoTrigger,
                     recordTrigger = cameraRecordTrigger,
-                    onFiltersToggle = { filtersVisible = it }
+                    onFiltersToggle = { filtersVisible = it },
+                    onMediaCaptured = { uri, isVideo ->
+                        capturedMediaUri = uri
+                        isCapturedVideo = isVideo
+                        tab = AppTab.CapturedOutput
+                    }
                 )
+                AppTab.CapturedOutput -> {
+                    val uri = capturedMediaUri
+                    if (uri != null) {
+                        CapturedOutputScreen(
+                            uri = uri,
+                            isVideo = isCapturedVideo,
+                            onBack = { tab = AppTab.Camera },
+                            onPost = {
+                                // Logic to post would go here
+                                tab = AppTab.Feed
+                            }
+                        )
+                    } else {
+                        // Fallback if somehow URI is null
+                        tab = AppTab.Camera
+                    }
+                }
                 AppTab.Home -> HomeScreen(onOpenCamera = { tab = AppTab.Camera }, onOpenMap = { tab = AppTab.Map })
                 AppTab.Messages -> MessagesScreen(onBack = { tab = AppTab.Profile })
                 AppTab.Settings -> SettingsScreen(onBack = { tab = AppTab.Profile }, onSignOut = { authViewModel.signOut() }, onOpenCubeDebug = { tab = AppTab.CubeDebug })
@@ -166,8 +191,8 @@ fun PoplurRoot(
         }
 
         // Keep the navigation cube fixed in one bottom-center position across screens.
-        // Hide it on the Messages screen, Settings screen, Cube Debug screen, and when Camera filters are active.
-        val isCubeVisible = tab != AppTab.Messages && tab != AppTab.Settings && tab != AppTab.CubeDebug && !filtersVisible
+        // Hide it on the Messages screen, Settings screen, Cube Debug screen, Captured Output screen, and when Camera filters are active.
+        val isCubeVisible = tab != AppTab.Messages && tab != AppTab.Settings && tab != AppTab.CubeDebug && tab != AppTab.CapturedOutput && !filtersVisible
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -223,8 +248,8 @@ fun PoplurRoot(
 }
 
 private const val CUBE_FEED_INDEX = 1
-private val CUBE_CONTAINER_SIZE = 300.dp
-private val CUBE_BOTTOM_OFFSET = 82.dp
+private val CUBE_CONTAINER_SIZE = 240.dp
+private val CUBE_BOTTOM_OFFSET = 120.dp
 
 private fun Post.initial(): String = displayName.firstOrNull()?.uppercaseChar()?.toString() ?: username.firstOrNull()?.uppercaseChar()?.toString() ?: "P"
 

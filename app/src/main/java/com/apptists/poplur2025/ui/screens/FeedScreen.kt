@@ -537,20 +537,16 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
     val context = LocalContext.current
     var hasError by remember(post.id) { mutableStateOf(false) }
     var isLoading by remember(post.id) { mutableStateOf(true) }
-    var enableVideo by remember(post.id) { mutableStateOf(false) }
-
-    LaunchedEffect(post.id, post.videoUrl) {
-        enableVideo = ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null
-    }
+    var hasRenderedVideo by remember(post.id) { mutableStateOf(false) }
     
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         when {
-            ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null && enableVideo && !hasError -> {
+            ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null && !hasError -> {
                 val exoPlayer = remember(post.videoUrl) {
                     val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-                        .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                        .setConnectTimeoutMs(2000) // Fast timeout
-                        .setReadTimeoutMs(2000)
+                        .setUserAgent("Poplur2025 Android Player")
+                        .setConnectTimeoutMs(8_000)
+                        .setReadTimeoutMs(12_000)
                         .setAllowCrossProtocolRedirects(true)
                     
                     val mediaSourceFactory = DefaultMediaSourceFactory(context)
@@ -565,16 +561,22 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                         .setMediaSourceFactory(mediaSourceFactory)
                         .setAudioAttributes(audioAttributes, true)
                         .build().apply {
-                            // Optimized for fast start
                             val mediaItem = MediaItem.Builder()
                                 .setUri(post.videoUrl)
                                 .build()
                             setMediaItem(mediaItem)
                             repeatMode = Player.REPEAT_MODE_ONE
+                            volume = 0f
                             addListener(object : Player.Listener {
                                 override fun onPlaybackStateChanged(state: Int) {
-                                    isLoading = state == Player.STATE_BUFFERING
+                                    isLoading = state == Player.STATE_BUFFERING && !hasRenderedVideo
                                 }
+
+                                override fun onRenderedFirstFrame() {
+                                    hasRenderedVideo = true
+                                    isLoading = false
+                                }
+
                                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                                     println("ExoPlayer Error: ${error.message}")
                                     hasError = true
@@ -595,14 +597,29 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                         exoPlayer.release()
                     }
                 }
-                
+
+                post.mediaUrl?.let { posterUrl ->
+                    AsyncImage(
+                        model = posterUrl,
+                        contentDescription = post.caption,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
                 AndroidView(
-                    factory = {
-                        PlayerView(context).apply {
+                    factory = { viewContext ->
+                        PlayerView(viewContext).apply {
+                            setBackgroundColor(AndroidColor.BLACK)
                             useController = false
-                            player = exoPlayer
                             resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                            isClickable = false
+                            isFocusable = false
+                            player = exoPlayer
                         }
+                    },
+                    update = { playerView ->
+                        playerView.player = exoPlayer
                     },
                     modifier = Modifier.fillMaxSize()
                 )

@@ -26,7 +26,6 @@ import com.badlogic.gdx.graphics.glutils.FrameBuffer
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import com.badlogic.gdx.math.Interpolation
 import com.badlogic.gdx.math.Matrix4
-import com.badlogic.gdx.math.Quaternion
 import com.badlogic.gdx.math.Vector3
 import kotlin.math.abs
 import kotlin.math.roundToInt
