@@ -610,7 +610,8 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                 AndroidView(
                     factory = { viewContext ->
                         PlayerView(viewContext).apply {
-                            setBackgroundColor(AndroidColor.BLACK)
+                            setBackgroundColor(AndroidColor.TRANSPARENT)
+                            setShutterBackgroundColor(AndroidColor.TRANSPARENT)
                             useController = false
                             resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                             isClickable = false
@@ -620,6 +621,7 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                     },
                     update = { playerView ->
                         playerView.player = exoPlayer
+                        playerView.alpha = if (hasRenderedVideo) 1f else 0f
                     },
                     modifier = Modifier.fillMaxSize()
                 )

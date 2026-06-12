@@ -193,38 +193,41 @@ fun PoplurRoot(
         // Keep the navigation cube fixed in one bottom-center position across screens.
         // Hide it on the Messages screen, Settings screen, Cube Debug screen, Captured Output screen, and when Camera filters are active.
         val isCubeVisible = tab != AppTab.Messages && tab != AppTab.Settings && tab != AppTab.CubeDebug && tab != AppTab.CapturedOutput && !filtersVisible
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(10f),
-            contentAlignment = Alignment.BottomCenter
-        ) {
-            AndroidView(
-                factory = { ctx ->
-                    FragmentContainerView(ctx).apply {
-                        id = containerId
-                        setBackgroundColor(0)
-                        background = null
-                        val activity = ctx as? FragmentActivity
-                        activity?.supportFragmentManager?.beginTransaction()
-                            ?.replace(id, GdxNavigationFragment(CUBE_FEED_INDEX, 
-                                { isUp -> currentOnVerticalSwipe(isUp) }, 
-                                { currentOnLongPressCube() }, 
-                                { currentOnTapCube() }, 
-                                { index -> currentOnTabChange(index) }))
-                            ?.commit()
-                    }
-                },
+        if (isCubeVisible) {
+            Box(
                 modifier = Modifier
-                    .padding(bottom = CUBE_BOTTOM_OFFSET)
-                    .size(CUBE_CONTAINER_SIZE)
-                    .alpha(if (isCubeVisible) 1f else 0f),
-                update = { view ->
-                    view.visibility = android.view.View.VISIBLE
-                    view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                    view.background = null
-                }
-            )
+                    .fillMaxSize()
+                    .zIndex(10f),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                AndroidView(
+                    factory = { ctx ->
+                        FragmentContainerView(ctx).apply {
+                            id = containerId
+                            setBackgroundColor(0)
+                            background = null
+                            val activity = ctx as? FragmentActivity
+                            activity?.supportFragmentManager?.beginTransaction()
+                                ?.replace(
+                                    id, GdxNavigationFragment(CUBE_FEED_INDEX,
+                                        { isUp -> currentOnVerticalSwipe(isUp) },
+                                        { currentOnLongPressCube() },
+                                        { currentOnTapCube() },
+                                        { index -> currentOnTabChange(index) })
+                                )
+                                ?.commit()
+                        }
+                    },
+                    modifier = Modifier
+                        .padding(bottom = CUBE_BOTTOM_OFFSET)
+                        .size(CUBE_CONTAINER_SIZE),
+                    update = { view ->
+                        view.visibility = android.view.View.VISIBLE
+                        view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                        view.background = null
+                    }
+                )
+            }
         }
 
         if (showingPostTimeline) {

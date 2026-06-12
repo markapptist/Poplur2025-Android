@@ -266,134 +266,141 @@ fun CameraScreen(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { /* Capture is handled ONLY via the navigation cube in PoplurRoot */ },
-                    onDoubleTap = { toggleCamera() },
-                    onLongPress = {
-                        showFilterPicker = true
-                    }
-                )
-            }
-            .pointerInput(useFrontCamera, torchEnabled) {
-                var totalDragY = 0f
-                detectDragGestures(
-                    onDragStart = { totalDragY = 0f },
-                    onDrag = { change, dragAmount ->
-                        totalDragY += dragAmount.y
-                        change.consume()
-                    },
-                    onDragEnd = {
-                        if (kotlin.math.abs(totalDragY) > 70f && !useFrontCamera) {
-                            torchEnabled = !torchEnabled
-                            captureOutput = if (torchEnabled) "Flash on" else "Flash off"
-                        }
-                    }
-                )
-            }
     ) {
-        if (hasCameraPermission) {
-            if (isPreview) {
-                Box(
-                    modifier = Modifier.fillMaxSize().background(Color.DarkGray),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Camera Preview Placeholder", color = Color.White, fontWeight = FontWeight.Bold)
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { /* Capture is handled ONLY via the navigation cube in PoplurRoot */ },
+                        onDoubleTap = { toggleCamera() },
+                        onLongPress = {
+                            showFilterPicker = true
+                        }
+                    )
+                }
+                .pointerInput(useFrontCamera, torchEnabled) {
+                    var totalDragY = 0f
+                    detectDragGestures(
+                        onDragStart = { totalDragY = 0f },
+                        onDrag = { change, dragAmount ->
+                            totalDragY += dragAmount.y
+                            change.consume()
+                        },
+                        onDragEnd = {
+                            if (kotlin.math.abs(totalDragY) > 70f && !useFrontCamera) {
+                                torchEnabled = !torchEnabled
+                                captureOutput = if (torchEnabled) "Flash on" else "Flash off"
+                            }
+                        }
+                    )
+                }
+        ) {
+            if (hasCameraPermission) {
+                if (isPreview) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(Color.DarkGray),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Camera Preview Placeholder", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    key(useFrontCamera) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                PreviewView(ctx).apply {
+                                    scaleType = PreviewView.ScaleType.FILL_CENTER
+                                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                                }
+                            },
+                            update = { view ->
+                                val providerFuture = ProcessCameraProvider.getInstance(context)
+                                providerFuture.addListener({
+                                    val provider = providerFuture.get()
+                                    val preview = Preview.Builder().build().also { it.setSurfaceProvider(view.surfaceProvider) }
+                                    val photo = ImageCapture.Builder()
+                                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                                        .build()
+                                    val recorder = Recorder.Builder()
+                                        .setQualitySelector(
+                                            QualitySelector.from(
+                                                Quality.HD,
+                                                FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
+                                            )
+                                        )
+                                        .build()
+                                    val video = VideoCapture.withOutput(recorder)
+                                    val analysis = ImageAnalysis.Builder()
+                                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                        .build()
+                                        .also { imageAnalysis ->
+                                            imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                                                @OptIn(androidx.camera.core.ExperimentalGetImage::class)
+                                                val mediaImage = imageProxy.image
+                                                if (mediaImage == null || isAnalyzingFrame) {
+                                                    imageProxy.close()
+                                                    return@setAnalyzer
+                                                }
+                                                isAnalyzingFrame = true
+                                                analysisSize = IntSize(imageProxy.width, imageProxy.height)
+                                                val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                                                faceDetector?.process(inputImage)
+                                                    ?.addOnSuccessListener { faces ->
+                                                        detectedFaces = faces.map { it.toDetectedFace(useFrontCamera) }
+                                                    }
+                                                    ?.addOnFailureListener {
+                                                        detectedFaces = emptyList()
+                                                    }
+                                                    ?.addOnCompleteListener {
+                                                        isAnalyzingFrame = false
+                                                        imageProxy.close()
+                                                    }
+                                            }
+                                        }
+                                    val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+                                    try {
+                                        provider.unbindAll()
+                                        boundCamera = provider.bindToLifecycle(owner, selector, preview, photo, video, analysis)
+                                        imageCapture = photo
+                                        videoCapture = video
+                                    } catch (e: Exception) {
+                                        try {
+                                            provider.unbindAll()
+                                            boundCamera = provider.bindToLifecycle(owner, selector, preview, photo, video)
+                                            imageCapture = photo
+                                            videoCapture = video
+                                            detectedFaces = emptyList()
+                                        } catch (fallback: Exception) {
+                                            fallback.printStackTrace()
+                                            imageCapture = null
+                                            videoCapture = null
+                                        }
+                                    }
+                                }, ContextCompat.getMainExecutor(context))
+                            }
+                        )
+                    }
                 }
             } else {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        PreviewView(ctx).apply {
-                            scaleType = PreviewView.ScaleType.FILL_CENTER
-                            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                        }
-                    },
-                    update = { view ->
-                        val providerFuture = ProcessCameraProvider.getInstance(context)
-                        providerFuture.addListener({
-                            val provider = providerFuture.get()
-                            val preview = Preview.Builder().build().also { it.setSurfaceProvider(view.surfaceProvider) }
-                            val photo = ImageCapture.Builder()
-                                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                                .build()
-                            val recorder = Recorder.Builder()
-                                .setQualitySelector(
-                                    QualitySelector.from(
-                                        Quality.HD,
-                                        FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
-                                    )
-                                )
-                                .build()
-                            val video = VideoCapture.withOutput(recorder)
-                            val analysis = ImageAnalysis.Builder()
-                                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                .build()
-                                .also { imageAnalysis ->
-                                    imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
-                                        @OptIn(androidx.camera.core.ExperimentalGetImage::class)
-                                        val mediaImage = imageProxy.image
-                                        if (mediaImage == null || isAnalyzingFrame) {
-                                            imageProxy.close()
-                                            return@setAnalyzer
-                                        }
-                                        isAnalyzingFrame = true
-                                        analysisSize = IntSize(imageProxy.width, imageProxy.height)
-                                        val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                                        faceDetector?.process(inputImage)
-                                            ?.addOnSuccessListener { faces ->
-                                                detectedFaces = faces.map { it.toDetectedFace(useFrontCamera) }
-                                            }
-                                            ?.addOnFailureListener {
-                                                detectedFaces = emptyList()
-                                            }
-                                            ?.addOnCompleteListener {
-                                                isAnalyzingFrame = false
-                                                imageProxy.close()
-                                            }
-                                    }
-                                }
-                            val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
-                            try {
-                                provider.unbindAll()
-                                boundCamera = provider.bindToLifecycle(owner, selector, preview, photo, video, analysis)
-                                imageCapture = photo
-                                videoCapture = video
-                            } catch (e: Exception) {
-                                try {
-                                    provider.unbindAll()
-                                    boundCamera = provider.bindToLifecycle(owner, selector, preview, photo, video)
-                                    imageCapture = photo
-                                    videoCapture = video
-                                    detectedFaces = emptyList()
-                                } catch (fallback: Exception) {
-                                    fallback.printStackTrace()
-                                    imageCapture = null
-                                    videoCapture = null
-                                }
-                            }
-                        }, ContextCompat.getMainExecutor(context))
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Button(onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                        Text("Enable Camera")
                     }
-                )
-            }
-        } else {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Button(onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                    Text("Enable Camera")
                 }
             }
-        }
 
-        FaceArOverlay(
-            faces = detectedFaces,
-            imageSize = analysisSize,
-            overlaySize = overlaySize,
-            mirrored = useFrontCamera,
-            selectedFilter = selectedFilter,
-            modifier = Modifier
-                .fillMaxSize()
-                .onSizeChanged { overlaySize = it }
-        )
+            FaceArOverlay(
+                faces = detectedFaces,
+                imageSize = analysisSize,
+                overlaySize = overlaySize,
+                mirrored = useFrontCamera,
+                selectedFilter = selectedFilter,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { overlaySize = it }
+            )
+        }
 
         // Top Left: Flash Control
         // For debugging/development: showing the button if it's NOT the front camera
