@@ -59,6 +59,7 @@ fun PoplurRoot(
     }
 
     var tab by remember { mutableStateOf(AppTab.Feed) }
+    var previousTab by remember { mutableStateOf<AppTab?>(null) }
     var currentPostIndex by remember { mutableIntStateOf(Random.nextInt(1000000)) }
     var showingPostTimeline by remember { mutableStateOf(false) }
     var cameraPhotoTrigger by remember { mutableIntStateOf(0) }
@@ -107,12 +108,16 @@ fun PoplurRoot(
     val containerId = remember { android.view.View.generateViewId() }
 
     val onTabChange: (Int) -> Unit = { index ->
-        tab = when (index) {
+        val newTab = when (index) {
             0 -> AppTab.Camera
             1 -> AppTab.Feed
             2 -> AppTab.Profile
             3 -> AppTab.Map
             else -> AppTab.Feed
+        }
+        if (tab != newTab) {
+            previousTab = tab
+            tab = newTab
         }
     }
 
@@ -184,15 +189,15 @@ fun PoplurRoot(
                     }
                 }
                 AppTab.Home -> HomeScreen(onOpenCamera = { tab = AppTab.Camera }, onOpenMap = { tab = AppTab.Map })
-                AppTab.Messages -> MessagesScreen(onBack = { tab = AppTab.Profile })
+                AppTab.Messages -> MessagesScreen(onBack = { tab = previousTab ?: AppTab.Feed })
                 AppTab.Settings -> SettingsScreen(onBack = { tab = AppTab.Profile }, onSignOut = { authViewModel.signOut() }, onOpenCubeDebug = { tab = AppTab.CubeDebug })
                 AppTab.CubeDebug -> CubeDevelopmentScreen(onBack = { tab = AppTab.Settings })
             }
         }
 
         // Keep the navigation cube fixed in one bottom-center position across screens.
-        // Hide it on the Messages screen, Settings screen, Cube Debug screen, Captured Output screen, and when Camera filters are active.
-        val isCubeVisible = tab != AppTab.Messages && tab != AppTab.Settings && tab != AppTab.CubeDebug && tab != AppTab.CapturedOutput && !filtersVisible
+        // Hide it on the Settings screen, Cube Debug screen, Captured Output screen, and when Camera filters are active.
+        val isCubeVisible = tab != AppTab.Settings && tab != AppTab.CubeDebug && tab != AppTab.CapturedOutput && !filtersVisible
         if (isCubeVisible) {
             Box(
                 modifier = Modifier

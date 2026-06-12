@@ -42,7 +42,6 @@ fun MessagesScreen(onBack: () -> Unit = {}) {
                     .fillParentMaxSize()
                     .padding(16.dp)
                     .statusBarsPadding()
-                    .navigationBarsPadding()
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     // Header
@@ -140,7 +139,7 @@ fun MessagesScreen(onBack: () -> Unit = {}) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 32.dp, start = 4.dp, end = 4.dp), // 16dp outer + 4dp inner = 20dp
+                            .padding(bottom = 12.dp, start = 4.dp, end = 4.dp), 
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.Bottom
                     ) {
@@ -162,7 +161,9 @@ fun MessagesScreen(onBack: () -> Unit = {}) {
 
                     // Coordinates and bottom instruction
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 200.dp), // Massive padding to clear the cube
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
