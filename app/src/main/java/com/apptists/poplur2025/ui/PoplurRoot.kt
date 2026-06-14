@@ -51,7 +51,6 @@ import com.apptists.poplur2025.ui.previews.CubeDevelopmentScreen
 import com.apptists.poplur2025.ui.components.FeedVolumeBars
 import com.mapbox.geojson.Point
 import kotlin.math.abs
-import kotlin.random.Random
 
 @Composable
 fun PoplurRoot(
@@ -162,7 +161,7 @@ fun PoplurRoot(
 
     var tab by remember { mutableStateOf(AppTab.Feed) }
     var previousTab by remember { mutableStateOf<AppTab?>(null) }
-    var currentPostIndex by remember { mutableIntStateOf(Random.nextInt(1000000)) }
+    var currentPostIndex by remember { mutableIntStateOf(0) }
     var showingPostTimeline by remember { mutableStateOf(false) }
     var cameraPhotoTrigger by remember { mutableIntStateOf(0) }
     var cameraRecordTrigger by remember { mutableIntStateOf(0) }

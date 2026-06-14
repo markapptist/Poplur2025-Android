@@ -5,39 +5,29 @@ object DemoPostStore {
         "https://media.w3.org/2010/05/sintel/trailer.mp4",
         "https://media.w3.org/2010/05/bunny/trailer.mp4",
         "https://media.w3.org/2010/05/video/movie_300.mp4",
-        "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
-        "https://download.samplelib.com/mp4/sample-10s.mp4",
-        "https://download.samplelib.com/mp4/sample-15s.mp4"
+        "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"
     )
 
     private val imageUrls = listOf(
-        "https://picsum.photos/id/10/1080/1920",
-        "https://picsum.photos/id/20/1080/1920",
-        "https://picsum.photos/id/28/1080/1920",
-        "https://picsum.photos/id/37/1080/1920",
-        "https://picsum.photos/id/42/1080/1920",
-        "https://picsum.photos/id/58/1080/1920",
-        "https://picsum.photos/id/64/1080/1920",
-        "https://picsum.photos/id/82/1080/1920",
-        "https://picsum.photos/id/96/1080/1920",
-        "https://picsum.photos/id/102/1080/1920",
-        "https://picsum.photos/id/103/1080/1920",
-        "https://picsum.photos/id/106/1080/1920",
-        "https://picsum.photos/id/119/1080/1920",
-        "https://picsum.photos/id/128/1080/1920",
-        "https://picsum.photos/id/133/1080/1920",
-        "https://picsum.photos/id/164/1080/1920",
-        "https://picsum.photos/id/175/1080/1920",
-        "https://picsum.photos/id/184/1080/1920",
-        "https://picsum.photos/id/190/1080/1920",
-        "https://picsum.photos/id/1025/1080/1920"
+        "file:///android_asset/feed_media/feed_10.jpg",
+        "file:///android_asset/feed_media/feed_28.jpg",
+        "file:///android_asset/feed_media/feed_37.jpg",
+        "file:///android_asset/feed_media/feed_58.jpg",
+        "file:///android_asset/feed_media/feed_82.jpg",
+        "file:///android_asset/feed_media/feed_96.jpg",
+        "file:///android_asset/feed_media/feed_102.jpg",
+        "file:///android_asset/feed_media/feed_119.jpg",
+        "file:///android_asset/feed_media/feed_128.jpg",
+        "file:///android_asset/feed_media/feed_164.jpg",
+        "file:///android_asset/feed_media/feed_175.jpg",
+        "file:///android_asset/feed_media/feed_184.jpg"
     )
 
     private val adImageUrls = listOf(
-        "https://picsum.photos/id/21/1080/1920",
-        "https://picsum.photos/id/26/1080/1920",
-        "https://picsum.photos/id/48/1080/1920",
-        "https://picsum.photos/id/1060/1080/1920"
+        "file:///android_asset/feed_media/feed_28.jpg",
+        "file:///android_asset/feed_media/feed_82.jpg",
+        "file:///android_asset/feed_media/feed_128.jpg",
+        "file:///android_asset/feed_media/feed_184.jpg"
     )
 
     private val userNames = listOf("mark", "mia", "jay", "food_u", "sky_high", "pixel_art", "traveler", "coder", "gamer", "chef", "vibe_check", "tech_wiz", "nature_lover", "urban_explorer", "fitness_junkie")

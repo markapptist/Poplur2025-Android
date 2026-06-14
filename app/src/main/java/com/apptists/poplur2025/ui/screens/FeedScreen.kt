@@ -128,7 +128,11 @@ fun FeedScreen(
                     is FeedSlot.PostSlot -> {
                         MediaContent(post = slot.post, isVisible = isVisible)
                     }
-                    is FeedSlot.AdSlot -> FeedAdContent(slot = slot)
+                    is FeedSlot.AdSlot -> FeedAdContent(
+                        slot = slot,
+                        fallbackPost = DemoPostStore.getPostForIndex(currentPostIndex),
+                        isVisible = isVisible
+                    )
                 }
             }
         }
@@ -262,6 +266,7 @@ private fun Modifier.feedSwipeDetector(
 private const val AD_FREQUENCY = 6
 private const val FEED_NATIVE_AD_UNIT_ID = "ca-app-pub-3940256099942544/2247696110"
 private const val ENABLE_FEED_VIDEO_AUTOPLAY = true
+private const val FEED_VIDEO_FIRST_FRAME_TIMEOUT_MS = 6_500L
 
 
 private sealed interface FeedSlot {
@@ -284,7 +289,11 @@ private fun resolveFeedSlot(index: Int): FeedSlot {
 }
 
 @Composable
-private fun FeedAdContent(slot: FeedSlot.AdSlot) {
+private fun FeedAdContent(
+    slot: FeedSlot.AdSlot,
+    fallbackPost: Post,
+    isVisible: Boolean
+) {
     val context = LocalContext.current
     var nativeAd by remember(slot.id) { mutableStateOf<NativeAd?>(null) }
     var adLoadFailed by remember(slot.id) { mutableStateOf(false) }
@@ -342,11 +351,7 @@ private fun FeedAdContent(slot: FeedSlot.AdSlot) {
                 modifier = Modifier.align(Alignment.Center)
             )
         } else {
-            Text(
-                text = "Ad unavailable",
-                color = Color.White.copy(alpha = 0.5f),
-                modifier = Modifier.align(Alignment.Center)
-            )
+            MediaContent(post = fallbackPost, isVisible = isVisible)
         }
     }
 }
@@ -508,7 +513,9 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
     var hasError by remember(post.id) { mutableStateOf(false) }
     var isLoading by remember(post.id) { mutableStateOf(true) }
     var hasRenderedVideo by remember(post.id) { mutableStateOf(false) }
+    var videoFailed by remember(post.id) { mutableStateOf(false) }
     var posterFailed by remember(post.id) { mutableStateOf(false) }
+    var imageUrl by remember(post.id) { mutableStateOf(post.mediaUrl ?: fallbackFeedImageUrl(post.id)) }
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         if (isInspectionMode) {
@@ -521,7 +528,7 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
             )
         } else {
             when {
-                ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null && !hasError -> {
+                ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null && !videoFailed -> {
                     val exoPlayer = remember(post.id, post.videoUrl) {
                         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
                             .setUserAgent("Poplur2025 Android Player")
@@ -559,7 +566,8 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
 
                                     override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                                         println("ExoPlayer Error: ${error.message}")
-                                        hasError = true
+                                        videoFailed = true
+                                        hasError = false
                                         isLoading = false
                                     }
                                 })
@@ -588,9 +596,19 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                         }
                     }
 
-                    if (!hasRenderedVideo && post.mediaUrl != null && !posterFailed) {
+                    LaunchedEffect(post.id, post.videoUrl, hasRenderedVideo, videoFailed) {
+                        if (!hasRenderedVideo && !videoFailed) {
+                            delay(FEED_VIDEO_FIRST_FRAME_TIMEOUT_MS)
+                            if (!hasRenderedVideo && !videoFailed) {
+                                videoFailed = true
+                                isLoading = false
+                            }
+                        }
+                    }
+
+                    if (!hasRenderedVideo && !posterFailed) {
                         AsyncImage(
-                            model = post.mediaUrl,
+                            model = imageUrl,
                             contentDescription = post.caption,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -599,8 +617,13 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                             onLoading = { isLoading = true },
                             onSuccess = { isLoading = false },
                             onError = {
-                                posterFailed = true
-                                isLoading = false
+                                val fallbackUrl = fallbackFeedImageUrl(post.id)
+                                if (imageUrl != fallbackUrl) {
+                                    imageUrl = fallbackUrl
+                                } else {
+                                    posterFailed = true
+                                    isLoading = false
+                                }
                             }
                         )
                     }
@@ -626,9 +649,9 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                             .zIndex(1f)
                     )
                 }
-                post.mediaUrl != null -> {
+                imageUrl.isNotBlank() -> {
                     AsyncImage(
-                        model = post.mediaUrl,
+                        model = imageUrl,
                         contentDescription = post.caption,
                         modifier = Modifier
                             .fillMaxSize()
@@ -637,9 +660,14 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                         onLoading = { isLoading = true },
                         onSuccess = { isLoading = false },
                         onError = {
-                            posterFailed = true
-                            isLoading = false
-                            hasError = true
+                            val fallbackUrl = fallbackFeedImageUrl(post.id)
+                            if (imageUrl != fallbackUrl) {
+                                imageUrl = fallbackUrl
+                            } else {
+                                posterFailed = true
+                                isLoading = false
+                                hasError = true
+                            }
                         }
                     )
                 }
@@ -670,6 +698,12 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
             CircularProgressIndicator(color = Color.White.copy(alpha = 0.5f))
         }
     }
+}
+
+private fun fallbackFeedImageUrl(seed: String): String {
+    val names = arrayOf("10", "28", "37", "58", "82", "96", "102", "119", "128", "164", "175", "184")
+    val index = Math.floorMod(seed.hashCode(), names.size)
+    return "file:///android_asset/feed_media/feed_${names[index]}.jpg"
 }
 
 

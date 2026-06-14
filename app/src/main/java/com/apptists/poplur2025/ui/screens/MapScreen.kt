@@ -69,7 +69,10 @@ import com.apptists.poplur2025.ui.MapViewModel
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.weather.WeatherBadge
 import com.apptists.poplur2025.location.LocationProvider
@@ -200,11 +203,20 @@ fun MapScreenContent(
             )
         }
     }
-    val activeMusicStop = remember(activeCityName, isVisible, userTourStop, selectedCoordinate, activeRadius, userCountryCode) {
+    val activeMusicStop = remember(activeCityName, isVisible, userTourStop, userCityName, userLocation, selectedCoordinate, activeRadius, userCountryCode) {
         if (!isVisible) return@remember null
         val stop = TourStops.find { it.cityName == activeCityName }
         if (stop != null) return@remember stop
-        if (activeCityName == "Your Location" || (userCityName != null && activeCityName == userCityName)) return@remember userTourStop
+        if (activeCityName == "Your Location" || (userCityName != null && activeCityName == userCityName)) {
+            return@remember userTourStop ?: TourStop(
+                cityName = userCityName ?: "Your Location",
+                storefront = userCountryCode?.lowercase(java.util.Locale.US) ?: "us",
+                coordinate = userLocation ?: fallbackLocation,
+                bearing = 28.0,
+                radiusKm = DEFAULT_RADIUS_KM,
+                zoom = 16.9
+            )
+        }
         if (activeCityName == "Selected Location" && selectedCoordinate != null) {
             return@remember TourStop(
                 cityName = "Selected Location",
@@ -1400,7 +1412,15 @@ private fun CityTourMusicPlayer(
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                 .build()
 
+            val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+                .setUserAgent("Poplur2025-Android")
+                .setConnectTimeoutMs(10_000)
+                .setReadTimeoutMs(10_000)
+                .setAllowCrossProtocolRedirects(true)
+            val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+
             ExoPlayer.Builder(context)
+                .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(dataSourceFactory))
                 .setAudioAttributes(audioAttributes, true)
                 .build()
                 .apply {
@@ -1410,39 +1430,47 @@ private fun CityTourMusicPlayer(
         }
     }
 
-    LaunchedEffect(tourStop?.cityName, isVisible, aiInsight?.id) {
+    LaunchedEffect(tourStop?.cityName, isVisible, aiInsight?.category) {
         if (!isVisible || tourStop == null || player == null) {
             player?.pause()
             player?.clearMediaItems()
             return@LaunchedEffect
         }
 
+        // 1. Determine fallback
         val fallbackTrack = fallbackMusicTrackFor(tourStop)
         fallbackTrackForPlayer = fallbackTrack
-        player.playCityMusicTrack(fallbackTrack)
 
-        val resolvedTrack = run {
+        // Play fallback immediately if nothing is playing or if city changed
+        if (!player.isPlaying || player.currentMediaItem?.localConfiguration?.uri?.toString() != fallbackTrack.assetUri) {
+             player.playCityMusicTrack(fallbackTrack)
+        }
+
+        // 2. Resolve dynamic content in background
+        val dynamicTrack = run {
             val tracks = chartTrackCache[tourStop.cityName]
-                ?: resolveTopCountryMusicTracks(tourStop).getOrElse {
-                    listOf(FallbackCityMusicTracks[tourStop.cityName] ?: DefaultFallbackCityMusicTrack)
-                }.also { chartTrackCache[tourStop.cityName] = it }
+                ?: resolveTopCountryMusicTracks(tourStop).getOrNull()
+                    ?.also { chartTrackCache[tourStop.cityName] = it }
             val radioTracks = radioTrackCache[tourStop.cityName]
-                ?: resolveTopCityRadioTracks(tourStop).getOrElse {
-                    FallbackCityRadioTracks[tourStop.cityName] ?: emptyList()
-                }.also { radioTrackCache[tourStop.cityName] = it }
+                ?: resolveTopCityRadioTracks(tourStop).getOrNull()
+                    ?.also { radioTrackCache[tourStop.cityName] = it }
             val sportsRadioTracks = sportsRadioTrackCache[tourStop.cityName]
-                ?: resolveTopCitySportsRadioTracks(tourStop).getOrElse {
-                    FallbackCitySportsRadioTracks[tourStop.cityName] ?: emptyList()
-                }.also { sportsRadioTrackCache[tourStop.cityName] = it }
+                ?: resolveTopCitySportsRadioTracks(tourStop).getOrNull()
+                    ?.also { sportsRadioTrackCache[tourStop.cityName] = it }
 
             when {
-                aiInsight?.category == TrendCategory.Sports && sportsRadioTracks.isNotEmpty() -> sportsRadioTracks.random()
-                else -> tracks.random()
+                aiInsight?.category == TrendCategory.Sports && !sportsRadioTracks.isNullOrEmpty() -> sportsRadioTracks.random()
+                !tracks.isNullOrEmpty() -> tracks.random()
+                !radioTracks.isNullOrEmpty() -> radioTracks.random()
+                else -> null
             }
         }
 
-        if (resolvedTrack.assetUri != fallbackTrack.assetUri) {
-            player.playCityMusicTrack(resolvedTrack)
+        // 3. Switch to dynamic content if found and different
+        if (dynamicTrack != null && dynamicTrack.assetUri != fallbackTrack.assetUri) {
+            if (player.currentMediaItem?.localConfiguration?.uri?.toString() != dynamicTrack.assetUri) {
+                player.playCityMusicTrack(dynamicTrack)
+            }
         }
     }
 
@@ -1462,14 +1490,36 @@ private fun CityTourMusicPlayer(
 }
 
 private fun ExoPlayer.playCityMusicTrack(track: CityMusicTrack) {
-    setMediaItem(MediaItem.fromUri(track.assetUri))
+    val uriString = if (track.assetUri.startsWith("http")) {
+        track.assetUri
+    } else {
+        "asset:///${track.assetUri}"
+    }
+
+    // Don't restart if already playing or buffering the same URI
+    val currentUri = currentMediaItem?.localConfiguration?.uri?.toString()
+    if (currentUri == uriString && (isPlaying || playbackState == Player.STATE_BUFFERING || playbackState == Player.STATE_READY)) {
+        return
+    }
+
+    val mediaItem = MediaItem.fromUri(uriString)
+
+    // Disable repeat for short UI sounds (like pop.mp3) to prevent the "popping noise on loop"
+    repeatMode = if (track.assetUri.contains("pop.mp3")) {
+        Player.REPEAT_MODE_OFF
+    } else {
+        Player.REPEAT_MODE_ONE
+    }
+
+    stop()
+    clearMediaItems()
+    setMediaItem(mediaItem)
     prepare()
     playWhenReady = true
     play()
 }
 
-private fun fallbackMusicTrackFor(stop: TourStop): CityMusicTrack =
-    FallbackCityMusicTracks[stop.cityName] ?: DefaultFallbackCityMusicTrack
+private fun fallbackMusicTrackFor(stop: TourStop): CityMusicTrack = DefaultFallbackCityMusicTrack
 
 private const val POST_SOURCE_ID = "poplur-posts"
 private const val POST_LAYER_ID = "poplur-post-markers"
@@ -1679,7 +1729,7 @@ private val FallbackCityMusicTracks = mapOf(
 )
 
 private val DefaultFallbackCityMusicTrack =
-    CityMusicTrack("https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", "Global pop and rap mix")
+    CityMusicTrack("music_fallback.mp3", "Poplur Global Beats")
 
 private val FallbackCityPopularSubtexts = mapOf(
     "Paris" to "Popular here - Eiffel Tower shots, fashion reels, cafes, and night walks are spiking.",
