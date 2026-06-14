@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable
 import android.media.MediaPlayer
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -20,11 +21,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,13 +31,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
 import com.apptists.poplur2025.ads.AdManager
@@ -50,7 +50,6 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.Post
@@ -70,6 +69,7 @@ fun FeedScreen(
     onIndexChange: (Int) -> Unit
 ) {
     val context = LocalContext.current
+    val isInspectionMode = LocalInspectionMode.current
     val currentSlot = remember(currentPostIndex) { resolveFeedSlot(currentPostIndex) }
     var showFeedLogo by remember { mutableStateOf(true) }
     
@@ -80,25 +80,29 @@ fun FeedScreen(
     }
 
     val mediaPlayer = remember {
-        MediaPlayer().apply {
-            try {
-                val afd = context.assets.openFd("pop.mp3")
-                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                afd.close()
-                prepareAsync()
-            } catch (e: Exception) { e.printStackTrace() }
+        if (isInspectionMode) null else {
+            MediaPlayer().apply {
+                try {
+                    val afd = context.assets.openFd("pop.mp3")
+                    setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                    afd.close()
+                    prepareAsync()
+                } catch (e: Exception) { e.printStackTrace() }
+            }
         }
     }
 
     DisposableEffect(Unit) {
-        onDispose { mediaPlayer.release() }
+        onDispose { mediaPlayer?.release() }
     }
 
     LaunchedEffect(Unit) {
         showFeedLogo = true
-        mediaPlayer.setOnPreparedListener { it.start() }
-        if (!mediaPlayer.isPlaying) {
-            try { mediaPlayer.start() } catch (e: Exception) {}
+        mediaPlayer?.let { player ->
+            player.setOnPreparedListener { it.start() }
+            if (!player.isPlaying) {
+                try { player.start() } catch (e: Exception) {}
+            }
         }
         delay(2_500)
         showFeedLogo = false
@@ -126,19 +130,6 @@ fun FeedScreen(
                     }
                     is FeedSlot.AdSlot -> FeedAdContent(slot = slot)
                 }
-                
-                // Gradient Overlay
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(400.dp)
-                        .align(Alignment.BottomCenter)
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))
-                            )
-                        )
-                )
             }
         }
 
@@ -193,9 +184,7 @@ fun FeedScreen(
             }
         }
 
-        // 4. Removed navigation cube placeholder
-
-        // 5. Bottom Right Overlay (Animated Radius Data)
+        // 4. Bottom Right Overlay (Animated Radius Data)
         AnimatedContent(
             targetState = currentSlot,
             transitionSpec = {
@@ -240,6 +229,7 @@ fun FeedScreen(
         Box(
             modifier = Modifier
                 .matchParentSize()
+                .zIndex(80f)
                 .feedSwipeDetector(currentPostIndex, onIndexChange)
         )
     }
@@ -249,29 +239,30 @@ private fun Modifier.feedSwipeDetector(
     currentPostIndex: Int,
     onIndexChange: (Int) -> Unit
 ): Modifier = pointerInput(currentPostIndex) {
-    awaitPointerEventScope {
-        while (true) {
-            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            var totalY = 0f
-            var triggered = false
-            drag(down.id) { change ->
-                if (!triggered) {
-                    val delta = change.position.y - change.previousPosition.y
-                    totalY += delta
-                    if (abs(totalY) > 28f) {
-                        onIndexChange(if (totalY > 0) currentPostIndex - 1 else currentPostIndex + 1)
-                        triggered = true
-                        change.consume()
-                    }
+    var totalY = 0f
+    var triggered = false
+    detectVerticalDragGestures(
+        onDragStart = {
+            totalY = 0f
+            triggered = false
+        },
+        onVerticalDrag = { change, dragAmount ->
+            if (!triggered) {
+                totalY += dragAmount
+                if (abs(totalY) > 28f) {
+                    onIndexChange(if (totalY > 0) currentPostIndex - 1 else currentPostIndex + 1)
+                    triggered = true
+                    change.consume()
                 }
             }
         }
-    }
+    )
 }
 
 private const val AD_FREQUENCY = 6
 private const val FEED_NATIVE_AD_UNIT_ID = "ca-app-pub-3940256099942544/2247696110"
 private const val ENABLE_FEED_VIDEO_AUTOPLAY = true
+
 
 private sealed interface FeedSlot {
     data class PostSlot(val post: Post) : FeedSlot
@@ -323,6 +314,15 @@ private fun FeedAdContent(slot: FeedSlot.AdSlot) {
         }
     }
 
+    LaunchedEffect(slot.id, nativeAd) {
+        if (nativeAd == null && !adLoadFailed) {
+            delay(8_000)
+            if (nativeAd == null) {
+                adLoadFailed = true
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -336,54 +336,22 @@ private fun FeedAdContent(slot: FeedSlot.AdSlot) {
                 },
                 modifier = Modifier.fillMaxSize()
             )
+        } else if (!adLoadFailed) {
+            CircularProgressIndicator(
+                color = Color.White.copy(alpha = 0.5f),
+                modifier = Modifier.align(Alignment.Center)
+            )
         } else {
-            FeedAdFallback(slot = slot, loading = !adLoadFailed)
+            Text(
+                text = "Ad unavailable",
+                color = Color.White.copy(alpha = 0.5f),
+                modifier = Modifier.align(Alignment.Center)
+            )
         }
     }
 }
 
-@Composable
-private fun FeedAdFallback(slot: FeedSlot.AdSlot, loading: Boolean) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color(0xFF101820), Color(0xFF31103A), Color.Black)
-                )
-            )
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(Color(0xFFED3B8F).copy(alpha = 0.42f), Color.Transparent),
-                        radius = 900f
-                    )
-                )
-        )
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .navigationBarsPadding()
-                .padding(start = 28.dp, end = 28.dp, bottom = 160.dp),
-            horizontalAlignment = Alignment.Start
-        ) {
-            Text("SPONSORED", color = Color.White.copy(alpha = .74f), fontWeight = FontWeight.Black)
-            Spacer(Modifier.height(14.dp))
-            if (loading) {
-                LinearProgressIndicator(
-                    color = Color.White,
-                    trackColor = Color.White.copy(alpha = .18f),
-                    modifier = Modifier.width(132.dp)
-                )
-            } else {
-                Text("Ad currently unavailable", color = Color.White.copy(alpha = 0.5f))
-            }
-        }
-    }
-}
+
 
 private fun createFullScreenNativeAdView(context: Context): NativeAdView {
     val adView = NativeAdView(context)
@@ -395,8 +363,9 @@ private fun createFullScreenNativeAdView(context: Context): NativeAdView {
     val advertiserText = TextView(context).apply { tag = NativeAdAsset.Advertiser }
     val ctaText = TextView(context).apply { tag = NativeAdAsset.CallToAction }
 
-    adView.setBackgroundColor(AndroidColor.BLACK)
+    adView.setBackgroundColor(AndroidColor.TRANSPARENT)
 
+    media.setBackgroundColor(AndroidColor.TRANSPARENT)
     media.layoutParams = FrameLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.MATCH_PARENT
@@ -535,151 +504,174 @@ private fun roundedDrawable(color: Int, radius: Float): GradientDrawable =
 @Composable
 fun MediaContent(post: Post, isVisible: Boolean = true) {
     val context = LocalContext.current
+    val isInspectionMode = LocalInspectionMode.current
     var hasError by remember(post.id) { mutableStateOf(false) }
     var isLoading by remember(post.id) { mutableStateOf(true) }
     var hasRenderedVideo by remember(post.id) { mutableStateOf(false) }
-    
+    var posterFailed by remember(post.id) { mutableStateOf(false) }
+
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        when {
-            ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null && !hasError -> {
-                val exoPlayer = remember(post.videoUrl) {
-                    val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-                        .setUserAgent("Poplur2025 Android Player")
-                        .setConnectTimeoutMs(8_000)
-                        .setReadTimeoutMs(12_000)
-                        .setAllowCrossProtocolRedirects(true)
-                    
-                    val mediaSourceFactory = DefaultMediaSourceFactory(context)
-                        .setDataSourceFactory(httpDataSourceFactory)
+        if (isInspectionMode) {
+            // Show poster in inspection mode to avoid black screen
+            AsyncImage(
+                model = post.mediaUrl,
+                contentDescription = post.caption,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            when {
+                ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null && !hasError -> {
+                    val exoPlayer = remember(post.id, post.videoUrl) {
+                        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+                            .setUserAgent("Poplur2025 Android Player")
+                            .setConnectTimeoutMs(8_000)
+                            .setReadTimeoutMs(12_000)
+                            .setAllowCrossProtocolRedirects(true)
 
-                    val audioAttributes = AudioAttributes.Builder()
-                        .setUsage(C.USAGE_MEDIA)
-                        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                        .build()
+                        val mediaSourceFactory = DefaultMediaSourceFactory(context)
+                            .setDataSourceFactory(httpDataSourceFactory)
 
-                    ExoPlayer.Builder(context)
-                        .setMediaSourceFactory(mediaSourceFactory)
-                        .setAudioAttributes(audioAttributes, true)
-                        .build().apply {
-                            val mediaItem = MediaItem.Builder()
-                                .setUri(post.videoUrl)
-                                .build()
-                            setMediaItem(mediaItem)
-                            repeatMode = Player.REPEAT_MODE_ONE
-                            volume = 0f
-                            addListener(object : Player.Listener {
-                                override fun onPlaybackStateChanged(state: Int) {
-                                    isLoading = state == Player.STATE_BUFFERING && !hasRenderedVideo
-                                }
+                        val audioAttributes = AudioAttributes.Builder()
+                            .setUsage(C.USAGE_MEDIA)
+                            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                            .build()
 
-                                override fun onRenderedFirstFrame() {
-                                    hasRenderedVideo = true
-                                    isLoading = false
-                                }
+                        ExoPlayer.Builder(context)
+                            .setMediaSourceFactory(mediaSourceFactory)
+                            .setAudioAttributes(audioAttributes, true)
+                            .build().apply {
+                                val mediaItem = MediaItem.Builder()
+                                    .setUri(post.videoUrl)
+                                    .build()
+                                setMediaItem(mediaItem)
+                                repeatMode = Player.REPEAT_MODE_ONE
+                                volume = 1f
+                                addListener(object : Player.Listener {
+                                    override fun onPlaybackStateChanged(state: Int) {
+                                        isLoading = state == Player.STATE_BUFFERING || (state == Player.STATE_READY && !hasRenderedVideo)
+                                    }
 
-                                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                                    println("ExoPlayer Error: ${error.message}")
-                                    hasError = true
-                                    isLoading = false
-                                }
-                            })
-                            prepare()
-                            playWhenReady = isVisible
-                        }
-                }
-                
-                LaunchedEffect(isVisible) {
-                    exoPlayer.playWhenReady = isVisible
-                }
-                
-                DisposableEffect(exoPlayer) {
-                    onDispose {
-                        exoPlayer.release()
+                                    override fun onRenderedFirstFrame() {
+                                        hasRenderedVideo = true
+                                        isLoading = false
+                                    }
+
+                                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                                        println("ExoPlayer Error: ${error.message}")
+                                        hasError = true
+                                        isLoading = false
+                                    }
+                                })
+                                prepare()
+                                playWhenReady = isVisible
+                            }
                     }
-                }
 
-                post.mediaUrl?.let { posterUrl ->
+                    LaunchedEffect(exoPlayer, isVisible, post.id) {
+                        if (isVisible) {
+                            if (exoPlayer.playbackState == Player.STATE_ENDED) {
+                                exoPlayer.seekTo(0)
+                            }
+                            exoPlayer.playWhenReady = true
+                            exoPlayer.play()
+                        } else {
+                            exoPlayer.playWhenReady = false
+                            exoPlayer.pause()
+                        }
+                    }
+
+                    DisposableEffect(exoPlayer) {
+                        onDispose {
+                            exoPlayer.pause()
+                            exoPlayer.release()
+                        }
+                    }
+
+                    if (!hasRenderedVideo && post.mediaUrl != null && !posterFailed) {
+                        AsyncImage(
+                            model = post.mediaUrl,
+                            contentDescription = post.caption,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(2f),
+                            contentScale = ContentScale.Crop,
+                            onLoading = { isLoading = true },
+                            onSuccess = { isLoading = false },
+                            onError = {
+                                posterFailed = true
+                                isLoading = false
+                            }
+                        )
+                    }
+
+                    AndroidView(
+                        factory = { viewContext ->
+                            TextureView(viewContext).apply {
+                                isOpaque = false
+                                isClickable = false
+                                isFocusable = false
+                                alpha = 0f
+                                visibility = View.INVISIBLE
+                                exoPlayer.setVideoTextureView(this)
+                            }
+                        },
+                        update = { textureView ->
+                            exoPlayer.setVideoTextureView(textureView)
+                            textureView.alpha = if (hasRenderedVideo) 1f else 0f
+                            textureView.visibility = if (hasRenderedVideo) View.VISIBLE else View.INVISIBLE
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(1f)
+                    )
+                }
+                post.mediaUrl != null -> {
                     AsyncImage(
-                        model = posterUrl,
+                        model = post.mediaUrl,
                         contentDescription = post.caption,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-
-                AndroidView(
-                    factory = { viewContext ->
-                        PlayerView(viewContext).apply {
-                            setBackgroundColor(AndroidColor.TRANSPARENT)
-                            setShutterBackgroundColor(AndroidColor.TRANSPARENT)
-                            useController = false
-                            resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                            isClickable = false
-                            isFocusable = false
-                            player = exoPlayer
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(1f),
+                        contentScale = ContentScale.Crop,
+                        onLoading = { isLoading = true },
+                        onSuccess = { isLoading = false },
+                        onError = {
+                            posterFailed = true
+                            isLoading = false
+                            hasError = true
                         }
-                    },
-                    update = { playerView ->
-                        playerView.player = exoPlayer
-                        playerView.alpha = if (hasRenderedVideo) 1f else 0f
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-            post.videoUrl != null && post.mediaUrl != null -> {
-                AsyncImage(
-                    model = post.mediaUrl,
-                    contentDescription = post.caption,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    onLoading = { isLoading = true },
-                    onSuccess = { isLoading = false },
-                    onError = {
-                        hasError = true
-                        isLoading = false
-                    }
-                )
-            }
-            post.mediaUrl != null -> {
-                AsyncImage(
-                    model = post.mediaUrl,
-                    contentDescription = post.caption,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    onLoading = { isLoading = true },
-                    onSuccess = { isLoading = false },
-                    onError = { 
-                        hasError = true
-                        isLoading = false
-                    }
-                )
-            }
-            hasError -> {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Error,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.3f),
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "Media unavailable",
-                        color = Color.White.copy(alpha = 0.5f),
-                        style = MaterialTheme.typography.bodyMedium
                     )
                 }
-            }
-            else -> {
-                hasError = true
+                else -> {
+                    hasError = true
+                }
             }
         }
-        
+
+        if (hasError) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Default.Error,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.3f),
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Media unavailable",
+                    color = Color.White.copy(alpha = 0.5f),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+
         if (isLoading && !hasError) {
             CircularProgressIndicator(color = Color.White.copy(alpha = 0.5f))
         }
     }
 }
+
 
 @Preview(showBackground = true)
 @Composable

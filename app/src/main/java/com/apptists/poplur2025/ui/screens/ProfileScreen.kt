@@ -9,6 +9,9 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Settings
@@ -18,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -30,6 +34,12 @@ import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
+
+private enum class ProfilePanel {
+    Home,
+    Notifications,
+    Store
+}
 
 @Composable
 fun ProfileScreen(
@@ -54,6 +64,9 @@ fun ProfileScreenContent(
     var selectedTab by remember { mutableIntStateOf(0) }
     var currentProfile by remember { mutableStateOf(profile) }
     var isEditing by remember { mutableStateOf(false) }
+    var activePanel by remember { mutableStateOf(ProfilePanel.Home) }
+    var hasUncheckedNotifications by remember { mutableStateOf(true) }
+    var purchasedRadius by remember { mutableIntStateOf(0) }
 
     if (isEditing) {
         EditProfileScreen(
@@ -64,13 +77,28 @@ fun ProfileScreenContent(
             },
             onDismiss = { isEditing = false }
         )
-    } else {
-        ProfileHome(
+    } else when (activePanel) {
+        ProfilePanel.Notifications -> ProfileNotificationsPanel(
+            onBack = { activePanel = ProfilePanel.Home },
+            onMarkRead = { hasUncheckedNotifications = false }
+        )
+        ProfilePanel.Store -> ProfileStorePanel(
+            purchasedRadius = purchasedRadius,
+            onPurchase = { purchasedRadius += it },
+            onBack = { activePanel = ProfilePanel.Home }
+        )
+        ProfilePanel.Home -> ProfileHome(
             profile = currentProfile,
             selectedTab = selectedTab,
             onTab = { selectedTab = it },
             onOpenSettings = onOpenSettings,
             onOpenMessages = onOpenMessages,
+            hasUncheckedNotifications = hasUncheckedNotifications,
+            onOpenNotifications = {
+                hasUncheckedNotifications = false
+                activePanel = ProfilePanel.Notifications
+            },
+            onOpenStore = { activePanel = ProfilePanel.Store },
             onEdit = { isEditing = true }
         )
     }
@@ -83,6 +111,9 @@ private fun ProfileHome(
     onTab: (Int) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenMessages: () -> Unit,
+    hasUncheckedNotifications: Boolean,
+    onOpenNotifications: () -> Unit,
+    onOpenStore: () -> Unit,
     onEdit: () -> Unit
 ) {
     Box(Modifier.fillMaxSize().background(Color.White)) {
@@ -91,18 +122,14 @@ private fun ProfileHome(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Default.Email, 
-                "Messages", 
-                tint = Color.DarkGray, 
-                modifier = Modifier.size(32.dp).clickable { onOpenMessages() }
-            )
-            Icon(
-                Icons.Default.Settings, 
-                "Settings", 
-                tint = Color.DarkGray, 
-                modifier = Modifier.size(32.dp).clickable { onOpenSettings() }
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProfileHeaderActionIcon(Icons.Default.Email, "Messages", onOpenMessages)
+                ProfileHeaderActionIcon(Icons.Default.CardGiftcard, "Notifications", onOpenNotifications, hasUncheckedNotifications)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ProfileHeaderActionIcon(Icons.Default.Settings, "Settings", onOpenSettings)
+                ProfileHeaderActionIcon(Icons.Default.AttachMoney, "Store", onOpenStore)
+            }
         }
 
         Column(Modifier.fillMaxSize().padding(top = 112.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -166,6 +193,151 @@ private fun ProfileHome(
             unit = "mi",
             contentColor = Color.DarkGray
         )
+    }
+}
+
+@Composable
+private fun ProfileHeaderActionIcon(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    showBadge: Boolean = false
+) {
+    IconButton(onClick = onClick, modifier = Modifier.size(44.dp)) {
+        BadgedBox(
+            badge = {
+                if (showBadge) {
+                    Badge(containerColor = Color.Red)
+                }
+            }
+        ) {
+            Icon(
+                icon,
+                contentDescription,
+                tint = Color.DarkGray,
+                modifier = Modifier.size(28.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileNotificationsPanel(
+    onBack: () -> Unit,
+    onMarkRead: () -> Unit
+) {
+    LaunchedEffect(Unit) {
+        onMarkRead()
+    }
+
+    val items = listOf(
+        Triple("Post liked", "Your latest post picked up new likes.", Icons.Default.Email),
+        Triple("Post radius jumped", "One of your posts expanded significantly in the last hour.", Icons.Default.CardGiftcard),
+        Triple("Accumulated radius dipped", "Your total radius is down from the previous check.", Icons.Default.CardGiftcard)
+    )
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .statusBarsPadding()
+            .padding(20.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.Black)
+            }
+            Text("Notifications", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.Black)
+        }
+        Spacer(Modifier.height(18.dp))
+        items.forEachIndexed { index, item ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.Black.copy(alpha = 0.05f))
+                    .padding(16.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                BadgedBox(
+                    badge = {
+                        if (index < 2) Badge(containerColor = Color.Red)
+                    }
+                ) {
+                    Surface(shape = CircleShape, color = Color(0xFFEFF4FF), modifier = Modifier.size(48.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(item.third, null, tint = Color(0xFF3E63DD), modifier = Modifier.size(22.dp))
+                        }
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
+                Column {
+                    Text(item.first, fontSize = 17.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                    Text(item.second, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.Black.copy(alpha = 0.58f))
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun ProfileStorePanel(
+    purchasedRadius: Int,
+    onPurchase: (Int) -> Unit,
+    onBack: () -> Unit
+) {
+    val packages = listOf(
+        Triple("Starter Radius", 5_000, "$1.99"),
+        Triple("City Boost", 25_000, "$4.99"),
+        Triple("World Push", 100_000, "$9.99")
+    )
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .statusBarsPadding()
+            .padding(20.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.Black)
+            }
+            Text("Store", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.Black)
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("Purchase radius to expand your reach.", color = Color.Black.copy(alpha = 0.58f), fontWeight = FontWeight.SemiBold)
+        if (purchasedRadius > 0) {
+            Spacer(Modifier.height(10.dp))
+            Text("Purchased radius: ${purchasedRadius / 1000} km", color = Color(0xFF178A3D), fontWeight = FontWeight.Black)
+        }
+        Spacer(Modifier.height(18.dp))
+        packages.forEach { item ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.Black.copy(alpha = 0.05f))
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(shape = CircleShape, color = Color(0xFFE9F8EE), modifier = Modifier.size(48.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.AttachMoney, null, tint = Color(0xFF178A3D), modifier = Modifier.size(24.dp))
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(item.first, fontSize = 17.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                    Text("+${item.second / 1000} km", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.Black.copy(alpha = 0.58f))
+                }
+                Button(onClick = { onPurchase(item.second) }) {
+                    Text(item.third, fontWeight = FontWeight.Black)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
     }
 }
 

@@ -1,7 +1,18 @@
 package com.apptists.poplur2025.ui
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import android.media.MediaPlayer
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -17,10 +28,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
 import androidx.lifecycle.Lifecycle
@@ -32,9 +45,12 @@ import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.data.AppTab
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.Post
+import com.apptists.poplur2025.PoplurVolumeEvents
 import com.apptists.poplur2025.ui.screens.*
 import com.apptists.poplur2025.ui.previews.CubeDevelopmentScreen
+import com.apptists.poplur2025.ui.components.FeedVolumeBars
 import com.mapbox.geojson.Point
+import kotlin.math.abs
 import kotlin.random.Random
 
 @Composable
@@ -43,18 +59,104 @@ fun PoplurRoot(
     mapViewModel: MapViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val appContext = remember(context) { context.applicationContext }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val isSignedIn by authViewModel.isSignedIn.collectAsState()
-    
+    var deviceVolumeFraction by remember(appContext) { mutableFloatStateOf(readDeviceMusicVolumeFraction(appContext)) }
+    var showVolumeBars by remember { mutableStateOf(false) }
+    var volumeShowTrigger by remember { mutableIntStateOf(0) }
+    val volumePopPlayer = remember(appContext) {
+        MediaPlayer().apply {
+            try {
+                val afd = appContext.assets.openFd("pop.mp3")
+                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                afd.close()
+                prepare()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+    val playVolumePopSound = {
+        try {
+            if (volumePopPlayer.isPlaying) volumePopPlayer.pause()
+            volumePopPlayer.seekTo(0)
+            volumePopPlayer.start()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    DisposableEffect(volumePopPlayer) {
+        onDispose { volumePopPlayer.release() }
+    }
+
+    DisposableEffect(appContext) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action == SYSTEM_VOLUME_CHANGED_ACTION) {
+                    deviceVolumeFraction = readDeviceMusicVolumeFraction(appContext)
+                    volumeShowTrigger++
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(SYSTEM_VOLUME_CHANGED_ACTION)
+        }
+        ContextCompat.registerReceiver(appContext, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        onDispose {
+            runCatching { appContext.unregisterReceiver(receiver) }
+        }
+    }
+
+    DisposableEffect(appContext) {
+        val listener = {
+            deviceVolumeFraction = readDeviceMusicVolumeFraction(appContext)
+            volumeShowTrigger++
+            playVolumePopSound()
+            Unit
+        }
+        PoplurVolumeEvents.addListener(listener)
+        onDispose {
+            PoplurVolumeEvents.removeListener(listener)
+        }
+    }
+
+    LaunchedEffect(volumeShowTrigger) {
+        if (volumeShowTrigger > 0) {
+            showVolumeBars = true
+            kotlinx.coroutines.delay(1_100)
+            showVolumeBars = false
+        }
+    }
+
+    val volumeOverlay: @Composable BoxScope.() -> Unit = {
+        AnimatedVisibility(
+            visible = showVolumeBars,
+            enter = fadeIn(animationSpec = tween(120)) + scaleIn(initialScale = 0.94f, animationSpec = tween(120)),
+            exit = fadeOut(animationSpec = tween(180)),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 14.dp)
+                .zIndex(120f)
+        ) {
+            FeedVolumeBars(volumeFraction = deviceVolumeFraction)
+        }
+    }
+
     if (isSignedIn == null) {
-        // Still initializing auth - show nothing (or a subtle loader)
-        Box(Modifier.fillMaxSize().background(Color.White))
+        Box(Modifier.fillMaxSize().background(Color.White)) {
+            volumeOverlay()
+        }
         return
     }
-    
+
     if (isSignedIn == false) {
-        WelcomeAuthScreen(authViewModel)
+        Box(Modifier.fillMaxSize()) {
+            WelcomeAuthScreen(authViewModel)
+            volumeOverlay()
+        }
         return
     }
 
@@ -195,44 +297,55 @@ fun PoplurRoot(
             }
         }
 
-        // Keep the navigation cube fixed in one bottom-center position across screens.
-        // Hide it on the Settings screen, Cube Debug screen, Captured Output screen, and when Camera filters are active.
-        val isCubeVisible = tab != AppTab.Settings && tab != AppTab.CubeDebug && tab != AppTab.CapturedOutput && !filtersVisible
-        if (isCubeVisible) {
+        if (tab == AppTab.Feed && !showingPostTimeline) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .zIndex(10f),
-                contentAlignment = Alignment.BottomCenter
-            ) {
-                AndroidView(
-                    factory = { ctx ->
-                        FragmentContainerView(ctx).apply {
-                            id = containerId
-                            setBackgroundColor(0)
-                            background = null
-                            val activity = ctx as? FragmentActivity
-                            activity?.supportFragmentManager?.beginTransaction()
-                                ?.replace(
-                                    id, GdxNavigationFragment(CUBE_FEED_INDEX,
-                                        { isUp -> currentOnVerticalSwipe(isUp) },
-                                        { currentOnLongPressCube() },
-                                        { currentOnTapCube() },
-                                        { index -> currentOnTabChange(index) })
-                                )
-                                ?.commit()
-                        }
-                    },
-                    modifier = Modifier
-                        .padding(bottom = CUBE_BOTTOM_OFFSET)
-                        .size(CUBE_CONTAINER_SIZE),
-                    update = { view ->
-                        view.visibility = android.view.View.VISIBLE
-                        view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                        view.background = null
+                    .zIndex(9f)
+                    .rootFeedSwipeDetector(currentPostIndex) { nextIndex ->
+                        currentPostIndex = nextIndex
+                        playPopSound()
                     }
-                )
-            }
+            )
+        }
+
+        // Keep the navigation cube fragment alive across screens. Destroying/recreating the
+        // embedded LibGDX fragment can terminate the process on some devices.
+        val isCubeVisible = tab != AppTab.Settings && tab != AppTab.CubeDebug && tab != AppTab.CapturedOutput && !filtersVisible
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(10f),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    FragmentContainerView(ctx).apply {
+                        id = containerId
+                        setBackgroundColor(0)
+                        background = null
+                        val activity = ctx as? FragmentActivity
+                        activity?.supportFragmentManager?.beginTransaction()
+                            ?.replace(
+                                id, GdxNavigationFragment(CUBE_FEED_INDEX,
+                                    { isUp -> currentOnVerticalSwipe(isUp) },
+                                    { currentOnLongPressCube() },
+                                    { currentOnTapCube() },
+                                    { index -> currentOnTabChange(index) })
+                            )
+                            ?.commit()
+                    }
+                },
+                modifier = Modifier
+                    .padding(bottom = CUBE_BOTTOM_OFFSET)
+                    .offset(y = if (isCubeVisible) 0.dp else CUBE_CONTAINER_SIZE + CUBE_BOTTOM_OFFSET + 80.dp)
+                    .size(CUBE_CONTAINER_SIZE),
+                update = { view ->
+                    view.visibility = android.view.View.VISIBLE
+                    view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    view.background = null
+                }
+            )
         }
 
         if (showingPostTimeline) {
@@ -252,12 +365,46 @@ fun PoplurRoot(
                 }
             )
         }
+
+        volumeOverlay()
     }
 }
 
 private const val CUBE_FEED_INDEX = 1
 private val CUBE_CONTAINER_SIZE = 240.dp
 private val CUBE_BOTTOM_OFFSET = 120.dp
+private const val SYSTEM_VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
+
+private fun Modifier.rootFeedSwipeDetector(
+    currentPostIndex: Int,
+    onIndexChange: (Int) -> Unit
+): Modifier = pointerInput(currentPostIndex) {
+    var totalY = 0f
+    var triggered = false
+    detectVerticalDragGestures(
+        onDragStart = {
+            totalY = 0f
+            triggered = false
+        },
+        onVerticalDrag = { change, dragAmount ->
+            if (!triggered) {
+                totalY += dragAmount
+                if (abs(totalY) > 28f) {
+                    onIndexChange(if (totalY > 0) currentPostIndex - 1 else currentPostIndex + 1)
+                    triggered = true
+                    change.consume()
+                }
+            }
+        }
+    )
+}
+
+private fun readDeviceMusicVolumeFraction(context: Context): Float {
+    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return 0f
+    val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+    val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+    return (currentVolume.toFloat() / maxVolume.toFloat()).coerceIn(0f, 1f)
+}
 
 private fun Post.initial(): String = displayName.firstOrNull()?.uppercaseChar()?.toString() ?: username.firstOrNull()?.uppercaseChar()?.toString() ?: "P"
 

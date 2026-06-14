@@ -82,6 +82,7 @@ import com.google.mlkit.vision.face.Face as MLFace
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -103,7 +104,10 @@ fun CameraScreen(
     }
     var useFrontCamera by remember { mutableStateOf(false) }
     var torchEnabled by remember { mutableStateOf(false) }
+    var frontFlashBurst by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf(false) }
+    var recordingSecondsRemaining by remember { mutableIntStateOf(10) }
+    var captureInFlight by remember { mutableStateOf(false) }
     var selectedMedia by remember { mutableStateOf<Uri?>(null) }
     var selectedFilter by remember { mutableStateOf(ArFilter.Beauty) }
     var showFilterPicker by remember { mutableStateOf(initialShowFilters) }
@@ -118,11 +122,17 @@ fun CameraScreen(
     var overlaySize by remember { mutableStateOf(IntSize.Zero) }
     var isAnalyzingFrame by remember { mutableStateOf(false) }
     var boundCamera by remember { mutableStateOf<Camera?>(null) }
+    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    var imageAnalysisUseCase by remember { mutableStateOf<ImageAnalysis?>(null) }
     var videoCapture by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
     var activeRecording by remember { mutableStateOf<Recording?>(null) }
+    val scope = rememberCoroutineScope()
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
+    val shutterSound = remember {
+        if (isPreview) null else CameraShutter()
+    }
     val faceDetector = remember {
         if (isPreview) null else FaceDetection.getClient(
             FaceDetectorOptions.Builder()
@@ -133,20 +143,40 @@ fun CameraScreen(
                 .build()
         )
     }
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        hasCameraPermission = granted
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+        hasCameraPermission = permissions[Manifest.permission.CAMERA] ?: hasCameraPermission
     }
     val photoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> selectedMedia = uri }
     val toggleCamera = {
         useFrontCamera = !useFrontCamera
         torchEnabled = false
+        frontFlashBurst = false
         detectedFaces = emptyList()
+    }
+    val toggleFlash = {
+        val nextFlashState = !torchEnabled
+        torchEnabled = nextFlashState
+        captureOutput = if (nextFlashState) "Flash on" else "Flash off"
+    }
+    val releaseCameraUseCases = {
+        runCatching { imageAnalysisUseCase?.clearAnalyzer() }
+        runCatching { cameraProvider?.unbindAll() }
+        boundCamera = null
+        imageCapture = null
+        imageAnalysisUseCase = null
+        videoCapture = null
+        detectedFaces = emptyList()
+        isAnalyzingFrame = false
     }
     val capturePhoto = {
         val capture = imageCapture
-        if (capture == null) {
+        if (captureInFlight) {
+            Unit
+        } else if (capture == null) {
             captureOutput = "Camera not ready"
         } else {
+            captureInFlight = true
+            shutterSound?.play()
             val name = "Poplur_${timestampName()}"
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)
@@ -166,11 +196,18 @@ fun CameraScreen(
                         val uri = outputFileResults.savedUri
                         captureOutput = "Photo captured"
                         if (uri != null) {
-                            onMediaCaptured(uri, false)
+                            releaseCameraUseCases()
+                            scope.launch {
+                                delay(120)
+                                onMediaCaptured(uri, false)
+                            }
+                        } else {
+                            captureInFlight = false
                         }
                     }
 
                     override fun onError(exception: ImageCaptureException) {
+                        captureInFlight = false
                         captureOutput = "Photo failed"
                         exception.printStackTrace()
                     }
@@ -194,20 +231,32 @@ fun CameraScreen(
                 context.contentResolver,
                 MediaStore.Video.Media.EXTERNAL_CONTENT_URI
             ).setContentValues(values).build()
-            val hasAudioPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            
+            @OptIn(androidx.camera.video.ExperimentalAudioApi::class)
             var pendingRecording = video.output.prepareRecording(context, outputOptions)
-            if (hasAudioPermission) pendingRecording = pendingRecording.withAudioEnabled()
+            
+            val hasAudioPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            if (hasAudioPermission) {
+                pendingRecording = pendingRecording.withAudioEnabled()
+            }
+            
             recording = true
+            recordingSecondsRemaining = 10
             captureOutput = "Recording"
             val startedRecording = pendingRecording.start(mainExecutor) { event ->
                 when (event) {
                     is VideoRecordEvent.Finalize -> {
                         recording = false
+                        recordingSecondsRemaining = 0
                         activeRecording = null
                         if (!event.hasError()) {
                             val uri = event.outputResults.outputUri
                             captureOutput = "Video captured"
-                            onMediaCaptured(uri, true)
+                            releaseCameraUseCases()
+                            scope.launch {
+                                delay(120)
+                                onMediaCaptured(uri, true)
+                            }
                         } else {
                             captureOutput = "Video failed"
                         }
@@ -222,13 +271,25 @@ fun CameraScreen(
     }
 
     LaunchedEffect(Unit) {
-        if (!hasCameraPermission) cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        if (!hasCameraPermission) {
+            cameraPermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
+        } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            cameraPermissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+        }
     }
 
     LaunchedEffect(photoTrigger) {
         if (photoTrigger > 0) {
             activeRecording?.stop()
+            if (useFrontCamera && torchEnabled) {
+                frontFlashBurst = true
+                delay(180)
+            }
             capturePhoto()
+            if (useFrontCamera && torchEnabled) {
+                delay(180)
+                frontFlashBurst = false
+            }
         }
     }
 
@@ -236,15 +297,19 @@ fun CameraScreen(
         if (recordTrigger > 0) {
             if (recording) return@LaunchedEffect
             val startedRecording = startTenSecondRecording()
-            delay(10_000)
-            startedRecording?.stop()
+            if (startedRecording != null) {
+                for (remaining in 10 downTo 1) {
+                    recordingSecondsRemaining = remaining
+                    delay(1_000)
+                }
+                recordingSecondsRemaining = 0
+                startedRecording.stop()
+            }
         }
     }
 
     LaunchedEffect(torchEnabled, boundCamera, useFrontCamera) {
-        if (!useFrontCamera) {
-            boundCamera?.cameraControl?.enableTorch(torchEnabled)
-        }
+        boundCamera?.cameraControl?.enableTorch(!useFrontCamera && torchEnabled)
     }
 
     LaunchedEffect(captureOutput) {
@@ -254,11 +319,24 @@ fun CameraScreen(
         }
     }
 
+    val currentActiveRecording by rememberUpdatedState(activeRecording)
+    val currentImageAnalysisUseCase by rememberUpdatedState(imageAnalysisUseCase)
+    val currentCameraProvider by rememberUpdatedState(cameraProvider)
+    val currentFaceDetector by rememberUpdatedState(faceDetector)
+
     DisposableEffect(Unit) {
         onDispose {
-            activeRecording?.close()
+            currentActiveRecording?.close()
+            currentImageAnalysisUseCase?.clearAnalyzer()
+            currentCameraProvider?.unbindAll()
             analysisExecutor.shutdown()
-            faceDetector?.close()
+            currentFaceDetector?.close()
+        }
+    }
+
+    DisposableEffect(shutterSound) {
+        onDispose {
+            shutterSound?.release()
         }
     }
 
@@ -288,9 +366,8 @@ fun CameraScreen(
                             change.consume()
                         },
                         onDragEnd = {
-                            if (kotlin.math.abs(totalDragY) > 70f && !useFrontCamera) {
-                                torchEnabled = !torchEnabled
-                                captureOutput = if (torchEnabled) "Flash on" else "Flash off"
+                            if (kotlin.math.abs(totalDragY) > 70f) {
+                                toggleFlash()
                             }
                         }
                     )
@@ -318,6 +395,7 @@ fun CameraScreen(
                                 val providerFuture = ProcessCameraProvider.getInstance(context)
                                 providerFuture.addListener({
                                     val provider = providerFuture.get()
+                                    cameraProvider = provider
                                     val preview = Preview.Builder().build().also { it.setSurfaceProvider(view.surfaceProvider) }
                                     val photo = ImageCapture.Builder()
                                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
@@ -336,7 +414,7 @@ fun CameraScreen(
                                         .build()
                                         .also { imageAnalysis ->
                                             imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
-                                                @OptIn(androidx.camera.core.ExperimentalGetImage::class)
+                                                @androidx.camera.core.ExperimentalGetImage
                                                 val mediaImage = imageProxy.image
                                                 if (mediaImage == null || isAnalyzingFrame) {
                                                     imageProxy.close()
@@ -360,20 +438,25 @@ fun CameraScreen(
                                         }
                                     val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
                                     try {
+                                        imageAnalysisUseCase?.clearAnalyzer()
                                         provider.unbindAll()
                                         boundCamera = provider.bindToLifecycle(owner, selector, preview, photo, video, analysis)
                                         imageCapture = photo
+                                        imageAnalysisUseCase = analysis
                                         videoCapture = video
                                     } catch (e: Exception) {
                                         try {
+                                            imageAnalysisUseCase?.clearAnalyzer()
                                             provider.unbindAll()
                                             boundCamera = provider.bindToLifecycle(owner, selector, preview, photo, video)
                                             imageCapture = photo
+                                            imageAnalysisUseCase = null
                                             videoCapture = video
                                             detectedFaces = emptyList()
                                         } catch (fallback: Exception) {
                                             fallback.printStackTrace()
                                             imageCapture = null
+                                            imageAnalysisUseCase = null
                                             videoCapture = null
                                         }
                                     }
@@ -384,7 +467,7 @@ fun CameraScreen(
                 }
             } else {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Button(onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                    Button(onClick = { cameraPermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA)) }) {
                         Text("Enable Camera")
                     }
                 }
@@ -400,29 +483,30 @@ fun CameraScreen(
                     .fillMaxSize()
                     .onSizeChanged { overlaySize = it }
             )
+
+            if (useFrontCamera && (torchEnabled || frontFlashBurst)) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.White.copy(alpha = if (frontFlashBurst) 0.92f else 0.34f))
+                )
+            }
         }
 
         // Top Left: Flash Control
-        // For debugging/development: showing the button if it's NOT the front camera
-        // In production, we'd check hasFlashUnit(), but some devices report this late.
-        if (!useFrontCamera) {
-            IconButton(
-                onClick = {
-                    torchEnabled = !torchEnabled
-                    captureOutput = if (torchEnabled) "Flash on" else "Flash off"
-                },
-                modifier = Modifier
-                    .statusBarsPadding()
-                    .padding(top = 14.dp, start = 16.dp)
-                    .align(Alignment.TopStart),
-                colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.3f))
-            ) {
-                Icon(
-                    if (torchEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                    "Toggle Flash",
-                    tint = if (torchEnabled) Color.Yellow else Color.White
-                )
-            }
+        IconButton(
+            onClick = { toggleFlash() },
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(top = 14.dp, start = 16.dp)
+                .align(Alignment.TopStart),
+            colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.3f))
+        ) {
+            Icon(
+                if (torchEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                "Toggle Flash",
+                tint = if (torchEnabled) Color.Yellow else Color.White
+            )
         }
 
         // Top Right: Switch Camera
@@ -437,24 +521,14 @@ fun CameraScreen(
             Icon(Icons.Default.FlipCameraAndroid, "Switch Camera", tint = Color.White)
         }
 
-        // Recording Indicator
         if (recording) {
-            Surface(
+            RecordingTimerBadge(
+                secondsRemaining = recordingSecondsRemaining,
                 modifier = Modifier
-                    .statusBarsPadding()
-                    .padding(top = 18.dp)
-                    .align(Alignment.TopCenter),
-                color = Color.Red,
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text(
-                    "REC",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                )
-            }
+                    .align(Alignment.BottomStart)
+                    .navigationBarsPadding()
+                    .padding(start = 24.dp, bottom = 88.dp)
+            )
         }
 
         if (showFilterPicker) {
@@ -480,17 +554,22 @@ fun CameraScreen(
             verticalAlignment = Alignment.Bottom
         ) {
             // Gallery Thumbnail (Bottom Left)
-            Surface(
-                modifier = Modifier
-                    .padding(bottom = 14.dp)
-                    .size(64.dp),
-                color = Color.Black.copy(alpha = .34f),
-                shape = RoundedCornerShape(12.dp),
-                onClick = { photoPickerLauncher.launch("image/*") }
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.PhotoLibrary, "Gallery", tint = Color.White, modifier = Modifier.size(32.dp))
+            if (!recording) {
+                Surface(
+                    modifier = Modifier
+                        .padding(bottom = 14.dp)
+                        .size(64.dp),
+                    color = Color.Black.copy(alpha = .34f),
+                    shape = RoundedCornerShape(12.dp),
+                    onClick = { photoPickerLauncher.launch("image/*") }
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.PhotoLibrary, "Gallery", tint = Color.White, modifier = Modifier.size(32.dp))
+                    }
                 }
+            } else {
+                // Empty spacer to keep layout if needed, or just let RadiusDisplay align end
+                Spacer(Modifier.size(64.dp))
             }
 
             // Radius (Bottom Right)
@@ -530,6 +609,63 @@ fun CameraScreen(
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun RecordingTimerBadge(
+    secondsRemaining: Int,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.Start
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "RECORDING",
+                color = Color.White.copy(alpha = 0.68f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.2.sp
+            )
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(Color.Red)
+            )
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        Column(
+            modifier = Modifier.width(92.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                secondsRemaining.coerceAtLeast(0).toString(),
+                color = Color.Red,
+                fontSize = 40.sp,
+                fontWeight = FontWeight.Black,
+                lineHeight = 40.sp
+            )
+            HorizontalDivider(
+                color = Color.White,
+                thickness = 2.dp,
+                modifier = Modifier.width(70.dp).padding(vertical = 4.dp)
+            )
+            Text(
+                "seconds",
+                color = Color.White.copy(alpha = 0.92f),
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Black,
+                lineHeight = 26.sp
+            )
         }
     }
 }
@@ -803,6 +939,38 @@ private enum class ArFilter(val label: String, val iconVector: ImageVector) {
     Beauty("Beauty", Icons.Default.Face),
     Brighten("Brighten", Icons.Default.LightMode),
     Glow("Glow", Icons.Default.WbSunny)
+}
+
+private class CameraShutter {
+    // Use reflection for MediaActionSound to avoid NoClassDefFoundError in Previews
+    private val sound: Any? = try {
+        val cls = Class.forName("android.media.MediaActionSound")
+        val instance = cls.getDeclaredConstructor().newInstance()
+        cls.getMethod("load", Int::class.java).invoke(instance, 0) // 0 = SHUTTER_CLICK
+        instance
+    } catch (e: Exception) {
+        null
+    }
+
+    fun play() {
+        try {
+            sound?.let {
+                it.javaClass.getMethod("play", Int::class.java).invoke(it, 0)
+            }
+        } catch (e: Exception) {
+            // Ignore sound errors
+        }
+    }
+
+    fun release() {
+        try {
+            sound?.let {
+                it.javaClass.getMethod("release").invoke(it)
+            }
+        } catch (e: Exception) {
+            // Ignore release errors
+        }
+    }
 }
 
 @androidx.compose.ui.tooling.preview.Preview

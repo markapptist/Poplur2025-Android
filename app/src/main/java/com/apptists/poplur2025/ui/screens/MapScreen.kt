@@ -35,11 +35,16 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -163,6 +168,8 @@ fun MapScreenContent(
     var confettiTrigger by remember { mutableIntStateOf(0) }
     var userLocation by remember { mutableStateOf<Point?>(null) }
     var idleGeneration by remember { mutableIntStateOf(0) }
+    var showLocationSearch by remember { mutableStateOf(false) }
+    var locationSearchQuery by remember { mutableStateOf("") }
     val isPreview = LocalInspectionMode.current
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
     val mapView = remember { if (isPreview) null else MapView(context) }
@@ -193,17 +200,22 @@ fun MapScreenContent(
             )
         }
     }
-    val activeMusicStop = remember(activeCityName, isVisible, userTourStop) {
-        if (!isVisible) {
-            null
-        } else if (
-            userTourStop != null &&
-            (activeCityName == "Your Location" || activeCityName == userTourStop.cityName || activeCityName == userCityName)
-        ) {
-            userTourStop
-        } else {
-            TourStops.firstOrNull { it.cityName == activeCityName }
+    val activeMusicStop = remember(activeCityName, isVisible, userTourStop, selectedCoordinate, activeRadius, userCountryCode) {
+        if (!isVisible) return@remember null
+        val stop = TourStops.find { it.cityName == activeCityName }
+        if (stop != null) return@remember stop
+        if (activeCityName == "Your Location" || (userCityName != null && activeCityName == userCityName)) return@remember userTourStop
+        if (activeCityName == "Selected Location" && selectedCoordinate != null) {
+            return@remember TourStop(
+                cityName = "Selected Location",
+                storefront = userCountryCode?.lowercase(java.util.Locale.US) ?: "us",
+                coordinate = selectedCoordinate!!,
+                bearing = 28.0,
+                radiusKm = activeRadius,
+                zoom = 17.6
+            )
         }
+        null
     }
     var tourSubtextMode by remember { mutableStateOf(TourSubtextMode.NowPlaying) }
     val tourSubtext = remember(activeMusicStop, activeAiInsight, tourSubtextMode, userCityName, activeCityName) {
@@ -223,6 +235,47 @@ fun MapScreenContent(
         animationSpec = tween(durationMillis = 520),
         label = "tourTitlePulse"
     )
+    val locationSearchStops = remember(locationSearchQuery, userTourStop) {
+        val query = locationSearchQuery.trim().lowercase(Locale.US)
+        val stops = buildList {
+            userTourStop?.let { add(it) }
+            addAll(TourStops)
+        }
+        if (query.isEmpty()) {
+            stops.take(10)
+        } else {
+            stops.filter { stop ->
+                stop.cityName.lowercase(Locale.US).contains(query) ||
+                    stop.storefront.lowercase(Locale.US).contains(query)
+            }.take(10)
+        }
+    }
+    val openSearchStop: (TourStop) -> Unit = { stop ->
+        showLocationSearch = false
+        locationSearchQuery = ""
+        selectedCoordinate = null
+        activeCityName = stop.cityName
+        activeRadius = stop.radiusKm
+        activeWeatherPoint = stop.coordinate
+        val insight = spoofAiTourInsight(stop)
+        activeAiInsight = insight
+        idleGeneration++
+        mapView?.mapboxMap?.flyTo(
+            CameraOptions.Builder()
+                .center(stop.coordinate)
+                .zoom(stop.zoom)
+                .pitch(66.0)
+                .bearing(stop.bearing)
+                .build(),
+            mapAnimationOptions { duration(1600) }
+        )
+        if (mapReady) {
+            mapView?.mapboxMap?.getStyle { style ->
+                style.setMusicWaveSource(stop.coordinate)
+                style.setTrendPopIcon(insight)
+            }
+        }
+    }
 
     CityTourMusicPlayer(
         tourStop = activeMusicStop,
@@ -507,6 +560,8 @@ fun MapScreenContent(
         }
     }
 
+
+
     LaunchedEffect(isVisible, mapReady, idleGeneration) {
         if (!isVisible || !mapReady) return@LaunchedEffect
         delay(IDLE_TOUR_DELAY_MS)
@@ -738,8 +793,32 @@ fun MapScreenContent(
                 }
             }
         }
-        // Removed navigation cube placeholder
-        RadiusDisplay(Modifier.padding(bottom = 48.dp, end = 20.dp).align(Alignment.BottomEnd).zIndex(2f), radius = activeRadius)
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 56.dp, end = 20.dp)
+                .zIndex(4f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(32.dp)
+        ) {
+            MapSearchButton(
+                onClick = { showLocationSearch = true }
+            )
+            RadiusDisplay(radius = activeRadius)
+        }
+
+        if (showLocationSearch) {
+            LocationSearchDialog(
+                query = locationSearchQuery,
+                onQueryChange = { locationSearchQuery = it },
+                stops = locationSearchStops,
+                onDismiss = {
+                    showLocationSearch = false
+                    locationSearchQuery = ""
+                },
+                onSelect = openSearchStop
+            )
+        }
     }
 }
 
@@ -765,6 +844,86 @@ private fun TourSubtextLine(text: String, isTouring: Boolean) {
 }
 
 @Composable
+private fun MapSearchButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.size(54.dp),
+        shape = RoundedCornerShape(100.dp),
+        color = Color.Transparent,
+        contentColor = Color.White
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Search locations",
+                modifier = Modifier.size(32.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun LocationSearchDialog(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    stops: List<TourStop>,
+    onDismiss: () -> Unit,
+    onSelect: (TourStop) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Search locations", fontWeight = FontWeight.Black)
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = null)
+                    },
+                    placeholder = { Text("City or country") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(stops, key = { "${it.cityName}-${it.storefront}" }) { stop ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelect(stop) }
+                                .padding(vertical = 10.dp, horizontal = 4.dp)
+                        ) {
+                            Text(stop.cityName, fontWeight = FontWeight.Bold)
+                            Text(
+                                "${stop.radiusKm} km radius",
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
 private fun MapZoomSlider(
     zoom: Float,
     onZoomChange: (Float) -> Unit,
@@ -783,7 +942,7 @@ private fun MapZoomSlider(
 
     Box(
         modifier = modifier
-            .width(76.dp)
+            .width(64.dp)
             .height(350.dp)
             .onSizeChanged { heightPx = it.height.coerceAtLeast(1) }
             .pointerInput(Unit) {
@@ -799,16 +958,16 @@ private fun MapZoomSlider(
     ) {
         Box(
             Modifier
-                .width(5.dp)
+                .width(4.dp)
                 .fillMaxHeight()
-                .background(Color.Black.copy(alpha = 0.22f), RoundedCornerShape(100.dp))
+                .background(Color.Black.copy(alpha = 0.32f), RoundedCornerShape(100.dp))
         )
         Box(
             Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = ((1f - fraction) * 306f).dp)
-                .size(width = 58.dp, height = 46.dp)
-                .background(Color.Black.copy(alpha = 0.78f), RoundedCornerShape(8.dp))
+                .padding(top = ((1f - fraction) * 314f).dp)
+                .size(width = 52.dp, height = 36.dp)
+                .background(Color.White, RoundedCornerShape(7.dp))
         )
     }
 }
@@ -927,13 +1086,19 @@ private class GdxUprightTrendPopView(
                 val anchor = stop?.coordinate ?: item.point
                 val screen = mapView.mapboxMap.pixelForCoordinate(anchor)
                 val angle = index * 2.3999632f + item.seed * 0.017f
-                val ring = index % 5
-                val spreadX = width * (0.18f + ring * 0.045f)
-                val spreadY = height * (0.105f + ring * 0.026f)
-                val biasY = if (index % 2 == 0) -height * 0.03f else height * 0.015f
+                val ring = index % 6
+                val spreadX = width * (0.24f + ring * 0.055f)
+                val spreadY = height * (0.15f + ring * 0.035f)
+                val quadrantBiasX = ((index % 3) - 1) * width * 0.035f
+                val biasY = when (index % 4) {
+                    0 -> -height * 0.085f
+                    1 -> height * 0.045f
+                    2 -> -height * 0.025f
+                    else -> height * 0.095f
+                }
                 PointF(
-                    (screen.x.toFloat() + cos(angle) * spreadX).coerceIn(92f, width - 92f),
-                    (screen.y.toFloat() + sin(angle) * spreadY + biasY).coerceIn(220f, height - 330f)
+                    (screen.x.toFloat() + cos(angle) * spreadX + quadrantBiasX).coerceIn(76f, width - 76f),
+                    (screen.y.toFloat() + sin(angle) * spreadY + biasY).coerceIn(170f, height - 250f)
                 )
             }
             val x = frozenPosition.x
@@ -1227,6 +1392,7 @@ private fun CityTourMusicPlayer(
     val chartTrackCache = remember { mutableStateMapOf<String, List<CityMusicTrack>>() }
     val radioTrackCache = remember { mutableStateMapOf<String, List<CityMusicTrack>>() }
     val sportsRadioTrackCache = remember { mutableStateMapOf<String, List<CityMusicTrack>>() }
+    var fallbackTrackForPlayer by remember { mutableStateOf<CityMusicTrack?>(null) }
     val player = remember {
         if (isPreview) null else {
             val audioAttributes = AudioAttributes.Builder()
@@ -1239,7 +1405,7 @@ private fun CityTourMusicPlayer(
                 .build()
                 .apply {
                     repeatMode = Player.REPEAT_MODE_ONE
-                    volume = 0.72f
+                    volume = 1f
                 }
         }
     }
@@ -1251,7 +1417,11 @@ private fun CityTourMusicPlayer(
             return@LaunchedEffect
         }
 
-        val track = run {
+        val fallbackTrack = fallbackMusicTrackFor(tourStop)
+        fallbackTrackForPlayer = fallbackTrack
+        player.playCityMusicTrack(fallbackTrack)
+
+        val resolvedTrack = run {
             val tracks = chartTrackCache[tourStop.cityName]
                 ?: resolveTopCountryMusicTracks(tourStop).getOrElse {
                     listOf(FallbackCityMusicTracks[tourStop.cityName] ?: DefaultFallbackCityMusicTrack)
@@ -1267,22 +1437,39 @@ private fun CityTourMusicPlayer(
 
             when {
                 aiInsight?.category == TrendCategory.Sports && sportsRadioTracks.isNotEmpty() -> sportsRadioTracks.random()
-                radioTracks.isNotEmpty() && listOf(true, false).random() -> radioTracks.random()
                 else -> tracks.random()
             }
         }
 
-        player.setMediaItem(MediaItem.fromUri(track.assetUri))
-        player.prepare()
-        player.playWhenReady = true
+        if (resolvedTrack.assetUri != fallbackTrack.assetUri) {
+            player.playCityMusicTrack(resolvedTrack)
+        }
     }
 
     DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val fallbackTrack = fallbackTrackForPlayer ?: return
+                player?.playCityMusicTrack(fallbackTrack)
+            }
+        }
+        player?.addListener(listener)
         onDispose {
+            player?.removeListener(listener)
             player?.release()
         }
     }
 }
+
+private fun ExoPlayer.playCityMusicTrack(track: CityMusicTrack) {
+    setMediaItem(MediaItem.fromUri(track.assetUri))
+    prepare()
+    playWhenReady = true
+    play()
+}
+
+private fun fallbackMusicTrackFor(stop: TourStop): CityMusicTrack =
+    FallbackCityMusicTracks[stop.cityName] ?: DefaultFallbackCityMusicTrack
 
 private const val POST_SOURCE_ID = "poplur-posts"
 private const val POST_LAYER_ID = "poplur-post-markers"
@@ -1935,11 +2122,11 @@ private fun radiusCirclePolygon(center: Point, radiusKm: Int): Polygon {
 private fun trendPopFeatureCollection(stop: TourStop, insight: AiTourInsight, frame: Int): FeatureCollection {
     val seed = abs((stop.cityName.hashCode() xor insight.category.name.hashCode()))
     val count = TREND_POP_COUNT_MIN + seed % TREND_POP_COUNT_RANGE
-    val lngScale = 0.0046
-    val latScale = 0.0034
+    val lngScale = 0.0074
+    val latScale = 0.0058
     val features = (0 until count).map { index ->
         val angle = 2.0 * Math.PI * index / count + (seed % 360) * Math.PI / 180.0
-        val radius = 0.34 + ((index * 29 + seed) % 100) / 150.0
+        val radius = 0.56 + ((index * 29 + seed) % 100) / 120.0
         val wobble = sin(index * 1.7 + seed + frame * 0.38) * 0.26
         val pop = 1.0 + sin(frame * 0.72 + index) * 0.12
         Feature.fromGeometry(
@@ -1955,12 +2142,12 @@ private fun trendPopFeatureCollection(stop: TourStop, insight: AiTourInsight, fr
 private fun buildTrendPopObjects(stop: TourStop, insight: AiTourInsight): List<TrendPopObject> {
     val seed = abs(stop.cityName.hashCode() xor insight.id.hashCode() xor insight.category.name.hashCode())
     val count = TREND_POP_COUNT_MIN + seed % TREND_POP_COUNT_RANGE
-    val lngScale = 0.034
-    val latScale = 0.024
+    val lngScale = 0.052
+    val latScale = 0.038
     return (0 until count).map { index ->
         val angle = index * 2.399963229728653 + (seed % 360) * Math.PI / 180.0
-        val ring = index % 4
-        val radius = 0.96 + ring * 0.34 + ((index * 29 + seed) % 100) / 220.0
+        val ring = index % 5
+        val radius = 1.35 + ring * 0.48 + ((index * 29 + seed) % 100) / 170.0
         TrendPopObject(
             point = Point.fromLngLat(
                 stop.coordinate.longitude() + cos(angle) * lngScale * radius,

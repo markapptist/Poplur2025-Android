@@ -4,6 +4,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
@@ -17,6 +18,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -24,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.text.NumberFormat
 import java.util.Locale
+import kotlin.math.ceil
 
 @Composable
 fun UserInfoOverlay(
@@ -111,6 +116,52 @@ fun TrendingDisplay(
             fontSize = 14.sp,
             fontWeight = FontWeight.Black
         )
+    }
+}
+
+@Composable
+fun FeedVolumeBars(
+    modifier: Modifier = Modifier,
+    volumeFraction: Float
+) {
+    val meterGreen = Color(0xFF3BFF2E)
+    val totalBars = 18
+    val clampedVolume = volumeFraction.coerceIn(0f, 1f)
+    val activeBars = if (clampedVolume <= 0f) 0 else ceil(clampedVolume * totalBars).toInt()
+
+    Canvas(
+        modifier = modifier
+            .size(width = 80.dp, height = 280.dp)
+    ) {
+        val barWidth = 48.dp.toPx()
+        val barHeight = 8.dp.toPx()
+        val gap = 6.4.dp.toPx()
+        val totalHeight = totalBars * barHeight + (totalBars - 1) * gap
+        val startX = (size.width - barWidth) / 2f
+        val startY = (size.height - totalHeight) / 2f
+        val corner = 2.dp.toPx()
+
+        repeat(totalBars) { index ->
+            val top = startY + (totalBars - 1 - index) * (barHeight + gap)
+            val active = index < activeBars
+            val color = if (active) meterGreen else meterGreen.copy(alpha = 0.18f)
+
+            if (active) {
+                drawRoundRect(
+                    color = meterGreen.copy(alpha = 0.42f),
+                    topLeft = Offset(startX - 1.dp.toPx(), top - 1.dp.toPx()),
+                    size = Size(barWidth + 2.dp.toPx(), barHeight + 2.dp.toPx()),
+                    cornerRadius = CornerRadius(corner + 1.dp.toPx())
+                )
+            }
+
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(startX, top),
+                size = Size(barWidth, barHeight),
+                cornerRadius = CornerRadius(corner)
+            )
+        }
     }
 }
 
