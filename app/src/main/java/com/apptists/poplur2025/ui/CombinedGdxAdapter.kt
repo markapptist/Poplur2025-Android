@@ -20,7 +20,6 @@ import com.badlogic.gdx.graphics.g3d.ModelInstance
 import com.badlogic.gdx.graphics.g3d.attributes.BlendingAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.TextureAttribute
-import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder
 import com.badlogic.gdx.graphics.glutils.FrameBuffer
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer
@@ -35,6 +34,7 @@ class CombinedGdxAdapter(
     private val initialTabIndex: Int = 1,
     private val onVerticalSwipe: ((Boolean) -> Unit)? = null,
     private val onLongPress: (() -> Unit)? = null,
+    private val onLongPressEnd: (() -> Unit)? = null,
     private val onTap: (() -> Unit)? = null,
     private val onTabSelected: (Int) -> Unit
 ) : ApplicationAdapter() {
@@ -77,6 +77,15 @@ class CombinedGdxAdapter(
             }
         }
 
+    var profileIconTitle: String = "Profile"
+        set(value) {
+            field = value.ifBlank { "Profile" }
+            Gdx.app?.postRunnable {
+                rebuildTextures()
+                rebuildModel()
+            }
+        }
+
     var yawDegrees: Float = -90f * initialTabIndex
         set(value) {
             field = value
@@ -95,6 +104,7 @@ class CombinedGdxAdapter(
     private var isSwipeTriggered = false
     private var isRotation = false
     private var longPressSent = false
+    private var longPressStarted = false
     private var downX = 0f
     private var downY = 0f
     private var lastX = 0f
@@ -119,7 +129,7 @@ class CombinedGdxAdapter(
             val w = Gdx.graphics.width.toFloat().coerceAtLeast(1f)
             val h = Gdx.graphics.height.toFloat().coerceAtLeast(1f)
             camera = PerspectiveCamera(40f, w, h).apply {
-                position.set(0f, 1.2f, 5f)
+                position.set(0f, 0f, 5f)
                 lookAt(0f, 0f, 0f)
                 near = 0.1f
                 far = 100f
@@ -136,13 +146,12 @@ class CombinedGdxAdapter(
             rebuildModel()
 
             environment = Environment().apply {
-                set(ColorAttribute(ColorAttribute.AmbientLight, 0.6f, 0.6f, 0.6f, 1f))
-                add(DirectionalLight().set(0.8f, 0.8f, 0.8f, -1f, -0.8f, -0.2f))
+                set(ColorAttribute(ColorAttribute.AmbientLight, 1f, 1f, 1f, 1f))
             }
 
             Gdx.input.inputProcessor = object : InputAdapter() {
                 override fun touchDown(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
-                    dragging = true; isVerticalSwipe = false; isSwipeTriggered = false; isRotation = false; longPressSent = false; bouncePhase = BouncePhase.Idle; downX = screenX.toFloat(); downY = screenY.toFloat(); lastX = screenX.toFloat(); touchStartMillis = System.currentTimeMillis(); return true
+                    dragging = true; isVerticalSwipe = false; isSwipeTriggered = false; isRotation = false; longPressSent = false; longPressStarted = false; bouncePhase = BouncePhase.Idle; downX = screenX.toFloat(); downY = screenY.toFloat(); lastX = screenX.toFloat(); touchStartMillis = System.currentTimeMillis(); return true
                 }
                 override fun touchDragged(screenX: Int, screenY: Int, pointer: Int): Boolean {
                     if (!dragging) return true
@@ -161,6 +170,10 @@ class CombinedGdxAdapter(
                 }
                 override fun touchUp(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
                     dragging = false
+                    if (longPressStarted) {
+                        longPressStarted = false
+                        Gdx.app.postRunnable { onLongPressEnd?.invoke() }
+                    }
                     if (isVerticalSwipe && !isSwipeTriggered) Gdx.app.postRunnable { onVerticalSwipe?.invoke((screenY - downY) < 0) }
                     val moved = abs(screenX - downX) > 15f || abs(screenY - downY) > 15f
                     if (!moved && !longPressSent) {
@@ -184,12 +197,8 @@ class CombinedGdxAdapter(
         materials.clear()
         
         // In debug mode, we might want to see the same icon on all faces or just test one
-        val titles = if (Gdx.app.type == com.badlogic.gdx.Application.ApplicationType.Android && currentIconTitle != "Record") {
-             // If we are specifically testing an icon title, we can put it on the front face at least
-             listOf(currentIconTitle, "Feed", "Profile", "Map")
-        } else {
-             listOf("Record", "Feed", "Profile", "Map")
-        }
+        val recordTitle = if (currentIconTitle != "Record") currentIconTitle else "Record"
+        val titles = listOf(recordTitle, "Feed", profileIconTitle, "Map")
 
         titles.forEach { title ->
             val texture = createFaceTexture(title)
@@ -236,50 +245,125 @@ class CombinedGdxAdapter(
         val projection = Matrix4().setToOrtho2D(0f, 0f, size.toFloat(), size.toFloat())
         val sr = ShapeRenderer().apply { setAutoShapeType(true) }
         val batch = SpriteBatch()
-        
+
         fbo.begin()
         Gdx.gl.glViewport(0, 0, size, size)
         Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
+        Gdx.gl.glEnable(GL20.GL_BLEND)
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA)
         sr.projectionMatrix = projection
         sr.begin(ShapeRenderer.ShapeType.Filled)
-        
-        // Soft rounded panel base
-        val r = cornerRadius
+
+        // Dark indigo background — matches iOS baseColor(white:0.2) × .indigo multiply
+        val bgR = 0.07f; val bgG = 0.07f; val bgB = 0.18f
+        val bgColor = Color(bgR, bgG, bgB, 1f)
         val pad = 20f
-        sr.color = Color(0.06f, 0.07f, 0.16f, 1f)
-        sr.filledRoundRect(pad, pad, size - pad*2, size - pad*2, r)
-        
-        // Quilted Dots
-        sr.set(ShapeRenderer.ShapeType.Filled)
-        val step = 64f
-        for (ix in 0..6) {
-            for (iy in 0..6) {
-                val px = ix * step; val py = iy * step
-                if (px > pad + 38f && px < size - pad - 38f && py > pad + 38f && py < size - pad - 38f) {
-                    sr.color = Color(0f, 0f, 0f, 0.5f); sr.circle(px + 1.5f, py - 1.5f, 4f, 10)
-                    sr.color = Color(0.48f, 0.45f, 0.8f, 0.65f); sr.circle(px, py, 3.5f, 10)
-                }
-            }
+        val r = cornerRadius
+        sr.color = bgColor
+        sr.filledRoundRect(pad, pad, size - pad * 2, size - pad * 2, r)
+
+        // Soft radial glow behind icon (simulates iOS emission mask luminosity)
+        val cx = size / 2f
+        val cy = size * 0.63f
+        val isize = 108f
+        for (i in 14 downTo 1) {
+            val frac = i.toFloat() / 14f
+            sr.color = Color(1f, 1f, 1f, 0.018f * frac)
+            sr.circle(cx, cy, isize * 0.55f + i * 9f, 44)
         }
 
-        // Inner icon area
-        sr.color = Color(0.06f, 0.07f, 0.14f, 0.96f)
-        sr.filledRoundRect(pad + 52f, pad + 52f, size - pad*2 - 104f, size - pad*2 - 104f, r - 32f)
-        
-        sr.color = Color(0.7f, 0.68f, 1f, 1f)
-        val cx = size/2f; val cy = size * 0.64f; val isize = 88f
-        when(title) {
-            "Record" -> { sr.circle(cx, cy, isize*0.35f, 40); sr.color = Color(0.06f, 0.07f, 0.14f, 1f); sr.rect(cx-isize*0.06f, cy-isize*0.2f, isize*0.12f, isize*0.4f); sr.rect(cx-isize*0.2f, cy-isize*0.06f, isize*0.4f, isize*0.12f) }
-            "Feed" -> { repeat(3) { i -> val y = cy + (i-1)*isize*0.23f; sr.circle(cx-isize*0.28f, y, isize*0.06f, 20); sr.rect(cx-isize*0.12f, y-isize*0.04f, isize*0.46f, isize*0.08f) } }
-            "Profile" -> { sr.circle(cx, cy+isize*0.15f, isize*0.18f, 32); sr.filledRoundRect(cx-isize*0.35f, cy-isize*0.35f, isize*0.7f, isize*0.35f, isize*0.18f) }
-            "Map" -> { val b = isize*0.1f; sr.rectLine(cx-isize*0.34f, cy-isize*0.28f, cx-isize*0.34f, cy+isize*0.26f, b); sr.rectLine(cx-isize*0.34f, cy+isize*0.26f, cx, cy-isize*0.04f, b); sr.rectLine(cx, cy-isize*0.04f, cx+isize*0.34f, cy+isize*0.26f, b); sr.rectLine(cx+isize*0.34f, cy+isize*0.26f, cx+isize*0.34f, cy-isize*0.28f, b) }
+        // Icon: pure white — simulates iOS emission mask glow over dark face
+        sr.color = Color(1f, 1f, 1f, 1f)
+        when (title) {
+            "Record" -> {
+                // plus.circle.fill: filled circle with + cutout
+                sr.circle(cx, cy, isize * 0.37f, 44)
+                sr.color = bgColor
+                val arm = isize * 0.065f; val len = isize * 0.22f
+                sr.rect(cx - arm, cy - len, arm * 2f, len * 2f)
+                sr.rect(cx - len, cy - arm, len * 2f, arm * 2f)
+            }
+            "Feed" -> {
+                // list.dash: three rows with short dash + long line
+                val lh = isize * 0.09f; val dashW = isize * 0.13f; val lineW = isize * 0.42f
+                val totalW = dashW + isize * 0.07f + lineW
+                val startX = cx - totalW / 2f
+                for (i in 0..2) {
+                    val ly = cy + (i - 1) * isize * 0.30f - lh / 2f
+                    sr.rect(startX, ly, dashW, lh)
+                    sr.rect(startX + dashW + isize * 0.07f, ly, lineW, lh)
+                }
+            }
+            "Profile" -> {
+                // person.circle: ring with person silhouette inside
+                sr.circle(cx, cy, isize * 0.38f, 44)
+                sr.color = bgColor
+                sr.circle(cx, cy, isize * 0.29f, 44)
+                sr.color = Color(1f, 1f, 1f, 1f)
+                sr.circle(cx, cy + isize * 0.12f, isize * 0.11f, 32)
+                sr.filledRoundRect(cx - isize * 0.18f, cy - isize * 0.20f, isize * 0.36f, isize * 0.20f, isize * 0.11f)
+            }
+            "Map" -> {
+                // map: three folded panels at slightly different heights
+                val pw = isize * 0.21f; val gap = isize * 0.035f
+                val tallH = isize * 0.54f; val shortH = isize * 0.46f
+                sr.rect(cx - pw * 1.5f - gap, cy - shortH / 2f, pw, shortH)
+                sr.rect(cx - pw / 2f, cy - tallH / 2f, pw, tallH)
+                sr.rect(cx + pw / 2f + gap, cy - shortH / 2f, pw, shortH)
+            }
+            "Mail" -> {
+                val ew = isize * 0.74f; val eh = isize * 0.50f
+                val el = cx - ew / 2f; val eb = cy - eh / 2f; val b = isize * 0.08f
+                sr.rect(el, eb, ew, eh)
+                sr.color = bgColor
+                sr.rect(el + b, eb + b, ew - b * 2, eh - b * 2)
+                sr.color = Color(1f, 1f, 1f, 1f)
+                sr.rectLine(el + b, eb + eh - b, cx, cy + isize * 0.04f, b)
+                sr.rectLine(el + ew - b, eb + eh - b, cx, cy + isize * 0.04f, b)
+            }
+            "Settings" -> {
+                repeat(8) { i ->
+                    val angle = Math.toRadians((i * 45).toDouble()).toFloat()
+                    sr.rectLine(
+                        cx + kotlin.math.cos(angle) * isize * 0.22f, cy + kotlin.math.sin(angle) * isize * 0.22f,
+                        cx + kotlin.math.cos(angle) * isize * 0.38f, cy + kotlin.math.sin(angle) * isize * 0.38f,
+                        isize * 0.10f
+                    )
+                }
+                sr.circle(cx, cy, isize * 0.20f, 36)
+                sr.color = bgColor
+                sr.circle(cx, cy, isize * 0.09f, 28)
+            }
+            "Alerts" -> {
+                sr.filledRoundRect(cx - isize * 0.24f, cy - isize * 0.10f, isize * 0.48f, isize * 0.42f, isize * 0.16f)
+                sr.circle(cx, cy + isize * 0.36f, isize * 0.08f, 20)
+                sr.circle(cx, cy - isize * 0.16f, isize * 0.08f, 20)
+            }
+            "Phone" -> {
+                val ps = isize * 1.5f; val pb = ps * 0.13f
+                sr.rectLine(cx - ps * 0.30f, cy + ps * 0.22f, cx - ps * 0.06f, cy - ps * 0.14f, pb)
+                sr.rectLine(cx - ps * 0.06f, cy - ps * 0.14f, cx + ps * 0.32f, cy - ps * 0.25f, pb)
+                sr.circle(cx - ps * 0.33f, cy + ps * 0.24f, ps * 0.13f, 28)
+                sr.circle(cx + ps * 0.35f, cy - ps * 0.27f, ps * 0.13f, 28)
+            }
+            "Store" -> {
+                val b = isize * 0.09f
+                sr.rectLine(cx - isize * 0.34f, cy + isize * 0.18f, cx - isize * 0.20f, cy - isize * 0.18f, b)
+                sr.rect(cx - isize * 0.16f, cy - isize * 0.16f, isize * 0.50f, isize * 0.30f)
+                sr.circle(cx - isize * 0.06f, cy - isize * 0.28f, isize * 0.08f, 20)
+                sr.circle(cx + isize * 0.28f, cy - isize * 0.28f, isize * 0.08f, 20)
+            }
         }
         sr.end()
 
         batch.projectionMatrix = projection
         batch.begin()
-        font?.let { f -> f.setColor(Color(0.88f, 0.86f, 1f, 1f)); val l = GlyphLayout(f, title); f.draw(batch, title, (size - l.width)/2f, size * 0.285f) }
+        font?.let { f ->
+            f.setColor(Color(1f, 1f, 1f, 1f))
+            val l = GlyphLayout(f, title)
+            f.draw(batch, title, (size - l.width) / 2f, size * 0.305f)
+        }
         batch.end()
 
         val pixmap = Pixmap.createFromFrameBuffer(0, 0, size, size)
@@ -305,7 +389,7 @@ class CombinedGdxAdapter(
 
     private fun updateAnimation() {
         if (dragging && !longPressSent && System.currentTimeMillis() - touchStartMillis >= 800L) {
-            longPressSent = true; Gdx.app.postRunnable { onLongPress?.invoke() }
+            longPressSent = true; longPressStarted = true; Gdx.app.postRunnable { onLongPress?.invoke() }
         }
         when (bouncePhase) {
             BouncePhase.Idle -> Unit

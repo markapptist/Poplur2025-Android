@@ -106,6 +106,7 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.5.1")
 
     implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("io.agora.rtc:full-rtc-basic:4.6.0")
 
     implementation("com.badlogicgames.gdx:gdx:1.13.1")
     implementation("com.badlogicgames.gdx:gdx-backend-android:1.13.1")

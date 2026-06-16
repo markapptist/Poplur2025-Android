@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -290,25 +289,6 @@ private fun LoginTicketContent(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        Surface(
-            onClick = onBack,
-            modifier = Modifier
-                .padding(start = layout.backButtonStart, top = layout.backButtonTop)
-                .size(layout.backButtonSize)
-                .shadow(24.dp, RoundedCornerShape(layout.backButtonSize / 2f)),
-            shape = RoundedCornerShape(layout.backButtonSize / 2f),
-            color = Color.White.copy(alpha = 0.96f)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color.Black,
-                    modifier = Modifier.size(layout.backIconSize)
-                )
-            }
-        }
-
         WelcomeLogo(
             logoBitmap = logoBitmap,
             modifier = Modifier
@@ -531,4 +511,3 @@ fun WelcomeAuthScreenLoginPreview() {
         )
     }
 }
-

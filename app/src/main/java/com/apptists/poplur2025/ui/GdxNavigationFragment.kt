@@ -14,15 +14,31 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
     var onTabSelected: ((Int) -> Unit)? = null
     var onVerticalSwipe: ((Boolean) -> Unit)? = null
     var onLongPress: (() -> Unit)? = null
+    var onLongPressEnd: (() -> Unit)? = null
     var onTap: (() -> Unit)? = null
     var initialTabIndex: Int = 1
+    private var adapter: CombinedGdxAdapter? = null
+    private var pendingProfileIconTitle: String = "Profile"
 
-    constructor(initialTabIndex: Int, onVerticalSwipe: ((Boolean) -> Unit)? = null, onLongPress: (() -> Unit)? = null, onTap: (() -> Unit)? = null, onTabSelected: (Int) -> Unit) : this() {
+    constructor(
+        initialTabIndex: Int,
+        onVerticalSwipe: ((Boolean) -> Unit)? = null,
+        onLongPress: (() -> Unit)? = null,
+        onLongPressEnd: (() -> Unit)? = null,
+        onTap: (() -> Unit)? = null,
+        onTabSelected: (Int) -> Unit
+    ) : this() {
         this.initialTabIndex = initialTabIndex
         this.onVerticalSwipe = onVerticalSwipe
         this.onLongPress = onLongPress
+        this.onLongPressEnd = onLongPressEnd
         this.onTap = onTap
         this.onTabSelected = onTabSelected
+    }
+
+    fun setProfileIconTitle(title: String) {
+        pendingProfileIconTitle = title
+        adapter?.profileIconTitle = title
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
@@ -43,10 +59,13 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
         val adapter = CombinedGdxAdapter(initialTabIndex, 
             onVerticalSwipe = { isUp -> activity?.runOnUiThread { onVerticalSwipe?.invoke(isUp) } },
             onLongPress = { activity?.runOnUiThread { onLongPress?.invoke() } },
+            onLongPressEnd = { activity?.runOnUiThread { onLongPressEnd?.invoke() } },
             onTap = { activity?.runOnUiThread { onTap?.invoke() } }
         ) { index ->
             activity?.runOnUiThread { onTabSelected?.invoke(index) }
         }
+        this.adapter = adapter
+        adapter.profileIconTitle = pendingProfileIconTitle
         
         val gdxView = initializeForView(adapter, config)
         

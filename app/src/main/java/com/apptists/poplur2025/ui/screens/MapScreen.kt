@@ -885,13 +885,28 @@ private fun LocationSearchDialog(
     onDismiss: () -> Unit,
     onSelect: (TourStop) -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text("Search locations", fontWeight = FontWeight.Black)
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(80f)
+            .background(Color.Black.copy(alpha = 0.62f))
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .padding(horizontal = 18.dp, vertical = 22.dp)
+                .fillMaxWidth()
+                .heightIn(max = 460.dp),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Search locations", fontWeight = FontWeight.Black)
                 OutlinedTextField(
                     value = query,
                     onValueChange = onQueryChange,
@@ -925,14 +940,8 @@ private fun LocationSearchDialog(
                     }
                 }
             }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close")
-            }
         }
-    )
+    }
 }
 
 @Composable
@@ -2762,40 +2771,79 @@ fun MapScreenPreview() {
 }
 
 private class RealPopTonePlayer {
-    private val generator = try {
+    private var generator: android.media.ToneGenerator? = try {
         android.media.ToneGenerator(android.media.AudioManager.STREAM_MUSIC, 82)
     } catch (e: Exception) {
         null
     }
 
     fun play(duration: Int) {
-        generator?.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, duration)
+        try {
+            generator?.startTone(android.media.ToneGenerator.TONE_PROP_BEEP, duration)
+        } catch (e: Exception) {
+            // Ignore if released or failed
+        }
     }
 
     fun release() {
-        generator?.release()
+        val g = generator
+        generator = null
+        g?.release()
     }
 }
 
 private class ProceduralRainPlayer {
-    private val audioTrack = runCatching { createRainTrack() }.getOrNull()
+    private var audioTrack: android.media.AudioTrack? = runCatching { createRainTrack() }.getOrNull()
+    private var equalizer: android.media.audiofx.Equalizer? = audioTrack?.let { track ->
+        runCatching {
+            android.media.audiofx.Equalizer(0, track.audioSessionId).apply {
+                val minBandLevel = bandLevelRange[0]
+                val maxBandLevel = bandLevelRange[1]
+                val bandCount = numberOfBands.toInt().coerceAtLeast(1)
+                for (band in 0 until bandCount) {
+                    val position = if (bandCount == 1) 0f else band.toFloat() / (bandCount - 1).toFloat()
+                    val targetLevel = when {
+                        position < 0.25f -> 100
+                        position < 0.55f -> -350
+                        else -> -1_050
+                    }.coerceIn(minBandLevel.toInt(), maxBandLevel.toInt()).toShort()
+                    setBandLevel(band.toShort(), targetLevel)
+                }
+                enabled = true
+            }
+        }.getOrNull()
+    }
 
     fun play() {
-        val track = audioTrack ?: return
-        if (track.playState != android.media.AudioTrack.PLAYSTATE_PLAYING) {
-            track.play()
+        try {
+            val track = audioTrack ?: return
+            if (track.playState != android.media.AudioTrack.PLAYSTATE_PLAYING) {
+                track.play()
+            }
+        } catch (e: Exception) {
+            // Released or failed
         }
     }
 
     fun pause() {
-        val track = audioTrack ?: return
-        if (track.playState == android.media.AudioTrack.PLAYSTATE_PLAYING) {
-            track.pause()
+        try {
+            val track = audioTrack ?: return
+            if (track.playState == android.media.AudioTrack.PLAYSTATE_PLAYING) {
+                track.pause()
+            }
+        } catch (e: Exception) {
+            // Released or failed
         }
     }
 
     fun release() {
-        audioTrack?.release()
+        val eq = equalizer
+        equalizer = null
+        eq?.release()
+
+        val track = audioTrack
+        audioTrack = null
+        track?.release()
     }
 
     private fun createRainTrack(): android.media.AudioTrack {
@@ -2804,19 +2852,21 @@ private class ProceduralRainPlayer {
         val samples = ShortArray(frameCount)
         val random = java.util.Random(20250610L)
         var low = 0.0
+        var body = 0.0
 
         repeat(frameCount) { index ->
             val t = index.toDouble() / sampleRate
             val white = random.nextDouble() * 2.0 - 1.0
-            low = low * 0.982 + white * 0.018
-            val hiss = white * 0.16 + low * 1.12
-            val drop = if (random.nextDouble() < 0.018) {
-                random.nextDouble() * 0.34 * sin((2.0 * Math.PI * (1_300.0 + random.nextDouble() * 2_800.0) * t).toFloat())
+            low = low * 0.992 + white * 0.008
+            body = body * 0.986 + low * 0.014
+            val softenedHiss = white * 0.026 + low * 0.18
+            val drop = if (random.nextDouble() < 0.006) {
+                random.nextDouble() * 0.085 * sin((2.0 * Math.PI * (620.0 + random.nextDouble() * 1_100.0) * t).toFloat())
             } else {
                 0.0
             }
-            val rumble = sin((2.0 * Math.PI * 78.0 * t).toFloat()) * 0.045
-            val value = ((hiss * 0.58 + drop * 0.2 + rumble) * 0.34).coerceIn(-0.9, 0.9)
+            val rumble = sin((2.0 * Math.PI * 62.0 * t).toFloat()) * 0.012
+            val value = ((body * 0.62 + softenedHiss + drop + rumble) * 0.18).coerceIn(-0.55, 0.55)
             samples[index] = (value * Short.MAX_VALUE).toInt().toShort()
         }
 
@@ -2839,7 +2889,7 @@ private class ProceduralRainPlayer {
             .apply {
                 write(samples, 0, samples.size)
                 setLoopPoints(0, samples.size, -1)
-                setVolume(0.34f)
+                setVolume(0.16f)
             }
     }
 }

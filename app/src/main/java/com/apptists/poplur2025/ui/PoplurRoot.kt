@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioManager
 import android.media.MediaPlayer
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -13,14 +14,15 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,14 +44,16 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import com.apptists.poplur2025.auth.AuthViewModel
+import com.apptists.poplur2025.call.CallSessionManager
 import com.apptists.poplur2025.data.AppTab
-import com.apptists.poplur2025.data.DemoPostStore
-import com.apptists.poplur2025.data.Post
+import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.PoplurVolumeEvents
 import com.apptists.poplur2025.ui.screens.*
 import com.apptists.poplur2025.ui.previews.CubeDevelopmentScreen
+import com.apptists.poplur2025.ui.components.CubeMenuWheelController
+import com.apptists.poplur2025.ui.components.CubeMenuWheelItem
+import com.apptists.poplur2025.ui.components.CubeMenuWheelOverlay
 import com.apptists.poplur2025.ui.components.FeedVolumeBars
-import com.mapbox.geojson.Point
 import kotlin.math.abs
 
 @Composable
@@ -57,6 +61,8 @@ fun PoplurRoot(
     authViewModel: AuthViewModel = viewModel(),
     mapViewModel: MapViewModel = viewModel()
 ) {
+    BackHandler {}
+
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
     val scope = rememberCoroutineScope()
@@ -146,6 +152,7 @@ fun PoplurRoot(
 
     if (isSignedIn == null) {
         Box(Modifier.fillMaxSize().background(Color.White)) {
+            PersistentCubeOverlay()
             volumeOverlay()
         }
         return
@@ -154,19 +161,34 @@ fun PoplurRoot(
     if (isSignedIn == false) {
         Box(Modifier.fillMaxSize()) {
             WelcomeAuthScreen(authViewModel)
+            PersistentCubeOverlay()
             volumeOverlay()
         }
         return
     }
 
+    // Start listening for incoming calls as soon as the user is signed in.
+    LaunchedEffect(Unit) {
+        CallSessionManager.startListeningForIncomingCalls()
+    }
+
+    val callState by CallSessionManager.callState.collectAsState()
+
     var tab by remember { mutableStateOf(AppTab.Feed) }
     var previousTab by remember { mutableStateOf<AppTab?>(null) }
     var currentPostIndex by remember { mutableIntStateOf(0) }
-    var showingPostTimeline by remember { mutableStateOf(false) }
+    var feedTvGuideRequest by remember { mutableIntStateOf(0) }
+    var selectedProfile by remember { mutableStateOf(UserProfile()) }
     var cameraPhotoTrigger by remember { mutableIntStateOf(0) }
     var cameraRecordTrigger by remember { mutableIntStateOf(0) }
     var isAppVisible by remember { mutableStateOf(true) }
     var filtersVisible by remember { mutableStateOf(false) }
+    var isPhoneCallScreenVisible by remember { mutableStateOf(false) }
+    var isFeedTvGuideVisible by remember { mutableStateOf(false) }
+    var profileCubeCommandId by remember { mutableIntStateOf(0) }
+    var profileCubeMenuCommand by remember { mutableStateOf<ProfileCubeMenuCommand?>(null) }
+    var profileCubeCommittedIconTitle by remember { mutableStateOf<String?>(null) }
+    var profilePanelIconTitle by remember { mutableStateOf<String?>(null) }
     
     var capturedMediaUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var isCapturedVideo by remember { mutableStateOf(false) }
@@ -206,7 +228,18 @@ fun PoplurRoot(
         } catch (e: Exception) { e.printStackTrace() }
     }
 
-    val containerId = remember { android.view.View.generateViewId() }
+    val cubeMenuWheelController = remember(scope) {
+        CubeMenuWheelController(scope = scope, onTick = playPopSound)
+    }
+    val profileCubePreviewIconTitle = if (cubeMenuWheelController.isVisible) {
+        cubeMenuWheelController.selectedItem?.label
+    } else {
+        null
+    }
+    val profileCubeIconTitle = profileCubePreviewIconTitle
+        ?: profileCubeCommittedIconTitle
+        ?: profilePanelIconTitle
+        ?: "Profile"
 
     val onTabChange: (Int) -> Unit = { index ->
         val newTab = when (index) {
@@ -229,15 +262,74 @@ fun PoplurRoot(
         }
     }
 
+    val sendProfileCubeCommand: (ProfileCubeMenuAction) -> Unit = { action ->
+        profileCubeCommittedIconTitle = when (action) {
+            ProfileCubeMenuAction.Phone -> "Phone"
+            ProfileCubeMenuAction.Notifications -> "Alerts"
+            ProfileCubeMenuAction.Store -> "Store"
+        }
+        profileCubeCommandId += 1
+        profileCubeMenuCommand = ProfileCubeMenuCommand(profileCubeCommandId, action)
+    }
+
     val onLongPressCube: () -> Unit = {
         if (tab == AppTab.Feed) {
-            showingPostTimeline = true
+            feedTvGuideRequest++
         } else if (tab == AppTab.Map) {
             scope.launch {
                 mapViewModel.triggerCenterOnUser()
             }
         } else if (tab == AppTab.Camera) {
             cameraRecordTrigger++
+        } else if (tab == AppTab.Profile) {
+            profileCubeCommittedIconTitle = null
+            cubeMenuWheelController.beginHold(
+                listOf(
+                    CubeMenuWheelItem(
+                        label = "Mail",
+                        icon = Icons.Default.Email,
+                        accent = Color(0xFF4DFF58),
+                        onSelected = {
+                            previousTab = AppTab.Profile
+                            tab = AppTab.Messages
+                        }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "Settings",
+                        icon = Icons.Default.Settings,
+                        accent = Color(0xFF7076FF),
+                        onSelected = {
+                            previousTab = AppTab.Profile
+                            tab = AppTab.Settings
+                        }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "Alerts",
+                        icon = Icons.Default.Notifications,
+                        accent = Color(0xFFFF8C1A),
+                        onSelected = { sendProfileCubeCommand(ProfileCubeMenuAction.Notifications) }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "Phone",
+                        icon = Icons.Default.Phone,
+                        accent = Color(0xFF18D8E8),
+                        onSelected = { sendProfileCubeCommand(ProfileCubeMenuAction.Phone) }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "Store",
+                        icon = Icons.Default.ShoppingCart,
+                        accent = Color(0xFFFF8C1A),
+                        onSelected = { sendProfileCubeCommand(ProfileCubeMenuAction.Store) }
+                    )
+                )
+            )
+        }
+    }
+
+    val onLongPressEndCube: () -> Unit = {
+        if (tab == AppTab.Profile) {
+            profileCubeCommittedIconTitle = cubeMenuWheelController.selectedItem?.label
+            cubeMenuWheelController.endHold(activateSelected = true)
         }
     }
 
@@ -249,17 +341,54 @@ fun PoplurRoot(
 
     val currentOnVerticalSwipe by rememberUpdatedState(onVerticalSwipe)
     val currentOnLongPressCube by rememberUpdatedState(onLongPressCube)
+    val currentOnLongPressEndCube by rememberUpdatedState(onLongPressEndCube)
     val currentOnTapCube by rememberUpdatedState(onTapCube)
     val currentOnTabChange by rememberUpdatedState(onTabChange)
+
+    LaunchedEffect(tab) {
+        if (tab != AppTab.Profile) {
+            cubeMenuWheelController.endHold(activateSelected = false)
+        }
+        if (tab == AppTab.Profile && profilePanelIconTitle == null && !cubeMenuWheelController.isVisible) {
+            profileCubeCommittedIconTitle = null
+        } else if (tab != AppTab.Profile && tab != AppTab.Messages && tab != AppTab.Settings) {
+            profileCubeCommittedIconTitle = null
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().zIndex(0f)) {
             when (tab) {
-                AppTab.Feed -> FeedScreen(currentPostIndex, isVisible = isAppVisible, onIndexChange = { currentPostIndex = it; playPopSound() })
+                AppTab.Feed -> FeedScreen(
+                    currentPostIndex = currentPostIndex,
+                    isVisible = isAppVisible,
+                    tvGuideRequestToken = feedTvGuideRequest,
+                    onOpenUser = { profile ->
+                        selectedProfile = profile
+                        previousTab = tab
+                        tab = AppTab.Profile
+                    },
+                    onTvGuideVisibilityChanged = { isFeedTvGuideVisible = it },
+                    onIndexChange = { currentPostIndex = it; playPopSound() }
+                )
                 AppTab.Profile -> ProfileScreen(
+                    profile = selectedProfile,
                     authViewModel = authViewModel,
-                    onOpenSettings = { tab = AppTab.Settings },
-                    onOpenMessages = { tab = AppTab.Messages }
+                    onOpenSettings = {
+                        profileCubeCommittedIconTitle = "Settings"
+                        previousTab = AppTab.Profile
+                        tab = AppTab.Settings
+                    },
+                    onOpenMessages = {
+                        profileCubeCommittedIconTitle = "Mail"
+                        previousTab = AppTab.Profile
+                        tab = AppTab.Messages
+                    },
+                    cubeMenuCommand = profileCubeMenuCommand,
+                    onProfilePanelIconChanged = { iconTitle ->
+                        profilePanelIconTitle = iconTitle
+                        profileCubeCommittedIconTitle = iconTitle
+                    }
                 )
                 AppTab.Map -> MapScreen(isVisible = isAppVisible, mapViewModel = mapViewModel)
                 AppTab.Camera -> CameraScreen(
@@ -290,82 +419,120 @@ fun PoplurRoot(
                     }
                 }
                 AppTab.Home -> HomeScreen(onOpenCamera = { tab = AppTab.Camera }, onOpenMap = { tab = AppTab.Map })
-                AppTab.Messages -> MessagesScreen(onBack = { tab = previousTab ?: AppTab.Feed })
-                AppTab.Settings -> SettingsScreen(onBack = { tab = AppTab.Profile }, onSignOut = { authViewModel.signOut() }, onOpenCubeDebug = { tab = AppTab.CubeDebug })
+                AppTab.Messages -> DMScreen(
+                    onBack = {
+                        val destination = previousTab ?: AppTab.Feed
+                        tab = destination
+                        if (destination == AppTab.Profile) {
+                            profileCubeCommittedIconTitle = null
+                            profilePanelIconTitle = null
+                        }
+                    },
+                    onPhoneCallVisibilityChanged = { isPhoneCallScreenVisible = it }
+                )
+                AppTab.Settings -> SettingsScreen(
+                    onBack = {
+                        tab = previousTab ?: AppTab.Profile
+                        if (tab == AppTab.Profile) {
+                            profileCubeCommittedIconTitle = null
+                            profilePanelIconTitle = null
+                        }
+                    },
+                    onSignOut = { authViewModel.signOut() },
+                    onOpenCubeDebug = { tab = AppTab.CubeDebug }
+                )
                 AppTab.CubeDebug -> CubeDevelopmentScreen(onBack = { tab = AppTab.Settings })
             }
         }
 
-        if (tab == AppTab.Feed && !showingPostTimeline) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(9f)
-                    .rootFeedSwipeDetector(currentPostIndex) { nextIndex ->
-                        currentPostIndex = nextIndex
-                        playPopSound()
-                    }
-            )
-        }
+        CubeMenuWheelOverlay(
+            controller = cubeMenuWheelController,
+            modifier = Modifier.zIndex(6100f)
+        )
 
         // Keep the navigation cube fragment alive across screens. Destroying/recreating the
         // embedded LibGDX fragment can terminate the process on some devices.
-        val isCubeVisible = tab != AppTab.Settings && tab != AppTab.CubeDebug && tab != AppTab.CapturedOutput && !filtersVisible
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(10f),
-            contentAlignment = Alignment.BottomCenter
-        ) {
-            AndroidView(
-                factory = { ctx ->
-                    FragmentContainerView(ctx).apply {
-                        id = containerId
-                        setBackgroundColor(0)
-                        background = null
-                        val activity = ctx as? FragmentActivity
-                        activity?.supportFragmentManager?.beginTransaction()
-                            ?.replace(
-                                id, GdxNavigationFragment(CUBE_FEED_INDEX,
-                                    { isUp -> currentOnVerticalSwipe(isUp) },
-                                    { currentOnLongPressCube() },
-                                    { currentOnTapCube() },
-                                    { index -> currentOnTabChange(index) })
-                            )
-                            ?.commit()
-                    }
-                },
-                modifier = Modifier
-                    .padding(bottom = CUBE_BOTTOM_OFFSET)
-                    .offset(y = if (isCubeVisible) 0.dp else CUBE_CONTAINER_SIZE + CUBE_BOTTOM_OFFSET + 80.dp)
-                    .size(CUBE_CONTAINER_SIZE),
-                update = { view ->
-                    view.visibility = android.view.View.VISIBLE
-                    view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                    view.background = null
-                }
-            )
-        }
+        PersistentCubeOverlay(
+            profileCubeIconTitle = profileCubeIconTitle,
+            onVerticalSwipe = { isUp -> currentOnVerticalSwipe(isUp) },
+            onLongPress = { currentOnLongPressCube() },
+            onLongPressEnd = { currentOnLongPressEndCube() },
+            onTap = { currentOnTapCube() },
+            onTabSelected = { index -> currentOnTabChange(index) }
+        )
 
-        if (showingPostTimeline) {
-            PostTimelineOverlay(
-                posts = DemoPostStore.posts.take(24),
-                onDismiss = { showingPostTimeline = false },
-                onPostToMap = { post ->
-                    val lat = post.latitude
-                    val lng = post.longitude
-                    if (lat != null && lng != null) {
-                        showingPostTimeline = false
-                        tab = AppTab.Map
-                        scope.launch {
-                            mapViewModel.triggerPostCoordinate(Point.fromLngLat(lng, lat))
-                        }
-                    }
-                }
+        // ── Incoming call overlay (sits above everything) ─────────────────
+        val incoming = callState as? CallSessionManager.CallState.Incoming
+        if (incoming != null) {
+            IncomingCallScreen(
+                callerName = incoming.callerName,
+                channelId = incoming.channelId,
+                documentId = incoming.documentId,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(200f)
             )
         }
+        // ─────────────────────────────────────────────────────────────────
 
         volumeOverlay()
+    }
+}
+
+@Composable
+private fun PersistentCubeOverlay(
+    modifier: Modifier = Modifier,
+    profileCubeIconTitle: String = "Profile",
+    onVerticalSwipe: (Boolean) -> Unit = {},
+    onLongPress: () -> Unit = {},
+    onLongPressEnd: () -> Unit = {},
+    onTap: () -> Unit = {},
+    onTabSelected: (Int) -> Unit = {}
+) {
+    val containerId = remember { android.view.View.generateViewId() }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .zIndex(6000f),
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                FragmentContainerView(ctx).apply {
+                    id = containerId
+                    setBackgroundColor(0)
+                    background = null
+                    val activity = ctx as? FragmentActivity
+                    activity?.supportFragmentManager?.beginTransaction()
+                        ?.replace(
+                            id,
+                            GdxNavigationFragment(
+                                initialTabIndex = CUBE_FEED_INDEX,
+                                onVerticalSwipe = onVerticalSwipe,
+                                onLongPress = onLongPress,
+                                onLongPressEnd = onLongPressEnd,
+                                onTap = onTap,
+                                onTabSelected = onTabSelected
+                            ).apply {
+                                setProfileIconTitle(profileCubeIconTitle)
+                            }
+                        )
+                        ?.commit()
+                }
+            },
+            modifier = Modifier
+                .padding(bottom = CUBE_BOTTOM_OFFSET)
+                .size(CUBE_CONTAINER_SIZE),
+            update = { view ->
+                view.visibility = android.view.View.VISIBLE
+                view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                view.background = null
+                val activity = view.context as? FragmentActivity
+                (activity?.supportFragmentManager?.findFragmentById(containerId) as? GdxNavigationFragment)
+                    ?.setProfileIconTitle(profileCubeIconTitle)
+            }
+        )
     }
 }
 
@@ -403,93 +570,4 @@ private fun readDeviceMusicVolumeFraction(context: Context): Float {
     val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
     val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
     return (currentVolume.toFloat() / maxVolume.toFloat()).coerceIn(0f, 1f)
-}
-
-private fun Post.initial(): String = displayName.firstOrNull()?.uppercaseChar()?.toString() ?: username.firstOrNull()?.uppercaseChar()?.toString() ?: "P"
-
-@Composable
-fun PostTimelineOverlay(
-    posts: List<Post>,
-    onDismiss: () -> Unit,
-    onPostToMap: (Post) -> Unit
-) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.86f))
-            .clickable(onClick = onDismiss)
-            .zIndex(100f)
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.82f)
-                .align(Alignment.BottomCenter)
-                .clickable(onClick = {}),
-            color = Color.Black,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            tonalElevation = 0.dp
-        ) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 18.dp, vertical = 14.dp)
-            ) {
-                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                    Column {
-                        Text("Posts", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black)
-                        Text("Choose a coordinate for the map", color = Color.White.copy(alpha = 0.55f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                    TextButton(onClick = onDismiss) { Text("Close", color = Color.White, fontWeight = FontWeight.Bold) }
-                }
-                Spacer(Modifier.height(8.dp))
-                LazyColumn(Modifier.fillMaxSize()) {
-                    items(posts, key = { it.id }) { post ->
-                        PostTimelineRow(post = post, onPostToMap = { onPostToMap(post) })
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PostTimelineRow(post: Post, onPostToMap: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 14.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Surface(modifier = Modifier.size(48.dp), shape = CircleShape, color = Color(0xFF7C6CFF)) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(post.initial(), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
-            }
-        }
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(post.displayName, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black)
-                Spacer(Modifier.width(6.dp))
-                Text("@${post.username}", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
-            Text(post.caption, color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold, lineHeight = 24.sp)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "${post.locationName}  ${"%.4f".format(post.latitude ?: 0.0)} N, ${"%.4f".format(post.longitude ?: 0.0)} E",
-                color = Color.White.copy(alpha = 0.55f),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        Button(
-            onClick = onPostToMap,
-            enabled = post.latitude != null && post.longitude != null,
-            shape = RoundedCornerShape(18.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
-        ) {
-            Text("Post", fontWeight = FontWeight.Black)
-        }
-    }
 }

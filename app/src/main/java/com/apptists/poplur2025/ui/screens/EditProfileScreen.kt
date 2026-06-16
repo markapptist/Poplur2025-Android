@@ -2,10 +2,7 @@ package com.apptists.poplur2025.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,32 +31,13 @@ fun EditProfileScreen(
             .background(Color(0xFFF9F9F9))
             .statusBarsPadding()
     ) {
-        // Header
         Row(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                modifier = Modifier
-                    .size(48.dp)
-                    .shadow(4.dp, CircleShape),
-                shape = CircleShape,
-                color = Color.White,
-                onClick = onDismiss
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Close",
-                        modifier = Modifier.size(24.dp),
-                        tint = Color.Black
-                    )
-                }
-            }
-
             TextButton(
                 onClick = {
                     onSave(profile.copy(displayName = displayName, username = username, bio = bio), null)

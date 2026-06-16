@@ -91,7 +91,8 @@ object DemoPostStore {
 object FakeChatStore {
     val threads = listOf(
         ConversationThread("t1", "Mia", "Let’s post at the food market", listOf(ChatUser("u2", "Mia"))),
-        ConversationThread("t2", "Jay", "The map animation is ready", listOf(ChatUser("u3", "Jay")))
+        ConversationThread("t2", "Jay", "The map animation is ready", listOf(ChatUser("u3", "Jay"))),
+        ConversationThread("t3", "Alex Johnson", "Reply to keep the conversation going", listOf(ChatUser("u4", "Alex Johnson")))
     )
 }
 

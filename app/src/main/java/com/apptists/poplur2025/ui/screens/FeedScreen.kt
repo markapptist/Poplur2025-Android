@@ -1,10 +1,14 @@
 package com.apptists.poplur2025.ui.screens
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Matrix
 import android.graphics.Typeface
 import android.graphics.Color as AndroidColor
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.Drawable
 import android.media.MediaPlayer
 import android.text.TextUtils
 import android.view.Gravity
@@ -21,12 +25,19 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -34,9 +45,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Error
@@ -47,12 +61,15 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import coil.compose.AsyncImage
 import com.apptists.poplur2025.data.DemoPostStore
+
 import com.apptists.poplur2025.data.Post
+import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.UserInfoOverlay
@@ -61,17 +78,50 @@ import com.google.android.gms.ads.nativead.NativeAd
 import com.google.android.gms.ads.nativead.NativeAdView
 import kotlinx.coroutines.delay
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 @Composable
 fun FeedScreen(
     currentPostIndex: Int,
     isVisible: Boolean = true,
+    tvGuideRequestToken: Int = 0,
+    timelineToggleRequestToken: Int = 0,
+    onOpenUser: (UserProfile) -> Unit = {},
+    onTvGuideVisibilityChanged: (Boolean) -> Unit = {},
     onIndexChange: (Int) -> Unit
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current.density
     val isInspectionMode = LocalInspectionMode.current
     val currentSlot = remember(currentPostIndex) { resolveFeedSlot(currentPostIndex) }
+    val guideChannels = remember { buildFeedTvGuideChannels() }
+    var showTimelineView by remember { mutableStateOf(false) }
+    var showTvGuide by remember { mutableStateOf(false) }
     var showFeedLogo by remember { mutableStateOf(true) }
+    var selectedGuideChannelId by remember { mutableStateOf("feed") }
+    val feedRotationY by animateFloatAsState(
+        targetValue = if (showTimelineView) 180f else 0f,
+        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+        label = "feedFlipRotation"
+    )
+    val showingTimelineSide = feedRotationY > 90f
+
+    LaunchedEffect(tvGuideRequestToken) {
+        if (tvGuideRequestToken > 0) showTvGuide = true
+    }
+
+    LaunchedEffect(timelineToggleRequestToken) {
+        if (timelineToggleRequestToken > 0) showTimelineView = !showTimelineView
+    }
+
+    LaunchedEffect(showTvGuide) {
+        onTvGuideVisibilityChanged(showTvGuide)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { onTvGuideVisibilityChanged(false) }
+    }
     
     val logoBitmap = remember {
         runCatching {
@@ -113,6 +163,15 @@ fun FeedScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    cameraDistance = 16f * density
+                    rotationY = if (showingTimelineSide) 90f else feedRotationY
+                    alpha = if (showingTimelineSide) 0f else 1f
+                }
+        ) {
         // 1. Background Content (TV Flip Effect)
         AnimatedContent(
             targetState = currentSlot,
@@ -152,11 +211,17 @@ fun FeedScreen(
             when (slot) {
                 is FeedSlot.PostSlot -> UserInfoOverlay(
                     displayName = slot.post.displayName,
-                    location = slot.post.locationName
+                    location = slot.post.locationName,
+                    channelNumber = slot.channelNumber,
+                    channelEmoji = slot.channelEmoji,
+                    channelCategory = slot.channelCategory
                 )
                 is FeedSlot.AdSlot -> UserInfoOverlay(
                     displayName = "Sponsored",
-                    location = "Nearby"
+                    location = "Nearby",
+                    channelNumber = 100,
+                    channelEmoji = "📢",
+                    channelCategory = "Ad"
                 )
             }
         }
@@ -234,9 +299,47 @@ fun FeedScreen(
             modifier = Modifier
                 .matchParentSize()
                 .zIndex(80f)
+                .feedDoubleTapDetector { showTimelineView = !showTimelineView }
                 .feedSwipeDetector(currentPostIndex, onIndexChange)
         )
+        }
+
+        if (showingTimelineSide) {
+            PoplurNewspaper(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        cameraDistance = 16f * density
+                        rotationY = feedRotationY - 180f
+                    }
+                    .zIndex(60f),
+                onDoubleTap = { showTimelineView = false }
+            )
+        }
+
+        if (showTvGuide) {
+            val currentPostName = when (val slot = currentSlot) {
+                is FeedSlot.PostSlot -> slot.post.displayName
+                is FeedSlot.AdSlot -> "Sponsored"
+            }
+            FeedTvGuideOverlay(
+                channels = guideChannels,
+                currentChannelId = selectedGuideChannelId,
+                currentPostName = currentPostName,
+                onChannelSelected = { channel ->
+                    selectedGuideChannelId = channel.id
+                    onIndexChange(channel.index)
+                    showTvGuide = false
+                }
+            )
+        }
     }
+}
+
+private fun Modifier.feedDoubleTapDetector(
+    onDoubleTap: () -> Unit
+): Modifier = pointerInput(Unit) {
+    detectTapGestures(onDoubleTap = { onDoubleTap() })
 }
 
 private fun Modifier.feedSwipeDetector(
@@ -263,14 +366,738 @@ private fun Modifier.feedSwipeDetector(
     )
 }
 
+private data class FeedTvGuideChannel(
+    val id: String,
+    val index: Int,
+    val number: Int,
+    val emoji: String,
+    val category: String,
+    val profile: UserProfile,
+    val program: String
+)
+
+private fun buildFeedTvGuideChannels(): List<FeedTvGuideChannel> {
+    val categories = listOf(
+        "🍔" to "Food",
+        "🎮" to "Gaming",
+        "🎵" to "Music",
+        "🏙️" to "City",
+        "💄" to "Style",
+        "⚽" to "Sports",
+        "🎬" to "Film",
+        "🛍️" to "Shopping"
+    )
+    val uniquePosts = DemoPostStore.posts
+        .filter { it.userId.isNotBlank() && it.userId != "ad_partner" }
+        .distinctBy { it.userId }
+        .take(categories.size)
+
+    return uniquePosts.mapIndexed { index, post ->
+        val (emoji, category) = categories[index % categories.size]
+        FeedTvGuideChannel(
+            id = "channel_${post.userId.ifBlank { index.toString() }}",
+            index = index,
+            number = 101 + index,
+            emoji = emoji,
+            category = category,
+            profile = UserProfile(
+                id = post.userId,
+                username = post.username,
+                displayName = post.displayName,
+                bio = post.caption,
+                radius = post.radius,
+                posts = post.userPostsCount
+            ),
+            program = post.locationName.ifBlank { post.caption }
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARK: Poplur Newspaper
+// ─────────────────────────────────────────────────────────────────────────────
+
+private data class NpMapEvent(
+    val city: String, val flag: String,
+    val headline: String, val detail: String,
+    val userCount: Int, val timeAgo: String
+)
+
+private data class NpTrending(
+    val city: String, val flag: String,
+    val headline: String, val detail: String,
+    val growthPercent: Int, val activeUsers: Int, val timeAgo: String
+)
+
+private data class NpDominance(
+    val username: String,
+    val city: String, val flag: String,
+    val headline: String, val detail: String,
+    val radiusText: String, val score: Int, val timeAgo: String
+)
+
+private data class NpUserPost(
+    val username: String,
+    val city: String, val flag: String,
+    val headline: String, val detail: String,
+    val likes: Int, val comments: Int, val timeAgo: String
+)
+
+private sealed class NpArticle {
+    data class MapEvent(val d: NpMapEvent)   : NpArticle()
+    data class Trending(val d: NpTrending)   : NpArticle()
+    data class Dominance(val d: NpDominance) : NpArticle()
+    data class UserPost(val d: NpUserPost)   : NpArticle()
+}
+
+@Composable
+private fun PoplurNewspaper(
+    modifier: Modifier = Modifier,
+    onDoubleTap: () -> Unit
+) {
+    val articles = remember { NewspaperContentGen.generate(24) }
+    val today = remember {
+        java.text.SimpleDateFormat("MMMM d, yyyy", java.util.Locale.US).format(java.util.Date())
+    }
+
+    Box(
+        modifier = modifier
+            .background(Color.Black)
+            .feedDoubleTapDetector(onDoubleTap)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
+        LazyColumn(contentPadding = PaddingValues(bottom = 140.dp)) {
+            item { NewspaperMasthead(date = today) }
+            items(articles.size) { index ->
+                NewspaperCard(article = articles[index], edition = index + 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NewspaperMasthead(date: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .padding(top = 20.dp, bottom = 2.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text("POPLUR", color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.Black)
+            Text(" DAILY", color = Color(0xFFFFD91A), fontSize = 38.sp, fontWeight = FontWeight.ExtraLight)
+            Spacer(Modifier.weight(1f))
+            Text(date, color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp)
+        }
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider(color = Color.White.copy(alpha = 0.85f), thickness = 2.dp)
+        Spacer(Modifier.height(3.dp))
+        HorizontalDivider(color = Color.White.copy(alpha = 0.18f), thickness = 1.dp)
+        Spacer(Modifier.height(6.dp))
+    }
+}
+
+@Composable
+private fun NewspaperCard(article: NpArticle, edition: Int) {
+    val chipBg: Color
+    val chipFg: Color
+    val chipLabel: String
+    val flag: String
+    val city: String
+    val timeAgo: String
+    val headline: String
+    val detail: String
+    val stat1: String
+    val stat2: String
+    var extraRow: (@Composable () -> Unit)? = null
+
+    when (article) {
+        is NpArticle.MapEvent -> {
+            chipBg = Color(0xFFFFD91A); chipFg = Color.Black; chipLabel = "MAP EVENT"
+            flag = article.d.flag; city = article.d.city; timeAgo = article.d.timeAgo
+            headline = article.d.headline; detail = article.d.detail
+            stat1 = "👥 ${npCount(article.d.userCount)} users nearby"
+            stat2 = "📍 Live tracking"
+        }
+        is NpArticle.Trending -> {
+            chipBg = Color(0xFF2EE880); chipFg = Color.Black; chipLabel = "TRENDING"
+            flag = article.d.flag; city = article.d.city; timeAgo = article.d.timeAgo
+            headline = article.d.headline; detail = article.d.detail
+            stat1 = "📈 +${article.d.growthPercent}% engagement"
+            stat2 = "🟢 ${npCount(article.d.activeUsers)} active"
+        }
+        is NpArticle.Dominance -> {
+            chipBg = Color(0xFFD91818); chipFg = Color.White; chipLabel = "DOMINANCE"
+            flag = article.d.flag; city = article.d.city; timeAgo = article.d.timeAgo
+            headline = article.d.headline; detail = article.d.detail
+            stat1 = "🎯 ${article.d.radiusText} radius"
+            stat2 = "⭐ ${npCount(article.d.score)} score"
+            extraRow = {
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("👑", fontSize = 24.sp)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "@${article.d.username}",
+                        color = Color(0xFFFFD91A),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+        is NpArticle.UserPost -> {
+            chipBg = Color.White; chipFg = Color.Black; chipLabel = "USER POST"
+            flag = article.d.flag; city = article.d.city; timeAgo = article.d.timeAgo
+            headline = article.d.headline; detail = article.d.detail
+            stat1 = "❤️ ${npCount(article.d.likes)} likes"
+            stat2 = "💬 ${article.d.comments} comments"
+            extraRow = {
+                Text(
+                    "@${article.d.username}",
+                    color = Color.White.copy(alpha = 0.65f),
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 5.dp)
+            .background(Color(0xFF0D0D0D), RoundedCornerShape(12.dp))
+            .padding(vertical = 16.dp)
+    ) {
+        // Category + location row
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                chipLabel,
+                color = chipFg, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                letterSpacing = 0.4.sp,
+                modifier = Modifier
+                    .background(chipBg, RoundedCornerShape(50))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("$flag $city", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, maxLines = 1)
+            Spacer(Modifier.weight(1f))
+            Text(timeAgo, color = Color.White.copy(alpha = 0.32f), fontSize = 11.sp)
+        }
+
+        // Optional extra row (crown+username, or @username)
+        extraRow?.invoke()
+
+        // Headline
+        Text(
+            headline,
+            color = Color.White,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Black,
+            lineHeight = 30.sp,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+        )
+
+        // Separator
+        HorizontalDivider(
+            color = Color.White.copy(alpha = 0.09f),
+            thickness = 1.dp,
+            modifier = Modifier.padding(horizontal = 20.dp)
+        )
+
+        // Detail body
+        Text(
+            detail,
+            color = Color.White.copy(alpha = 0.65f),
+            fontSize = 15.sp,
+            lineHeight = 21.sp,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+        )
+
+        // Stats
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(stat1, color = Color.White.copy(alpha = 0.38f), fontSize = 12.sp, maxLines = 1)
+            Text(stat2, color = Color.White.copy(alpha = 0.38f), fontSize = 12.sp, maxLines = 1)
+        }
+    }
+}
+
+private fun npCount(n: Int): String = when {
+    n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
+    n >= 1_000     -> "%.1fK".format(n / 1_000.0)
+    else           -> "$n"
+}
+
+private object NewspaperContentGen {
+
+    private val cities = listOf(
+        "Tokyo" to "🇯🇵", "London" to "🇬🇧", "New York" to "🇺🇸",
+        "Paris" to "🇫🇷", "Sydney" to "🇦🇺", "Toronto" to "🇨🇦",
+        "Dubai" to "🇦🇪", "Singapore" to "🇸🇬", "Berlin" to "🇩🇪",
+        "Barcelona" to "🇪🇸", "Seoul" to "🇰🇷", "São Paulo" to "🇧🇷",
+        "Mumbai" to "🇮🇳", "Bangkok" to "🇹🇭", "Istanbul" to "🇹🇷",
+        "Lagos" to "🇳🇬", "Cairo" to "🇪🇬", "Mexico City" to "🇲🇽",
+        "Jakarta" to "🇮🇩", "Chicago" to "🇺🇸"
+    )
+
+    private val mapHeadlines = listOf(
+        "Viral Surge Detected Near Central District" to
+            "Poplur AI flagged an unusual spike in post activity within a 2 km radius. Over 3,200 users captured content here in the last 90 minutes — a 580% jump above baseline.",
+        "Flash Crowd Emerges at the Waterfront" to
+            "Thermal activity on the Poplur map suggests a spontaneous gathering near the harbor. Real-time post velocity has tripled since 11:40 PM.",
+        "Stadium Energy Spikes — Major Event Underway" to
+            "AI analysis of geotagged post density confirms a live event. Post likes are averaging 4.2× higher than non-event content.",
+        "Urban Exploration Trend Sweeps the Old Quarter" to
+            "A coordinated wave of Poplur users is documenting the historic district. AI identified a 'discovery cluster' — 14 unique rooftops tagged in under 3 hours.",
+        "Unofficial Street Festival — Not on Any Calendar" to
+            "Post clusters and density heatmaps point to a music gathering near the market district. Poplur AI classifies this as an 'organic event emergence.'",
+        "Dawn Patrol Runners Form Largest Fitness Cluster of the Week" to
+            "Riverside park runners generated the highest fitness post density this week. AI estimates 800+ active users within a 500 m corridor at first light.",
+        "Night Market Buzz at Seasonal Record" to
+            "Poplur's AI tracked a 12-hour buildup of food and shopping posts. Engagement on night market content is 2.9× the platform average."
+    )
+
+    private data class TrendTemplate(
+        val headline: String, val detail: String, val growth: Int, val active: Int
+    )
+    private val trendHeadlines = listOf(
+        TrendTemplate("Post Volume Triples — City Breaks into Global Top 10",
+            "An unprecedented wave of content creation catapulted this city into Poplur's weekly global leaderboard. AI attributes the surge to weather, a cultural moment, and influencer activity.", 312, 14_200),
+        TrendTemplate("City's Engagement Rate Hits All-Time Platform Record",
+            "Average post likes-per-view surpassed every prior benchmark on Poplur. AI identifies rising creators in food, street art, and fitness as key drivers.", 287, 9_800),
+        TrendTemplate("Overnight Viral Moment Puts City on the Global Map",
+            "A single video generated 2.1M views in 8 hours, triggering a cascade of follow-on posts. Poplur AI classifies this as a 'viral echo event.'", 445, 22_500),
+        TrendTemplate("Longest-Running Trend This Year — Day 4 Continues",
+            "This city has maintained trending status for four consecutive days — the longest streak in 2024. Sustained content quality and high radius posts keep momentum going.", 198, 7_400),
+        TrendTemplate("New Creator Cohort Drives 8× Weekend Engagement Spike",
+            "Poplur AI detected an emerging cluster of high-quality creators in this metro who collectively drove an 8× spike in city-level engagement over one weekend.", 792, 31_000)
+    )
+
+    private val domHeadlines = listOf(
+        "Claims Full Control of Metro District After 72-Hour Push" to
+            "Through sustained high-radius posts and aggressive engagement, this user has locked down the metro zone. Challengers within 10 km have been pushed off the leaderboard.",
+        "Breaks City Record — Largest Radius Ever Logged in Region" to
+            "A single post blanketed the entire metropolitan area, outranking 340 competing accounts. Poplur AI flagged this as a historic radius achievement.",
+        "Retains Crown for Third Consecutive Week" to
+            "Despite heavy competition, this user defended their dominant position for three weeks running. AI analysis cites content consistency as the primary factor.",
+        "Tactical Late-Night Push Flips the City Leaderboard" to
+            "In a calculated off-peak move at 2:47 AM, high-quality posts flipped the entire city ranking. AI ranked this as one of the top-10 most strategic dominance moves this year.",
+        "From Zero to City Champion in Just 11 Days" to
+            "This account went from newcomer to city champion in a record 11 days. Rapid follower growth, viral content, and precision radius targeting are the winning formula."
+    )
+
+    private val postHeadlines = listOf(
+        "Captured Something the City Hasn't Seen Before" to
+            "This post's unique angle generated immediate traction. Poplur AI flagged it as 'discovery content' — documenting a moment with genuine novelty value.",
+        "A Moment the Algorithm Loved" to
+            "High engagement velocity, strong radius, and early reshare activity pushed this post into the trending queue within minutes of upload.",
+        "Local Insight. Global Reach." to
+            "What started as a personal moment quickly resonated far beyond this creator's immediate circle. The post's radius has expanded three times since publication.",
+        "Raw. Unfiltered. Trending." to
+            "No filters, no production budget — just authentic street-level content that the Poplur community responded to immediately.",
+        "This Post Is Why Poplur Exists" to
+            "A perfectly timed, genuinely local moment — exactly the kind of content that defines what Poplur was built for."
+    )
+
+    private val domNames = listOf(
+        "xX_King_Xx", "CityQueen_Riri", "BlazeRunner", "NightOwl_Kai",
+        "UrbanHawk", "NovaStar_Lena", "GridLock_Ty", "SkyWatcher_J",
+        "PoplurElite99", "StreetKing_Mav", "TowerVault_Em", "CityPulse_Zara"
+    )
+
+    private val times       = listOf("2m", "5m", "11m", "18m", "27m", "43m", "1h", "2h", "3h", "5h", "8h", "12h")
+    private val radii       = listOf("500m", "2km", "5km", "12km", "28km", "50km", "100km", "500km")
+    private val scores      = listOf(1_200, 3_400, 7_800, 15_000, 42_000, 88_000, 210_000, 550_000)
+    private val userCounts  = listOf(820, 1_240, 2_100, 3_400, 560, 4_800, 720, 9_300)
+    private val fakeLikes   = listOf(88, 234, 1_200, 340, 56, 3_100, 780)
+    private val fakeComms   = listOf(12, 34, 88, 210, 7, 400, 55)
+    private val fakeHandles = listOf("MavericK", "SkylineJ", "UrbanLens", "NovaBeat")
+
+    fun generate(count: Int): List<NpArticle> = (0 until count).map { gi ->
+        val (cityName, cityFlag) = cities[(gi * 7 + gi * 3) % cities.size]
+        val timeAgo = times[gi % times.size] + " ago"
+        when (gi % 20) {
+            in 0..5 -> {
+                val (h, d) = mapHeadlines[gi % mapHeadlines.size]
+                NpArticle.MapEvent(NpMapEvent(cityName, cityFlag, h, d, userCounts[gi % userCounts.size], timeAgo))
+            }
+            in 6..10 -> {
+                val t = trendHeadlines[gi % trendHeadlines.size]
+                NpArticle.Trending(NpTrending(cityName, cityFlag, t.headline, t.detail, t.growth, t.active, timeAgo))
+            }
+            in 11..15 -> {
+                val (h, d) = domHeadlines[gi % domHeadlines.size]
+                NpArticle.Dominance(NpDominance(domNames[gi % domNames.size], cityName, cityFlag, h, d,
+                    radii[gi % radii.size], scores[gi % scores.size], timeAgo))
+            }
+            else -> {
+                val (h, d) = postHeadlines[gi % postHeadlines.size]
+                NpArticle.UserPost(NpUserPost(fakeHandles[gi % fakeHandles.size], cityName, cityFlag, h, d,
+                    fakeLikes[gi % fakeLikes.size], fakeComms[gi % fakeComms.size], timeAgo))
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeedTvGuideOverlay(
+    channels: List<FeedTvGuideChannel>,
+    currentChannelId: String,
+    currentPostName: String,
+    onChannelSelected: (FeedTvGuideChannel) -> Unit
+) {
+    val guideGreen = Color(0xFF4EFF40)
+    var isTabletMenuOpen by remember { mutableStateOf(true) }
+    val selectedChannel = channels.firstOrNull { it.id == currentChannelId } ?: channels.firstOrNull()
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(120f)
+            .background(Color.Black.copy(alpha = 0.78f))
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
+        val isTablet = maxWidth >= 700.dp
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.08f))
+        ) {
+            FeedTvGuideHeader(
+                isTablet = isTablet,
+                isRailOpen = isTabletMenuOpen,
+                guideGreen = guideGreen,
+                onToggleRail = { isTabletMenuOpen = !isTabletMenuOpen }
+            )
+
+            if (isTablet) {
+                Row(Modifier.fillMaxSize()) {
+                    if (isTabletMenuOpen) {
+                        FeedTvGuideRail(
+                            channels = channels,
+                            currentChannelId = currentChannelId,
+                            guideGreen = guideGreen,
+                            onChannelSelected = onChannelSelected,
+                            modifier = Modifier.width(220.dp)
+                        )
+                    }
+                    FeedTvGuideList(
+                        channels = channels,
+                        currentChannelId = currentChannelId,
+                        guideGreen = guideGreen,
+                        onChannelSelected = onChannelSelected,
+                        modifier = Modifier.weight(1f)
+                    )
+                    selectedChannel?.let { channel ->
+                        GuidePipPane(
+                            channel = channel,
+                            currentPostName = currentPostName,
+                            guideGreen = guideGreen,
+                            modifier = Modifier
+                                .width(320.dp)
+                                .padding(horizontal = 18.dp, vertical = 18.dp)
+                        )
+                    }
+                }
+            } else {
+                selectedChannel?.let { channel ->
+                    GuidePipPane(
+                        channel = channel,
+                        currentPostName = currentPostName,
+                        guideGreen = guideGreen,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(138.dp)
+                            .padding(horizontal = 18.dp)
+                            .padding(top = 14.dp)
+                    )
+                }
+                FeedTvGuideList(
+                    channels = channels,
+                    currentChannelId = currentChannelId,
+                    guideGreen = guideGreen,
+                    onChannelSelected = onChannelSelected,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeedTvGuideHeader(
+    isTablet: Boolean,
+    isRailOpen: Boolean,
+    guideGreen: Color,
+    onToggleRail: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.Black.copy(alpha = 0.86f))
+            .padding(horizontal = if (isTablet) 24.dp else 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (isTablet) {
+            Text(
+                text = if (isRailOpen) "☰" else "☷",
+                color = Color.White,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Black,
+                modifier = Modifier
+                    .width(44.dp)
+                    .clickable(onClick = onToggleRail)
+            )
+        }
+        Column {
+            Text("TV GUIDE", color = Color.White, fontSize = if (isTablet) 34.sp else 28.sp, fontWeight = FontWeight.Black)
+            Text("LIVE CHANNELS", color = guideGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
+        }
+    }
+}
+
+@Composable
+private fun FeedTvGuideRail(
+    channels: List<FeedTvGuideChannel>,
+    currentChannelId: String,
+    guideGreen: Color,
+    onChannelSelected: (FeedTvGuideChannel) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .background(Color.Black.copy(alpha = 0.46f))
+            .padding(top = 10.dp)
+    ) {
+        channels.forEach { channel ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .background(if (channel.id == currentChannelId) guideGreen.copy(alpha = 0.16f) else Color.Transparent)
+                    .clickable { onChannelSelected(channel) }
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(channel.emoji, fontSize = 22.sp)
+                Spacer(Modifier.width(10.dp))
+                Text(channel.number.toString(), color = guideGreen, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    channel.category.uppercase(),
+                    color = Color.White.copy(alpha = if (channel.id == currentChannelId) 1f else 0.62f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeedTvGuideList(
+    channels: List<FeedTvGuideChannel>,
+    currentChannelId: String,
+    guideGreen: Color,
+    onChannelSelected: (FeedTvGuideChannel) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.background(Color.Black.copy(alpha = 0.36f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.White.copy(alpha = 0.07f))
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        ) {
+            Text("CH", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(96.dp))
+            Text("CATEGORY", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(134.dp))
+            Text("ON NOW", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+        }
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+            contentPadding = PaddingValues(bottom = 20.dp)
+        ) {
+            items(channels) { channel ->
+                FeedTvGuideRow(
+                    channel = channel,
+                    isSelected = channel.id == currentChannelId,
+                    guideGreen = guideGreen,
+                    onChannelSelected = { onChannelSelected(channel) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeedTvGuideRow(
+    channel: FeedTvGuideChannel,
+    isSelected: Boolean,
+    guideGreen: Color,
+    onChannelSelected: () -> Unit
+) {
+    val rowColor = when {
+        isSelected -> Color(0xFF172917)
+        channel.number % 2 == 0 -> Color(0xFF121316)
+        else -> Color(0xFF0B0D0F)
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(78.dp)
+            .background(rowColor)
+            .clickable(onClick = onChannelSelected)
+            .padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(modifier = Modifier.width(96.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(channel.emoji, fontSize = 26.sp)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = channel.number.toString(),
+                color = guideGreen,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Black
+            )
+        }
+        Text(
+            text = channel.category.uppercase(),
+            color = Color.White.copy(alpha = 0.86f),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.width(134.dp)
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = channel.profile.displayName,
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = channel.program,
+                color = Color.White.copy(alpha = 0.58f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "LIVE",
+            color = Color.Black,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(guideGreen)
+                .padding(horizontal = 7.dp, vertical = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun GuidePipPane(
+    channel: FeedTvGuideChannel,
+    currentPostName: String,
+    guideGreen: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Black.copy(alpha = 0.28f))
+                .border(2.dp, guideGreen.copy(alpha = 0.72f), RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.BottomStart
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(channel.emoji, fontSize = 18.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("CH ${channel.number}", color = guideGreen, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                }
+                Text(
+                    currentPostName.ifBlank { channel.profile.displayName },
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    channel.category.uppercase(),
+                    color = Color.White.copy(alpha = 0.68f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+        Text(
+            "LIVE AUDIO",
+            color = Color.Black,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(guideGreen)
+                .padding(horizontal = 9.dp, vertical = 5.dp)
+        )
+    }
+}
+
 private const val AD_FREQUENCY = 6
 private const val FEED_NATIVE_AD_UNIT_ID = "ca-app-pub-3940256099942544/2247696110"
 private const val ENABLE_FEED_VIDEO_AUTOPLAY = true
 private const val FEED_VIDEO_FIRST_FRAME_TIMEOUT_MS = 6_500L
 
 
+private data class FeedChannel(val number: Int, val emoji: String, val category: String)
+
+private val FEED_CHANNELS = listOf(
+    FeedChannel(101, "🍔", "Food"),
+    FeedChannel(102, "🎮", "Gaming"),
+    FeedChannel(103, "🎵", "Music"),
+    FeedChannel(104, "🏙️", "City"),
+    FeedChannel(105, "💄", "Style"),
+    FeedChannel(106, "⚽", "Sports"),
+    FeedChannel(107, "🎬", "Film"),
+    FeedChannel(108, "🛍️", "Shopping")
+)
+
 private sealed interface FeedSlot {
-    data class PostSlot(val post: Post) : FeedSlot
+    data class PostSlot(
+        val post: Post,
+        val channelNumber: Int,
+        val channelEmoji: String,
+        val channelCategory: String
+    ) : FeedSlot
     data class AdSlot(val id: String) : FeedSlot
 }
 
@@ -285,7 +1112,14 @@ private fun resolveFeedSlot(index: Int): FeedSlot {
         return FeedSlot.AdSlot("ad-$normalized")
     }
     val adsBefore = (normalized + 1) / AD_FREQUENCY
-    return FeedSlot.PostSlot(DemoPostStore.getPostForIndex(normalized - adsBefore))
+    val postIndex = normalized - adsBefore
+    val ch = FEED_CHANNELS[Math.floorMod(postIndex, FEED_CHANNELS.size)]
+    return FeedSlot.PostSlot(
+        post = DemoPostStore.getPostForIndex(postIndex),
+        channelNumber = ch.number,
+        channelEmoji = ch.emoji,
+        channelCategory = ch.category
+    )
 }
 
 @Composable
@@ -360,7 +1194,10 @@ private fun FeedAdContent(
 
 private fun createFullScreenNativeAdView(context: Context): NativeAdView {
     val adView = NativeAdView(context)
-    val media = MediaView(context).apply { tag = NativeAdAsset.Media }
+    val media = MediaView(context).apply {
+        tag = NativeAdAsset.Media
+        setImageScaleType(ImageView.ScaleType.CENTER_CROP)
+    }
     val icon = ImageView(context).apply { tag = NativeAdAsset.Icon }
     val sponsoredText = TextView(context)
     val headlineText = TextView(context).apply { tag = NativeAdAsset.Headline }
@@ -371,6 +1208,7 @@ private fun createFullScreenNativeAdView(context: Context): NativeAdView {
     adView.setBackgroundColor(AndroidColor.TRANSPARENT)
 
     media.setBackgroundColor(AndroidColor.TRANSPARENT)
+    media.setImageScaleType(ImageView.ScaleType.CENTER_CROP)
     media.layoutParams = FrameLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.MATCH_PARENT
@@ -474,6 +1312,7 @@ private fun bindFullScreenNativeAd(adView: NativeAdView, nativeAd: NativeAd) {
     val ctaText = adView.findNativeAsset<TextView>(NativeAdAsset.CallToAction)
 
     media.mediaContent = nativeAd.mediaContent
+    media.setImageScaleType(ImageView.ScaleType.CENTER_CROP)
     headlineText.text = nativeAd.headline.orEmpty()
     bodyText.text = nativeAd.body.orEmpty()
     bodyText.visibility = if (nativeAd.body.isNullOrBlank()) View.GONE else View.VISIBLE
@@ -516,6 +1355,23 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
     var videoFailed by remember(post.id) { mutableStateOf(false) }
     var posterFailed by remember(post.id) { mutableStateOf(false) }
     var imageUrl by remember(post.id) { mutableStateOf(post.mediaUrl ?: fallbackFeedImageUrl(post.id)) }
+    var videoSize by remember(post.id) { mutableStateOf<VideoSize?>(null) }
+
+    fun acceptOrReplaceImage(drawable: Drawable, failPostWhenRejected: Boolean) {
+        if (drawable.hasLikelyBlackBars()) {
+            val fallbackUrl = fallbackFeedImageUrl(post.id)
+            if (imageUrl != fallbackUrl) {
+                imageUrl = fallbackUrl
+                isLoading = true
+            } else {
+                posterFailed = true
+                isLoading = false
+                if (failPostWhenRejected) hasError = true
+            }
+        } else {
+            isLoading = false
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         if (isInspectionMode) {
@@ -553,6 +1409,7 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                                     .build()
                                 setMediaItem(mediaItem)
                                 repeatMode = Player.REPEAT_MODE_ONE
+                                videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
                                 volume = 1f
                                 addListener(object : Player.Listener {
                                     override fun onPlaybackStateChanged(state: Int) {
@@ -562,6 +1419,10 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                                     override fun onRenderedFirstFrame() {
                                         hasRenderedVideo = true
                                         isLoading = false
+                                    }
+
+                                    override fun onVideoSizeChanged(size: VideoSize) {
+                                        videoSize = size
                                     }
 
                                     override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -615,7 +1476,9 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                                 .zIndex(2f),
                             contentScale = ContentScale.Crop,
                             onLoading = { isLoading = true },
-                            onSuccess = { isLoading = false },
+                            onSuccess = { state ->
+                                acceptOrReplaceImage(state.result.drawable, failPostWhenRejected = false)
+                            },
                             onError = {
                                 val fallbackUrl = fallbackFeedImageUrl(post.id)
                                 if (imageUrl != fallbackUrl) {
@@ -641,6 +1504,7 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                         },
                         update = { textureView ->
                             exoPlayer.setVideoTextureView(textureView)
+                            textureView.applyCenterCropTransform(videoSize)
                             textureView.alpha = if (hasRenderedVideo) 1f else 0f
                             textureView.visibility = if (hasRenderedVideo) View.VISIBLE else View.INVISIBLE
                         },
@@ -658,7 +1522,9 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                             .zIndex(1f),
                         contentScale = ContentScale.Crop,
                         onLoading = { isLoading = true },
-                        onSuccess = { isLoading = false },
+                        onSuccess = { state ->
+                            acceptOrReplaceImage(state.result.drawable, failPostWhenRejected = true)
+                        },
                         onError = {
                             val fallbackUrl = fallbackFeedImageUrl(post.id)
                             if (imageUrl != fallbackUrl) {
@@ -704,6 +1570,88 @@ private fun fallbackFeedImageUrl(seed: String): String {
     val names = arrayOf("10", "28", "37", "58", "82", "96", "102", "119", "128", "164", "175", "184")
     val index = Math.floorMod(seed.hashCode(), names.size)
     return "file:///android_asset/feed_media/feed_${names[index]}.jpg"
+}
+
+@Suppress("DEPRECATION")
+private fun TextureView.applyCenterCropTransform(videoSize: VideoSize?) {
+    val viewWidth = width.toFloat()
+    val viewHeight = height.toFloat()
+    val size = videoSize
+    val sourceWidth = size?.width ?: 0
+    val sourceHeight = size?.height ?: 0
+    if (viewWidth <= 0f || viewHeight <= 0f || sourceWidth <= 0 || sourceHeight <= 0) {
+        setTransform(null)
+        return
+    }
+
+    val pixelRatio = size?.pixelWidthHeightRatio ?: 1f
+    val rotated = size?.unappliedRotationDegrees == 90 || size?.unappliedRotationDegrees == 270
+    val videoWidth = if (rotated) sourceHeight.toFloat() else sourceWidth * pixelRatio
+    val videoHeight = if (rotated) sourceWidth * pixelRatio else sourceHeight.toFloat()
+    val scale = max(viewWidth / videoWidth, viewHeight / videoHeight)
+    val scaledWidth = videoWidth * scale
+    val scaledHeight = videoHeight * scale
+    val matrix = Matrix().apply {
+        setScale(scaledWidth / viewWidth, scaledHeight / viewHeight, viewWidth / 2f, viewHeight / 2f)
+    }
+    setTransform(matrix)
+}
+
+private fun Drawable.hasLikelyBlackBars(): Boolean {
+    val sourceWidth = intrinsicWidth
+    val sourceHeight = intrinsicHeight
+    if (sourceWidth < 24 || sourceHeight < 24) return false
+
+    val sampleWidth = minOf(sourceWidth, 96)
+    val sampleHeight = minOf(sourceHeight, 96)
+    val bitmap = Bitmap.createBitmap(sampleWidth, sampleHeight, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    val previousBounds = android.graphics.Rect(bounds)
+    setBounds(0, 0, sampleWidth, sampleHeight)
+    draw(canvas)
+    setBounds(previousBounds)
+    return bitmap.hasLikelyBlackBars()
+}
+
+private fun Bitmap.hasLikelyBlackBars(): Boolean {
+    if (width < 24 || height < 24) return false
+
+    val stripHeight = max(2, (height * 0.07f).roundToInt())
+    val stripWidth = max(2, (width * 0.07f).roundToInt())
+    val centerXStart = width / 4
+    val centerXEnd = max(centerXStart + 1, width * 3 / 4)
+    val centerYStart = height / 4
+    val centerYEnd = max(centerYStart + 1, height * 3 / 4)
+
+    fun darkRatio(xRange: IntRange, yRange: IntRange): Float {
+        var darkPixels = 0
+        var countedPixels = 0
+
+        for (y in yRange) {
+            for (x in xRange) {
+                val pixel = getPixel(x, y)
+                if (AndroidColor.alpha(pixel) <= 32) continue
+
+                countedPixels += 1
+                val brightness = (AndroidColor.red(pixel) + AndroidColor.green(pixel) + AndroidColor.blue(pixel)) / 3
+                if (brightness < 28) {
+                    darkPixels += 1
+                }
+            }
+        }
+
+        return if (countedPixels == 0) 0f else darkPixels.toFloat() / countedPixels.toFloat()
+    }
+
+    val top = darkRatio(0 until width, 0 until stripHeight)
+    val bottom = darkRatio(0 until width, (height - stripHeight) until height)
+    val left = darkRatio(0 until stripWidth, 0 until height)
+    val right = darkRatio((width - stripWidth) until width, 0 until height)
+    val center = darkRatio(centerXStart until centerXEnd, centerYStart until centerYEnd)
+
+    val hasLetterbox = top > 0.96f && bottom > 0.96f
+    val hasPillarbox = left > 0.96f && right > 0.96f
+    return (hasLetterbox || hasPillarbox) && center < 0.75f
 }
 
 

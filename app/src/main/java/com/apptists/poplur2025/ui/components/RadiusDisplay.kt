@@ -72,12 +72,13 @@ fun RadiusDisplay(
                 modifier = Modifier.size(14.dp)
             )
         }
-        Text(
+        ShaderNumberText(
             text = formattedRadius,
             color = Color(0xFFD8892B),
             fontSize = 38.sp,
             fontWeight = FontWeight.Black,
             lineHeight = 38.sp,
+            intensity = 1.05f,
             modifier = Modifier.graphicsLayer {
                 scaleX = radiusPulse
                 scaleY = radiusPulse
@@ -88,12 +89,13 @@ fun RadiusDisplay(
             thickness = 2.dp,
             modifier = Modifier.width(70.dp).padding(vertical = 4.dp)
         )
-        Text(
+        ShaderNumberText(
             text = formattedTotal,
             color = contentColor,
             fontSize = 28.sp,
             fontWeight = FontWeight.Black,
             lineHeight = 28.sp,
+            intensity = 0.72f,
             modifier = Modifier.graphicsLayer {
                 scaleX = totalPulse
                 scaleY = totalPulse

@@ -6,11 +6,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material3.*
@@ -43,31 +41,6 @@ fun SettingsScreen(
             .background(Color(0xFFF9F9F9))
             .statusBarsPadding()
     ) {
-        // Header with Back Button
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 16.dp)
-        ) {
-            Surface(
-                modifier = Modifier
-                    .size(48.dp)
-                    .shadow(4.dp, CircleShape),
-                shape = CircleShape,
-                color = Color.White,
-                onClick = onBack
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBackIos,
-                        contentDescription = "Back",
-                        modifier = Modifier.size(20.dp).padding(end = 2.dp),
-                        tint = Color.Black
-                    )
-                }
-            }
-        }
-
         // Tab Switcher
         Row(
             Modifier

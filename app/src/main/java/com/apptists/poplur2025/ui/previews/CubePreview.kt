@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -50,7 +49,14 @@ class CubeDebugFragment : GdxNavigationFragment() {
             useGL30 = true
             r = 8; g = 8; b = 8; a = 8
         }
-        val adapter = CombinedGdxAdapter(1, {}, {}, {}, {})
+        val adapter = CombinedGdxAdapter(
+            initialTabIndex = 1,
+            onVerticalSwipe = {},
+            onLongPress = {},
+            onLongPressEnd = {},
+            onTap = {},
+            onTabSelected = {}
+        )
         adapter.cubeScale = scale
         adapter.cornerRadius = cornerRadius
         adapter.yawDegrees = rotation
@@ -94,9 +100,6 @@ fun CubeDevelopmentScreen(onBack: () -> Unit = {}) {
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-            }
             Text("Cube Debug", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
 

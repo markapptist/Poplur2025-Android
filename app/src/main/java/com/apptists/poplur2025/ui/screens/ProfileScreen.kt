@@ -9,11 +9,11 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,20 +38,36 @@ import com.apptists.poplur2025.ui.components.TrendingDisplay
 private enum class ProfilePanel {
     Home,
     Notifications,
+    Phone,
     Store
 }
+
+enum class ProfileCubeMenuAction {
+    Phone,
+    Notifications,
+    Store
+}
+
+data class ProfileCubeMenuCommand(
+    val id: Int,
+    val action: ProfileCubeMenuAction
+)
 
 @Composable
 fun ProfileScreen(
     profile: UserProfile = UserProfile(),
     authViewModel: AuthViewModel? = null,
     onOpenSettings: () -> Unit = {},
-    onOpenMessages: () -> Unit = {}
+    onOpenMessages: () -> Unit = {},
+    cubeMenuCommand: ProfileCubeMenuCommand? = null,
+    onProfilePanelIconChanged: (String?) -> Unit = {}
 ) {
     ProfileScreenContent(
         profile = profile,
         onOpenSettings = onOpenSettings,
-        onOpenMessages = onOpenMessages
+        onOpenMessages = onOpenMessages,
+        cubeMenuCommand = cubeMenuCommand,
+        onProfilePanelIconChanged = onProfilePanelIconChanged
     )
 }
 
@@ -59,7 +75,9 @@ fun ProfileScreen(
 fun ProfileScreenContent(
     profile: UserProfile = UserProfile(),
     onOpenSettings: () -> Unit = {},
-    onOpenMessages: () -> Unit = {}
+    onOpenMessages: () -> Unit = {},
+    cubeMenuCommand: ProfileCubeMenuCommand? = null,
+    onProfilePanelIconChanged: (String?) -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var currentProfile by remember { mutableStateOf(profile) }
@@ -67,6 +85,29 @@ fun ProfileScreenContent(
     var activePanel by remember { mutableStateOf(ProfilePanel.Home) }
     var hasUncheckedNotifications by remember { mutableStateOf(true) }
     var purchasedRadius by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(cubeMenuCommand?.id) {
+        when (cubeMenuCommand?.action) {
+            ProfileCubeMenuAction.Phone -> activePanel = ProfilePanel.Phone
+            ProfileCubeMenuAction.Notifications -> {
+                hasUncheckedNotifications = false
+                activePanel = ProfilePanel.Notifications
+            }
+            ProfileCubeMenuAction.Store -> activePanel = ProfilePanel.Store
+            null -> Unit
+        }
+    }
+
+    LaunchedEffect(activePanel) {
+        onProfilePanelIconChanged(
+            when (activePanel) {
+                ProfilePanel.Notifications -> "Alerts"
+                ProfilePanel.Phone -> "Phone"
+                ProfilePanel.Store -> "Store"
+                ProfilePanel.Home -> null
+            }
+        )
+    }
 
     if (isEditing) {
         EditProfileScreen(
@@ -81,6 +122,10 @@ fun ProfileScreenContent(
         ProfilePanel.Notifications -> ProfileNotificationsPanel(
             onBack = { activePanel = ProfilePanel.Home },
             onMarkRead = { hasUncheckedNotifications = false }
+        )
+        ProfilePanel.Phone -> PopularPhoneCallScreen(
+            userName = "Poplur Phone",
+            onHangUp = { activePanel = ProfilePanel.Home }
         )
         ProfilePanel.Store -> ProfileStorePanel(
             purchasedRadius = purchasedRadius,
@@ -98,6 +143,7 @@ fun ProfileScreenContent(
                 hasUncheckedNotifications = false
                 activePanel = ProfilePanel.Notifications
             },
+            onOpenPhone = { activePanel = ProfilePanel.Phone },
             onOpenStore = { activePanel = ProfilePanel.Store },
             onEdit = { isEditing = true }
         )
@@ -113,33 +159,19 @@ private fun ProfileHome(
     onOpenMessages: () -> Unit,
     hasUncheckedNotifications: Boolean,
     onOpenNotifications: () -> Unit,
+    onOpenPhone: () -> Unit,
     onOpenStore: () -> Unit,
     onEdit: () -> Unit
 ) {
     Box(Modifier.fillMaxSize().background(Color.White)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(start = 24.dp, end = 24.dp, top = 24.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProfileHeaderActionIcon(Icons.Default.Email, "Messages", onOpenMessages)
-                ProfileHeaderActionIcon(Icons.Default.CardGiftcard, "Notifications", onOpenNotifications, hasUncheckedNotifications)
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ProfileHeaderActionIcon(Icons.Default.Settings, "Settings", onOpenSettings)
-                ProfileHeaderActionIcon(Icons.Default.AttachMoney, "Store", onOpenStore)
-            }
-        }
-
-        Column(Modifier.fillMaxSize().padding(top = 112.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             AsyncImage(
                 model = profile.avatarUrl,
                 contentDescription = "Avatar",
                 modifier = Modifier.size(96.dp).clip(CircleShape).background(Color.Gray),
                 contentScale = ContentScale.Crop
             )
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     profile.displayName.uppercase(), 
@@ -155,26 +187,22 @@ private fun ProfileHome(
                     modifier = Modifier.size(20.dp).clickable { onEdit() }
                 )
             }
-            Row(Modifier.fillMaxWidth().padding(top = 28.dp), horizontalArrangement = Arrangement.Center) {
+            Row(Modifier.fillMaxWidth().padding(top = 22.dp), horizontalArrangement = Arrangement.Center) {
                 ProfileTabItem("Media", selectedTab == 0) { onTab(0) }
                 Spacer(Modifier.width(56.dp))
-                ProfileTabItem("Messages", selectedTab == 1) { onTab(1) }
+                ProfileTabItem("Messages", isSelected = false, onClick = onOpenMessages)
             }
-            Spacer(Modifier.height(24.dp))
-            if (selectedTab == 0) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentPadding = PaddingValues(start = 22.dp, end = 22.dp, bottom = 300.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    items(DemoPostStore.posts) { post -> MediaItem(post.mediaUrl ?: post.videoUrl, post.radius) }
-                }
-            } else {
-                MessagesScreen()
+            Spacer(Modifier.height(18.dp))
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentPadding = PaddingValues(start = 22.dp, end = 22.dp, bottom = 300.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(DemoPostStore.posts) { post -> MediaItem(post.mediaUrl ?: post.videoUrl, post.radius) }
             }
         }
 
@@ -244,9 +272,6 @@ private fun ProfileNotificationsPanel(
             .padding(20.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.Black)
-            }
             Text("Notifications", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.Black)
         }
         Spacer(Modifier.height(18.dp))
@@ -301,9 +326,6 @@ private fun ProfileStorePanel(
             .padding(20.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.Black)
-            }
             Text("Store", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.Black)
         }
         Spacer(Modifier.height(8.dp))

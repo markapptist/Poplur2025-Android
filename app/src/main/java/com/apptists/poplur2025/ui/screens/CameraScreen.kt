@@ -7,7 +7,6 @@ import android.graphics.Rect
 import android.net.Uri
 import android.provider.MediaStore
 import android.widget.VideoView
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
@@ -37,8 +36,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
-import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BrightnessLow
 import androidx.compose.material.icons.filled.Close
@@ -77,6 +74,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.apptists.poplur2025.ui.components.RadiusDisplay
+import com.apptists.poplur2025.ui.components.ShaderNumberText
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face as MLFace
 import com.google.mlkit.vision.face.FaceDetection
@@ -647,24 +645,28 @@ private fun RecordingTimerBadge(
             modifier = Modifier.width(92.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
+            ShaderNumberText(
                 secondsRemaining.coerceAtLeast(0).toString(),
                 color = Color.Red,
                 fontSize = 40.sp,
                 fontWeight = FontWeight.Black,
-                lineHeight = 40.sp
+                lineHeight = 40.sp,
+                intensity = 1.18f,
+                autoSize = true
             )
             HorizontalDivider(
                 color = Color.White,
                 thickness = 2.dp,
                 modifier = Modifier.width(70.dp).padding(vertical = 4.dp)
             )
-            Text(
+            ShaderNumberText(
                 "seconds",
                 color = Color.White.copy(alpha = 0.92f),
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Black,
-                lineHeight = 26.sp
+                lineHeight = 26.sp,
+                intensity = 0.55f,
+                autoSize = true
             )
         }
     }
@@ -677,8 +679,6 @@ fun CapturedOutputScreen(
     onBack: () -> Unit,
     onPost: () -> Unit = {}
 ) {
-    BackHandler(onBack = onBack)
-    
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -716,22 +716,13 @@ fun CapturedOutputScreen(
             }
         }
 
-        // Top bar
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            contentAlignment = Alignment.Center
         ) {
-            IconButton(
-                onClick = onBack,
-                colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.5f))
-            ) {
-                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
-            }
-            
             Text(
                 text = if (isVideo) "VIDEO OUTPUT" else "PHOTO OUTPUT",
                 color = Color.White,
@@ -739,9 +730,6 @@ fun CapturedOutputScreen(
                 fontSize = 14.sp,
                 letterSpacing = 1.sp
             )
-            
-            // Empty placeholder for symmetry or additional actions
-            Box(Modifier.size(48.dp))
         }
 
         // Bottom Actions
@@ -763,11 +751,6 @@ fun CapturedOutputScreen(
                 Text("Post to Feed", fontWeight = FontWeight.Black, fontSize = 16.sp)
             }
             
-            Spacer(Modifier.height(16.dp))
-            
-            TextButton(onClick = onBack) {
-                Text("Discard", color = Color.White.copy(alpha = 0.7f), fontWeight = FontWeight.Bold)
-            }
         }
     }
 }
@@ -830,20 +813,6 @@ private fun ArFilterSelector(
             }
         }
 
-        // Dismiss button
-        Surface(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 12.dp)
-                .size(36.dp),
-            color = Color.Black.copy(alpha = 0.5f),
-            shape = CircleShape,
-            onClick = onDismiss
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(18.dp))
-            }
-        }
     }
 }
 

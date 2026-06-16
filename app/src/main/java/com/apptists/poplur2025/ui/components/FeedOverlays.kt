@@ -1,5 +1,11 @@
 package com.apptists.poplur2025.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
@@ -14,8 +20,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -30,30 +38,91 @@ import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.ceil
 
+private val channelGreen = Color(0xFF4EFF40)
+
 @Composable
 fun UserInfoOverlay(
     displayName: String,
     location: String,
+    channelNumber: Int,
+    channelEmoji: String,
+    channelCategory: String,
     modifier: Modifier = Modifier
 ) {
+    var showChannel by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(2_400)
+            showChannel = true
+            delay(1_800)
+            showChannel = false
+        }
+    }
+
     Column(modifier = modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("🇯🇵", fontSize = 32.sp)
             Spacer(Modifier.width(10.dp))
-            Text("🍔", fontSize = 32.sp)
+
+            AnimatedContent(
+                targetState = channelEmoji,
+                transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(220)) },
+                label = "channel-emoji"
+            ) { emoji -> Text(emoji, fontSize = 32.sp) }
+
             Spacer(Modifier.width(10.dp))
             Column {
-                Text(
-                    text = displayName,
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = location,
-                    color = Color.White.copy(alpha = 0.9f),
-                    fontSize = 18.sp
-                )
+                // Main label: username ↔ CH XXX (green)
+                AnimatedContent(
+                    targetState = showChannel,
+                    transitionSpec = {
+                        (fadeIn(tween(280)) + slideInVertically { -it / 3 })
+                            .togetherWith(fadeOut(tween(280)) + slideOutVertically { it / 3 })
+                    },
+                    label = "channel-name"
+                ) { isChannel ->
+                    if (isChannel) {
+                        Text(
+                            text = "CH $channelNumber",
+                            color = channelGreen,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        Text(
+                            text = displayName,
+                            color = Color.White,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Sub text: location ↔ category name
+                AnimatedContent(
+                    targetState = showChannel,
+                    transitionSpec = {
+                        (fadeIn(tween(280)) + slideInVertically { -it / 3 })
+                            .togetherWith(fadeOut(tween(280)) + slideOutVertically { it / 3 })
+                    },
+                    label = "channel-sub"
+                ) { isChannel ->
+                    if (isChannel) {
+                        Text(
+                            text = channelCategory.uppercase(),
+                            color = channelGreen.copy(alpha = 0.82f),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        Text(
+                            text = location,
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 18.sp
+                        )
+                    }
+                }
             }
         }
     }
