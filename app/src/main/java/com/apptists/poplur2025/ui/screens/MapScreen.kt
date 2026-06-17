@@ -47,7 +47,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -182,6 +184,7 @@ fun MapScreenContent(
     var userLocation by remember { mutableStateOf<Point?>(null) }
     var idleGeneration by remember { mutableIntStateOf(0) }
     var showLocationSearch by remember { mutableStateOf(false) }
+    var showIndoorMap by remember { mutableStateOf(false) }
     var locationSearchQuery by remember { mutableStateOf("") }
     var selectedRadioTopics by remember {
         mutableStateOf(RadioTourTopic.values().filter { it.defaultEnabled }.toSet())
@@ -318,10 +321,18 @@ fun MapScreenContent(
         }
     }
 
+    var mapRadioLive by remember { mutableStateOf(false) }
+    val animatedMusicVolume by animateFloatAsState(
+        targetValue = if (mapRadioLive) 0.10f else 1.0f,
+        animationSpec = tween(durationMillis = 600),
+        label = "musicDuck"
+    )
+
     CityTourMusicPlayer(
         tourStop = activeMusicStop,
         isVisible = isVisible,
-        aiInsight = activeAiInsight
+        aiInsight = activeAiInsight,
+        volumeLevel = animatedMusicVolume
     )
     RainWeatherSound(
         weather = activeWeather,
@@ -331,8 +342,6 @@ fun MapScreenContent(
     DisposableEffect(popTone) {
         onDispose { popTone?.release() }
     }
-
-    var mapRadioLive by remember { mutableStateOf(false) }
     var mapRadioDisplayLine by remember { mutableStateOf("Tap Radio to hear what is happening on the map.") }
     var mapRadioReady by remember { mutableStateOf(isPreview) }
     val mapRadioMainHandler = remember { Handler(Looper.getMainLooper()) }
@@ -973,10 +982,35 @@ fun MapScreenContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(32.dp)
         ) {
+            if (zoomSliderValue > 17f) {
+                Surface(
+                    onClick = { showIndoorMap = true },
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.Black.copy(alpha = 0.62f),
+                    contentColor = Color.White
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text("Indoor", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
             MapSearchButton(
                 onClick = { showLocationSearch = true }
             )
             RadiusDisplay(radius = activeRadius)
+        }
+
+        if (showIndoorMap) {
+            IndoorMapSheet(onDismiss = { showIndoorMap = false })
         }
 
         if (showLocationSearch) {
@@ -1121,6 +1155,52 @@ private fun MapSearchButton(
 }
 
 @Composable
+private fun IndoorMapSheet(onDismiss: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(90f)
+            .background(Color.Black.copy(alpha = 0.6f))
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.88f)
+                .align(Alignment.BottomCenter),
+            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Indoor Map", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    TextButton(onClick = onDismiss) { Text("Done") }
+                }
+                HorizontalDivider()
+                AndroidView(
+                    factory = { ctx ->
+                        android.webkit.WebView(ctx).apply {
+                            settings.javaScriptEnabled = true
+                            settings.domStorageEnabled = true
+                            settings.useWideViewPort = true
+                            settings.loadWithOverviewMode = true
+                            webViewClient = android.webkit.WebViewClient()
+                            loadUrl("https://app.mappedin.com/map/mappedin-demo-mall")
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun LocationSearchDialog(
     query: String,
     onQueryChange: (String) -> Unit,
@@ -1133,6 +1213,15 @@ private fun LocationSearchDialog(
     onDismiss: () -> Unit,
     onSelect: (TourStop) -> Unit
 ) {
+    // Internal sub-screen navigation stack. Push a screen title to navigate into a sub-screen;
+    // the back button (and hardware back) pop it. Back at root dismisses the dialog.
+    val subScreenStack = remember { mutableStateListOf<String>() }
+    val onSubScreen = subScreenStack.isNotEmpty()
+
+    BackHandler {
+        if (onSubScreen) subScreenStack.removeLastOrNull() else onDismiss()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1159,16 +1248,34 @@ private fun LocationSearchDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column {
-                        Text("Search Menu", fontWeight = FontWeight.Black, fontSize = 20.sp)
+                    if (onSubScreen) {
+                        IconButton(onClick = { subScreenStack.removeLastOrNull() }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
                         Text(
-                            "Choose what Poplur Radio should follow on the tour.",
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
-                            fontSize = 12.sp
+                            subScreenStack.lastOrNull() ?: "",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 20.sp,
+                            modifier = Modifier.weight(1f)
                         )
-                    }
-                    TextButton(onClick = onDismiss) {
-                        Text("Done")
+                    } else {
+                        Column(Modifier.weight(1f)) {
+                            Text("Search Menu", fontWeight = FontWeight.Black, fontSize = 20.sp)
+                            Text(
+                                "Choose what Poplur Radio should follow on the tour.",
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                                fontSize = 12.sp
+                            )
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
                     }
                 }
                 OutlinedTextField(
@@ -1737,7 +1844,8 @@ private class FullScreenWeatherView(context: Context) : View(context) {
 private fun CityTourMusicPlayer(
     tourStop: TourStop?,
     isVisible: Boolean,
-    aiInsight: AiTourInsight?
+    aiInsight: AiTourInsight?,
+    volumeLevel: Float = 1f
 ) {
     val context = LocalContext.current
     val isPreview = LocalInspectionMode.current
@@ -1812,6 +1920,10 @@ private fun CityTourMusicPlayer(
                 player.playCityMusicTrack(dynamicTrack)
             }
         }
+    }
+
+    LaunchedEffect(volumeLevel) {
+        player?.volume = volumeLevel
     }
 
     DisposableEffect(player) {
