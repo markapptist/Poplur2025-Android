@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
+import java.util.concurrent.atomic.AtomicInteger
+
 object GdxState {
     var isSceneActive by mutableStateOf(false)
     var currentScene by mutableStateOf("radius")
@@ -13,4 +15,6 @@ object GdxState {
     var sceneBoundsY by mutableStateOf(0f)
     var sceneBoundsWidth by mutableStateOf(0f)
     var sceneBoundsHeight by mutableStateOf(0f)
+
+    val activeShaderTextCount = AtomicInteger(0)
 }

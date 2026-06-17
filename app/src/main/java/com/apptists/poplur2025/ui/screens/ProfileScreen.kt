@@ -1,7 +1,12 @@
 package com.apptists.poplur2025.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -20,15 +25,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
 import coil.compose.AsyncImage
 
+import com.apptists.poplur2025.R
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.UserProfile
@@ -53,6 +61,163 @@ data class ProfileCubeMenuCommand(
     val action: ProfileCubeMenuAction
 )
 
+private data class PoplurCreditCardProduct(
+    val id: String,
+    val name: String,
+    val price: String,
+    val material: String,
+    val delivery: String,
+    val accent: Color,
+    val frameResIds: List<Int>
+)
+
+private val PoplurCreditCardCatalog = listOf(
+    PoplurCreditCardProduct(
+        id = "cosmic-silver",
+        name = "Cosmic Silver",
+        price = "$29",
+        material = "star-polished graphite",
+        delivery = "Ships in 3-5 days",
+        accent = Color(0xFF8F9499),
+        frameResIds = listOf(
+            R.drawable.poplur_card_cosmic_silver_frame_01,
+            R.drawable.poplur_card_cosmic_silver_frame_02,
+            R.drawable.poplur_card_cosmic_silver_frame_03,
+            R.drawable.poplur_card_cosmic_silver_frame_04,
+            R.drawable.poplur_card_cosmic_silver_frame_05,
+            R.drawable.poplur_card_cosmic_silver_frame_06,
+            R.drawable.poplur_card_cosmic_silver_frame_07,
+            R.drawable.poplur_card_cosmic_silver_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "icy-aqua",
+        name = "Icy Aqua",
+        price = "$29",
+        material = "turquoise crystal",
+        delivery = "Ships in 3-5 days",
+        accent = Color(0xFF0DA8A8),
+        frameResIds = listOf(
+            R.drawable.poplur_card_icy_aqua_frame_01,
+            R.drawable.poplur_card_icy_aqua_frame_02,
+            R.drawable.poplur_card_icy_aqua_frame_03,
+            R.drawable.poplur_card_icy_aqua_frame_04,
+            R.drawable.poplur_card_icy_aqua_frame_05,
+            R.drawable.poplur_card_icy_aqua_frame_06,
+            R.drawable.poplur_card_icy_aqua_frame_07,
+            R.drawable.poplur_card_icy_aqua_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "champagne-gold",
+        name = "Champagne Gold",
+        price = "$35",
+        material = "gold glitter resin",
+        delivery = "Ships in 2-4 days",
+        accent = Color(0xFFDB8C1F),
+        frameResIds = listOf(
+            R.drawable.poplur_card_champagne_gold_frame_01,
+            R.drawable.poplur_card_champagne_gold_frame_02,
+            R.drawable.poplur_card_champagne_gold_frame_03,
+            R.drawable.poplur_card_champagne_gold_frame_04,
+            R.drawable.poplur_card_champagne_gold_frame_05,
+            R.drawable.poplur_card_champagne_gold_frame_06,
+            R.drawable.poplur_card_champagne_gold_frame_07,
+            R.drawable.poplur_card_champagne_gold_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "jet-black",
+        name = "Jet Black Onyx",
+        price = "$35",
+        material = "black starfield",
+        delivery = "Ships in 2-4 days",
+        accent = Color(0xFF101113),
+        frameResIds = listOf(
+            R.drawable.poplur_card_jet_black_onyx_frame_01,
+            R.drawable.poplur_card_jet_black_onyx_frame_02,
+            R.drawable.poplur_card_jet_black_onyx_frame_03,
+            R.drawable.poplur_card_jet_black_onyx_frame_04,
+            R.drawable.poplur_card_jet_black_onyx_frame_05,
+            R.drawable.poplur_card_jet_black_onyx_frame_06,
+            R.drawable.poplur_card_jet_black_onyx_frame_07,
+            R.drawable.poplur_card_jet_black_onyx_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "amethyst",
+        name = "Amethyst Purple",
+        price = "$39",
+        material = "faceted crystal",
+        delivery = "Limited finish",
+        accent = Color(0xFF7524C2),
+        frameResIds = listOf(
+            R.drawable.poplur_card_amethyst_purple_frame_01,
+            R.drawable.poplur_card_amethyst_purple_frame_02,
+            R.drawable.poplur_card_amethyst_purple_frame_03,
+            R.drawable.poplur_card_amethyst_purple_frame_04,
+            R.drawable.poplur_card_amethyst_purple_frame_05,
+            R.drawable.poplur_card_amethyst_purple_frame_06,
+            R.drawable.poplur_card_amethyst_purple_frame_07,
+            R.drawable.poplur_card_amethyst_purple_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "ruby",
+        name = "Ruby Red",
+        price = "$39",
+        material = "ruby sparkle",
+        delivery = "Limited finish",
+        accent = Color(0xFFB80514),
+        frameResIds = listOf(
+            R.drawable.poplur_card_ruby_red_frame_01,
+            R.drawable.poplur_card_ruby_red_frame_02,
+            R.drawable.poplur_card_ruby_red_frame_03,
+            R.drawable.poplur_card_ruby_red_frame_04,
+            R.drawable.poplur_card_ruby_red_frame_05,
+            R.drawable.poplur_card_ruby_red_frame_06,
+            R.drawable.poplur_card_ruby_red_frame_07,
+            R.drawable.poplur_card_ruby_red_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "emerald",
+        name = "Emerald Green",
+        price = "$39",
+        material = "emerald glitter",
+        delivery = "Limited finish",
+        accent = Color(0xFF007334),
+        frameResIds = listOf(
+            R.drawable.poplur_card_emerald_green_frame_01,
+            R.drawable.poplur_card_emerald_green_frame_02,
+            R.drawable.poplur_card_emerald_green_frame_03,
+            R.drawable.poplur_card_emerald_green_frame_04,
+            R.drawable.poplur_card_emerald_green_frame_05,
+            R.drawable.poplur_card_emerald_green_frame_06,
+            R.drawable.poplur_card_emerald_green_frame_07,
+            R.drawable.poplur_card_emerald_green_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "sapphire",
+        name = "Sapphire Blue",
+        price = "$39",
+        material = "sapphire crystal",
+        delivery = "Limited finish",
+        accent = Color(0xFF0830B8),
+        frameResIds = listOf(
+            R.drawable.poplur_card_sapphire_blue_frame_01,
+            R.drawable.poplur_card_sapphire_blue_frame_02,
+            R.drawable.poplur_card_sapphire_blue_frame_03,
+            R.drawable.poplur_card_sapphire_blue_frame_04,
+            R.drawable.poplur_card_sapphire_blue_frame_05,
+            R.drawable.poplur_card_sapphire_blue_frame_06,
+            R.drawable.poplur_card_sapphire_blue_frame_07,
+            R.drawable.poplur_card_sapphire_blue_frame_08
+        )
+    )
+)
+
 @Composable
 fun ProfileScreen(
     profile: UserProfile = UserProfile(),
@@ -60,14 +225,16 @@ fun ProfileScreen(
     onOpenSettings: () -> Unit = {},
     onOpenMessages: () -> Unit = {},
     cubeMenuCommand: ProfileCubeMenuCommand? = null,
-    onProfilePanelIconChanged: (String?) -> Unit = {}
+    onProfilePanelIconChanged: (String?) -> Unit = {},
+    onPhoneCallVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     ProfileScreenContent(
         profile = profile,
         onOpenSettings = onOpenSettings,
         onOpenMessages = onOpenMessages,
         cubeMenuCommand = cubeMenuCommand,
-        onProfilePanelIconChanged = onProfilePanelIconChanged
+        onProfilePanelIconChanged = onProfilePanelIconChanged,
+        onPhoneCallVisibilityChanged = onPhoneCallVisibilityChanged
     )
 }
 
@@ -77,7 +244,8 @@ fun ProfileScreenContent(
     onOpenSettings: () -> Unit = {},
     onOpenMessages: () -> Unit = {},
     cubeMenuCommand: ProfileCubeMenuCommand? = null,
-    onProfilePanelIconChanged: (String?) -> Unit = {}
+    onProfilePanelIconChanged: (String?) -> Unit = {},
+    onPhoneCallVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var currentProfile by remember { mutableStateOf(profile) }
@@ -125,7 +293,8 @@ fun ProfileScreenContent(
         )
         ProfilePanel.Phone -> PopularPhoneCallScreen(
             userName = "Poplur Phone",
-            onHangUp = { activePanel = ProfilePanel.Home }
+            onHangUp = { activePanel = ProfilePanel.Home },
+            onVisibilityChanged = onPhoneCallVisibilityChanged
         )
         ProfilePanel.Store -> ProfileStorePanel(
             purchasedRadius = purchasedRadius,
@@ -317,24 +486,177 @@ private fun ProfileStorePanel(
         Triple("City Boost", 25_000, "$4.99"),
         Triple("World Push", 100_000, "$9.99")
     )
+    var selectedCardId by remember { mutableStateOf(PoplurCreditCardCatalog.first().id) }
+    var orderMessage by remember { mutableStateOf<String?>(null) }
+    val selectedCard = PoplurCreditCardCatalog.firstOrNull { it.id == selectedCardId } ?: PoplurCreditCardCatalog.first()
 
     Column(
         Modifier
             .fillMaxSize()
             .background(Color.White)
             .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(20.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Store", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.Black)
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) {
+                Text("Poplur Store", fontSize = 30.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Shop World Service cards, collectible finishes, and radius boosts.",
+                    color = Color.Black.copy(alpha = 0.58f),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Surface(shape = CircleShape, color = Color.Black, modifier = Modifier.size(40.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text("P", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                }
+            }
         }
-        Spacer(Modifier.height(8.dp))
-        Text("Purchase radius to expand your reach.", color = Color.Black.copy(alpha = 0.58f), fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(22.dp))
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color.Black.copy(alpha = 0.045f))
+                .padding(16.dp)
+        ) {
+            AnimatedPoplurCard(
+                product = selectedCard,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(18.dp, RoundedCornerShape(18.dp), clip = false)
+            )
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text(selectedCard.name, fontSize = 23.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Poplur World Service members card in ${selectedCard.material}.",
+                        color = Color.Black.copy(alpha = 0.62f),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Text(selectedCard.price, fontSize = 24.sp, fontWeight = FontWeight.Black, color = Color.Black)
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StoreBadge("Contactless")
+                StoreBadge("Numbered")
+                StoreBadge(selectedCard.delivery)
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+
+        Text("Choose a finish", fontSize = 18.sp, fontWeight = FontWeight.Black, color = Color.Black)
+        Spacer(Modifier.height(12.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        ) {
+            PoplurCreditCardCatalog.forEach { product ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .width(76.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { selectedCardId = product.id }
+                        .padding(vertical = 4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(product.accent)
+                            .border(
+                                width = if (selectedCardId == product.id) 3.dp else 0.dp,
+                                color = if (selectedCardId == product.id) Color.Black else Color.Transparent,
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selectedCardId == product.id) {
+                            Text("✓", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    Text(product.name.substringBefore(" "), fontSize = 12.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+
+        PoplurCreditCardCatalog.chunked(2).forEach { rowProducts ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                rowProducts.forEach { product ->
+                    PoplurCreditCardProductTile(
+                        product = product,
+                        selected = selectedCardId == product.id,
+                        onClick = { selectedCardId = product.id },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (rowProducts.size == 1) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color.Black.copy(alpha = 0.045f))
+                .padding(16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Order summary", fontSize = 18.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                    Text("1 Poplur card - ${selectedCard.name}", color = Color.Black.copy(alpha = 0.58f), fontWeight = FontWeight.SemiBold)
+                }
+                Text(selectedCard.price, fontSize = 20.sp, fontWeight = FontWeight.Black, color = Color.Black)
+            }
+            Spacer(Modifier.height(12.dp))
+            Divider(color = Color.Black.copy(alpha = 0.12f))
+            Spacer(Modifier.height(12.dp))
+            Row {
+                Text("Estimated shipping", color = Color.Black.copy(alpha = 0.58f), fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Text("Free", color = Color(0xFF178A3D), fontWeight = FontWeight.Black)
+            }
+            Spacer(Modifier.height(14.dp))
+            Button(
+                onClick = { orderMessage = "${selectedCard.name} card is ready for checkout." },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+            ) {
+                Text("Buy ${selectedCard.name}", fontWeight = FontWeight.Black)
+            }
+            orderMessage?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(it, color = selectedCard.accent, fontWeight = FontWeight.Black)
+            }
+        }
+
+        Spacer(Modifier.height(22.dp))
+        Text("Add radius", fontSize = 20.sp, fontWeight = FontWeight.Black, color = Color.Black)
+        Spacer(Modifier.height(6.dp))
+        Text("Boost your Poplur reach after choosing a card.", color = Color.Black.copy(alpha = 0.58f), fontWeight = FontWeight.SemiBold)
         if (purchasedRadius > 0) {
             Spacer(Modifier.height(10.dp))
             Text("Purchased radius: ${purchasedRadius / 1000} km", color = Color(0xFF178A3D), fontWeight = FontWeight.Black)
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(14.dp))
         packages.forEach { item ->
             Row(
                 modifier = Modifier
@@ -360,6 +682,62 @@ private fun ProfileStorePanel(
             }
             Spacer(Modifier.height(12.dp))
         }
+    }
+}
+
+@Composable
+private fun AnimatedPoplurCard(
+    product: PoplurCreditCardProduct,
+    modifier: Modifier = Modifier
+) {
+    Image(
+        painter = painterResource(product.frameResIds.first()),
+        contentDescription = product.name,
+        contentScale = ContentScale.Fit,
+        modifier = modifier
+            .aspectRatio(482f / 320f)
+            .clip(RoundedCornerShape(18.dp))
+    )
+}
+
+@Composable
+private fun PoplurCreditCardProductTile(
+    product: PoplurCreditCardProduct,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(18.dp)
+    Column(
+        modifier
+            .clip(shape)
+            .background(Color.Black.copy(alpha = if (selected) 0.075f else 0.035f))
+            .border(2.dp, if (selected) product.accent else Color.Transparent, shape)
+            .clickable(onClick = onClick)
+            .padding(12.dp)
+    ) {
+        AnimatedPoplurCard(product = product, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(10.dp))
+        Text(product.name, fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color.Black)
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(product.price, fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color.Black)
+            Spacer(Modifier.weight(1f))
+            Text(if (selected) "✓" else "+", color = if (selected) product.accent else Color.Black.copy(alpha = 0.72f), fontSize = 20.sp, fontWeight = FontWeight.Black)
+        }
+    }
+}
+
+@Composable
+private fun StoreBadge(text: String) {
+    Surface(shape = CircleShape, color = Color.White.copy(alpha = 0.88f)) {
+        Text(
+            text = text,
+            color = Color.Black,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+        )
     }
 }
 

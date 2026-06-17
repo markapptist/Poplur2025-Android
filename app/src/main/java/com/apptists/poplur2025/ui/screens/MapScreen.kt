@@ -17,7 +17,11 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
@@ -44,6 +48,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -168,6 +174,8 @@ fun MapScreenContent(
     var activeWeatherPoint by remember { mutableStateOf<Point?>(fallbackLocation) }
     var activeWeather by remember { mutableStateOf(WeatherBadge.Loading) }
     var activeAiInsight by remember { mutableStateOf<AiTourInsight?>(null) }
+    var activeTourFocusStop by remember { mutableStateOf<TourStop?>(null) }
+    var activeLiveTourMoment by remember { mutableStateOf<LiveTourMoment?>(null) }
     var confettiTrigger by remember { mutableIntStateOf(0) }
     var userLocation by remember { mutableStateOf<Point?>(null) }
     var idleGeneration by remember { mutableIntStateOf(0) }
@@ -203,8 +211,9 @@ fun MapScreenContent(
             )
         }
     }
-    val activeMusicStop = remember(activeCityName, isVisible, userTourStop, userCityName, userLocation, selectedCoordinate, activeRadius, userCountryCode) {
+    val activeMusicStop = remember(activeCityName, isVisible, activeTourFocusStop, userTourStop, userCityName, userLocation, selectedCoordinate, activeRadius, userCountryCode) {
         if (!isVisible) return@remember null
+        activeTourFocusStop?.let { return@remember it }
         val stop = TourStops.find { it.cityName == activeCityName }
         if (stop != null) return@remember stop
         if (activeCityName == "Your Location" || (userCityName != null && activeCityName == userCityName)) {
@@ -242,6 +251,18 @@ fun MapScreenContent(
             "Tap the 3D map to choose exactly where a post should live."
         }
     }
+    val mapRadioScript = remember(activeCityName, activeMusicStop, activeAiInsight, activeLiveTourMoment, activeRadius, activeWeather, tourSubtext) {
+        buildMapRadioScript(
+            cityName = activeCityName,
+            stop = activeMusicStop,
+            insight = activeAiInsight,
+            liveMoment = activeLiveTourMoment,
+            visiblePostCount = DemoPostStore.posts.size,
+            radius = activeRadius,
+            weather = activeWeather,
+            fallbackLine = tourSubtext
+        )
+    }
     val titlePulse by animateFloatAsState(
         targetValue = if (activeMusicStop != null) 1f else 0f,
         animationSpec = tween(durationMillis = 520),
@@ -266,6 +287,8 @@ fun MapScreenContent(
         showLocationSearch = false
         locationSearchQuery = ""
         selectedCoordinate = null
+        activeTourFocusStop = null
+        activeLiveTourMoment = null
         activeCityName = stop.cityName
         activeRadius = stop.radiusKm
         activeWeatherPoint = stop.coordinate
@@ -303,8 +326,82 @@ fun MapScreenContent(
         onDispose { popTone?.release() }
     }
 
-    LaunchedEffect(activeMusicStop?.cityName, activeAiInsight?.id, isVisible) {
-        tourSubtextMode = TourSubtextMode.NowPlaying
+    var mapRadioLive by remember { mutableStateOf(false) }
+    var mapRadioDisplayLine by remember { mutableStateOf("Tap Radio to hear what is happening on the map.") }
+    var mapRadioReady by remember { mutableStateOf(isPreview) }
+    val mapRadioMainHandler = remember { Handler(Looper.getMainLooper()) }
+    val mapRadioTts = remember(isPreview) {
+        if (isPreview) {
+            null
+        } else {
+            TextToSpeech(context) { status ->
+                mapRadioMainHandler.post {
+                    mapRadioReady = status == TextToSpeech.SUCCESS
+                }
+            }
+        }
+    }
+    val toggleMapRadio: () -> Unit = {
+        if (mapRadioLive) {
+            mapRadioTts?.stop()
+            mapRadioLive = false
+        } else {
+            mapRadioDisplayLine = mapRadioScript
+            mapRadioLive = true
+            mapRadioTts?.speak(
+                mapRadioScript,
+                TextToSpeech.QUEUE_FLUSH,
+                null,
+                MAP_RADIO_UTTERANCE_ID
+            )
+        }
+    }
+
+    LaunchedEffect(mapRadioReady, mapRadioTts) {
+        if (mapRadioReady) {
+            mapRadioTts?.language = Locale.US
+            mapRadioTts?.setSpeechRate(0.95f)
+            mapRadioTts?.setPitch(1.08f)
+        }
+    }
+
+    DisposableEffect(mapRadioTts) {
+        mapRadioTts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {
+                if (utteranceId == MAP_RADIO_UTTERANCE_ID) {
+                    mapRadioMainHandler.post { mapRadioLive = true }
+                }
+            }
+
+            override fun onDone(utteranceId: String?) {
+                if (utteranceId == MAP_RADIO_UTTERANCE_ID) {
+                    mapRadioMainHandler.post { mapRadioLive = false }
+                }
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) {
+                if (utteranceId == MAP_RADIO_UTTERANCE_ID) {
+                    mapRadioMainHandler.post { mapRadioLive = false }
+                }
+            }
+        })
+
+        onDispose {
+            mapRadioTts?.stop()
+            mapRadioTts?.shutdown()
+        }
+    }
+
+    LaunchedEffect(isVisible) {
+        if (!isVisible) {
+            mapRadioTts?.stop()
+            mapRadioLive = false
+        }
+    }
+
+    LaunchedEffect(activeMusicStop?.cityName, activeAiInsight?.id, activeLiveTourMoment?.id, isVisible) {
+        tourSubtextMode = if (activeLiveTourMoment != null) TourSubtextMode.Popular else TourSubtextMode.NowPlaying
         if (!isVisible || activeMusicStop == null) return@LaunchedEffect
         while (true) {
             delay(TOUR_SUBTEXT_SWITCH_MS)
@@ -348,6 +445,8 @@ fun MapScreenContent(
                     
                     if (dist < 50f) { // 50 meters
                         selectedCoordinate = null
+                        activeTourFocusStop = null
+                        activeLiveTourMoment = null
                         activeCityName = userCityName ?: "Your Location"
                         activeRadius = DEFAULT_RADIUS_KM
                         activeWeatherPoint = userLocation
@@ -357,6 +456,8 @@ fun MapScreenContent(
                 
                 // Select new point
                 selectedCoordinate = point
+                activeTourFocusStop = null
+                activeLiveTourMoment = null
                 activeCityName = "Selected Location"
                 activeRadius = SELECTED_LOCATION_RADIUS_KM
                 activeWeatherPoint = point
@@ -438,10 +539,12 @@ fun MapScreenContent(
         }
     }
 
-    LaunchedEffect(mapReady, userLocation, userTourStop) {
+    LaunchedEffect(mapReady, userLocation) {
         centerOnUserTrigger.collect {
             val location = userLocation ?: return@collect
             selectedCoordinate = null
+            activeTourFocusStop = null
+            activeLiveTourMoment = null
             activeCityName = userCityName ?: "Your Location"
             activeRadius = DEFAULT_RADIUS_KM
             activeWeatherPoint = location
@@ -514,10 +617,12 @@ fun MapScreenContent(
 
     // Radius pulse removed as per request
 
-    LaunchedEffect(isVisible, mapReady, userLocation, userTourStop) {
+    LaunchedEffect(isVisible, mapReady, userLocation) {
         val location = userLocation
         if (isVisible && mapReady && location != null && !hasZoomedToLocation) {
             activeCityName = "Your Location"
+            activeTourFocusStop = null
+            activeLiveTourMoment = null
             activeRadius = DEFAULT_RADIUS_KM
             activeWeatherPoint = location
             activeAiInsight = null
@@ -580,6 +685,8 @@ fun MapScreenContent(
         while (isVisible && mapReady) {
             TourStops.shuffled().take(TOUR_STOPS_PER_CYCLE).forEach { stop ->
                 activeCityName = "World"
+                activeTourFocusStop = null
+                activeLiveTourMoment = null
                 activeRadius = EARTH_RADIUS_KM
                 activeWeatherPoint = null
                 mapView?.mapboxMap?.flyTo(
@@ -592,17 +699,35 @@ fun MapScreenContent(
                     mapAnimationOptions { duration(2600) }
                 )
                 delay(3300)
-                activeCityName = stop.cityName
-                activeRadius = stop.radiusKm
-                activeWeatherPoint = stop.coordinate
-                val insight = spoofAiTourInsight(stop)
+                val liveMoment = resolveLiveTourMoment(stop)
+                val focusStop = liveMoment?.let { moment ->
+                    stop.copy(
+                        coordinate = moment.coordinate,
+                        bearing = moment.bearing,
+                        radiusKm = moment.radiusKm,
+                        zoom = moment.zoom
+                    )
+                } ?: stop
+                val insight = liveMoment?.let { moment ->
+                    AiTourInsight(
+                        id = moment.id,
+                        subtitle = moment.subtitle,
+                        category = moment.category
+                    )
+                } ?: spoofAiTourInsight(stop)
+
+                activeTourFocusStop = focusStop
+                activeLiveTourMoment = liveMoment
+                activeCityName = liveMoment?.title ?: stop.cityName
+                activeRadius = focusStop.radiusKm
+                activeWeatherPoint = focusStop.coordinate
                 activeAiInsight = insight
                 mapView?.mapboxMap?.flyTo(
                     CameraOptions.Builder()
-                        .center(stop.coordinate)
-                        .zoom(stop.zoom)
+                        .center(focusStop.coordinate)
+                        .zoom(focusStop.zoom)
                         .pitch(66.0)
-                        .bearing(stop.bearing)
+                        .bearing(focusStop.bearing)
                         .build(),
                     mapAnimationOptions { duration(4200) }
                 )
@@ -790,6 +915,15 @@ fun MapScreenContent(
                 .padding(bottom = 210.dp, start = 20.dp)
                 .zIndex(3f)
         )
+        MapRadioBroadcastCard(
+            isLive = mapRadioLive,
+            script = if (mapRadioLive) mapRadioDisplayLine else mapRadioScript,
+            onToggle = toggleMapRadio,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 86.dp, bottom = 132.dp, end = 16.dp)
+                .zIndex(4f)
+        )
         Column(Modifier.padding(bottom = 58.dp, start = 20.dp).align(Alignment.BottomStart).zIndex(2f)) {
             Text("TRENDING", color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
             HorizontalDivider(color = Color.White, thickness = 2.dp, modifier = Modifier.width(60.dp).padding(vertical = 6.dp))
@@ -852,6 +986,80 @@ private fun TourSubtextLine(text: String, isTouring: Boolean) {
             lineHeight = 20.sp,
             modifier = Modifier.padding(top = 3.dp)
         )
+    }
+}
+
+@Composable
+private fun MapRadioBroadcastCard(
+    isLive: Boolean,
+    script: String,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onToggle,
+        modifier = modifier.widthIn(max = 262.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = Color.Black.copy(alpha = 0.58f),
+        contentColor = Color.White
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Surface(
+                modifier = Modifier.size(42.dp),
+                shape = RoundedCornerShape(100.dp),
+                color = Color(0xFF57FF67).copy(alpha = if (isLive) 0.24f else 0.12f),
+                contentColor = Color(0xFF57FF67)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (isLive) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        "POPLUR RADIO",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.1.sp
+                    )
+                    if (isLive) {
+                        Surface(
+                            shape = RoundedCornerShape(100.dp),
+                            color = Color(0xFF57FF67),
+                            contentColor = Color.Black
+                        ) {
+                            Text(
+                                "LIVE",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
+                }
+                Text(
+                    script,
+                    color = Color.White.copy(alpha = 0.86f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 15.sp,
+                    maxLines = 2
+                )
+            }
+        }
     }
 }
 
@@ -1576,6 +1784,7 @@ private const val LOCATION_POP_BURST_GAP_MS = 420L
 private const val RADIUS_CIRCLE_SEGMENTS = 128
 private const val TREND_POP_COUNT_MIN = 18
 private const val TREND_POP_COUNT_RANGE = 8
+private const val MAP_RADIO_UTTERANCE_ID = "poplur-map-radio"
 private val MUSIC_WAVE_IMAGE_IDS = List(4) { index -> "$MUSIC_WAVE_IMAGE_ID_PREFIX-$index" }
 
 private data class TourStop(
@@ -1596,6 +1805,53 @@ private fun activeCityTitle(cityName: String, stop: TourStop?, userCountryCode: 
     val code = stop?.storefront ?: (if (cityName != "World" && cityName != "Selected Location") userCountryCode else null)
     return code?.let { "$cityName ${countryFlagEmoji(it)}" } ?: cityName
 }
+
+private fun buildMapRadioScript(
+    cityName: String,
+    stop: TourStop?,
+    insight: AiTourInsight?,
+    liveMoment: LiveTourMoment?,
+    visiblePostCount: Int,
+    radius: Int,
+    weather: WeatherBadge,
+    fallbackLine: String
+): String {
+    val activeCity = stop?.cityName ?: cityName.ifBlank { "your map" }
+    val headline = when {
+        liveMoment != null -> "${liveMoment.title}. ${liveMoment.subtitle}"
+        insight != null -> insight.subtitle
+        else -> fallbackLine
+    }
+    val activity = if (visiblePostCount == 0) {
+        "No public posts are inside your current filter yet, so we are watching for the first spark."
+    } else {
+        "We are tracking $visiblePostCount visible ${if (visiblePostCount == 1) "post" else "posts"} around this map."
+    }
+
+    return listOf(
+        "You are listening to Poplur Radio.",
+        "I am Nova, live over $activeCity.",
+        cleanMapRadioLine(headline),
+        activity,
+        "The active radius signal is set to ${formatMapRadioRadius(radius)}.",
+        "Weather on the layer reads ${weather.label}. Keep the map open and I will call out what starts moving."
+    )
+        .map(::cleanMapRadioLine)
+        .filter { it.isNotBlank() }
+        .joinToString(" ")
+}
+
+private fun formatMapRadioRadius(radius: Int): String =
+    "%,d".format(Locale.US, radius)
+
+private fun cleanMapRadioLine(text: String): String =
+    text
+        .replace("📍", "")
+        .replace("🗺️", "")
+        .replace("✅", "")
+        .replace("—", "-")
+        .replace(Regex("\\s+"), " ")
+        .trim()
 
 private fun nowPlayingSubtext(stop: TourStop, insight: AiTourInsight?): String {
     val track = when {
@@ -1702,6 +1958,41 @@ private data class AiTourInsight(
     val category: TrendCategory
 )
 
+private enum class LiveTourMomentKind {
+    Sports,
+    Shopping
+}
+
+private data class LiveTourMoment(
+    val id: String,
+    val kind: LiveTourMomentKind,
+    val title: String,
+    val subtitle: String,
+    val coordinate: Point,
+    val bearing: Double,
+    val radiusKm: Int,
+    val zoom: Double,
+    val category: TrendCategory
+)
+
+private data class SportsVenue(
+    val name: String,
+    val coordinate: Point,
+    val bearing: Double
+)
+
+private data class ShoppingSaleVenue(
+    val name: String,
+    val coordinate: Point,
+    val sale: String,
+    val bearing: Double
+)
+
+private data class SportsScoreboardFeed(
+    val leagueName: String,
+    val url: String
+)
+
 private data class TrendPopObject(
     val point: Point,
     val emoji: String,
@@ -1801,6 +2092,104 @@ private val FallbackCitySportsRadioTracks = mapOf(
     )
 )
 
+private val SportsVenueCatalog = mapOf(
+    "New York" to listOf(
+        SportsVenue("Madison Square Garden", Point.fromLngLat(-73.9934, 40.7505), -18.0),
+        SportsVenue("Barclays Center", Point.fromLngLat(-73.9754, 40.6826), 18.0),
+        SportsVenue("Yankee Stadium", Point.fromLngLat(-73.9262, 40.8296), -24.0),
+        SportsVenue("Citi Field", Point.fromLngLat(-73.8458, 40.7571), 24.0),
+        SportsVenue("MetLife Stadium", Point.fromLngLat(-74.0745, 40.8135), -12.0)
+    ),
+    "Los Angeles" to listOf(
+        SportsVenue("Crypto.com Arena", Point.fromLngLat(-118.2673, 34.0430), 20.0),
+        SportsVenue("Dodger Stadium", Point.fromLngLat(-118.2400, 34.0739), 28.0),
+        SportsVenue("SoFi Stadium", Point.fromLngLat(-118.3392, 33.9535), -26.0),
+        SportsVenue("BMO Stadium", Point.fromLngLat(-118.2845, 34.0128), 16.0)
+    ),
+    "Chicago" to listOf(
+        SportsVenue("United Center", Point.fromLngLat(-87.6742, 41.8807), -18.0),
+        SportsVenue("Wrigley Field", Point.fromLngLat(-87.6553, 41.9484), 24.0),
+        SportsVenue("Soldier Field", Point.fromLngLat(-87.6167, 41.8623), 12.0),
+        SportsVenue("Guaranteed Rate Field", Point.fromLngLat(-87.6339, 41.8300), -22.0)
+    ),
+    "Toronto" to listOf(
+        SportsVenue("Scotiabank Arena", Point.fromLngLat(-79.3791, 43.6435), 24.0),
+        SportsVenue("Rogers Centre", Point.fromLngLat(-79.3894, 43.6414), -20.0),
+        SportsVenue("BMO Field", Point.fromLngLat(-79.4186, 43.6332), 30.0)
+    ),
+    "London" to listOf(
+        SportsVenue("Wembley Stadium", Point.fromLngLat(-0.2796, 51.5560), -26.0),
+        SportsVenue("Emirates Stadium", Point.fromLngLat(-0.1084, 51.5549), 18.0),
+        SportsVenue("Tottenham Hotspur Stadium", Point.fromLngLat(-0.0662, 51.6043), 22.0),
+        SportsVenue("Stamford Bridge", Point.fromLngLat(-0.1910, 51.4817), -18.0)
+    ),
+    "Tokyo" to listOf(
+        SportsVenue("Tokyo Dome", Point.fromLngLat(139.7519, 35.7056), 34.0),
+        SportsVenue("Japan National Stadium", Point.fromLngLat(139.7147, 35.6780), -24.0)
+    ),
+    "Sydney" to listOf(
+        SportsVenue("Accor Stadium", Point.fromLngLat(151.0634, -33.8472), -28.0),
+        SportsVenue("Sydney Cricket Ground", Point.fromLngLat(151.2248, -33.8915), 22.0)
+    ),
+    "Miami" to listOf(
+        SportsVenue("Kaseya Center", Point.fromLngLat(-80.1870, 25.7814), 28.0),
+        SportsVenue("Hard Rock Stadium", Point.fromLngLat(-80.2389, 25.9580), -24.0),
+        SportsVenue("loanDepot park", Point.fromLngLat(-80.2197, 25.7781), 18.0)
+    ),
+    "Paris" to listOf(
+        SportsVenue("Parc des Princes", Point.fromLngLat(2.2530, 48.8414), 24.0),
+        SportsVenue("Stade de France", Point.fromLngLat(2.3601, 48.9245), -20.0),
+        SportsVenue("Accor Arena", Point.fromLngLat(2.3786, 48.8386), 18.0)
+    )
+)
+
+private val ShoppingSaleCatalog = mapOf(
+    "New York" to listOf(
+        ShoppingSaleVenue("Westfield World Trade Center", Point.fromLngLat(-74.0113, 40.7116), "Nike, Sephora, and Apple accessories are flagged for 20-40% off limited-time in-store drops.", -18.0),
+        ShoppingSaleVenue("The Shops at Columbus Circle", Point.fromLngLat(-73.9830, 40.7686), "Designer apparel and sneaker shops are running end-of-week clearance, up to 35% off select items.", 22.0)
+    ),
+    "Los Angeles" to listOf(
+        ShoppingSaleVenue("Westfield Century City", Point.fromLngLat(-118.4198, 34.0587), "Fashion and beauty stores are showing 25-50% off summer edits and bonus loyalty points.", 26.0),
+        ShoppingSaleVenue("The Grove", Point.fromLngLat(-118.3570, 34.0720), "Pop-up retail signal: shoes, denim, and fragrance bundles marked down through tonight.", -20.0)
+    ),
+    "Chicago" to listOf(
+        ShoppingSaleVenue("Water Tower Place", Point.fromLngLat(-87.6235, 41.8976), "Mall-wide sale signal: apparel, bags, and cosmetics are 20-45% off select collections.", -18.0)
+    ),
+    "Toronto" to listOf(
+        ShoppingSaleVenue("CF Toronto Eaton Centre", Point.fromLngLat(-79.3807, 43.6544), "Sneakers, beauty, and tech accessories are marked 20-40% off at participating stores.", 24.0),
+        ShoppingSaleVenue("Yorkdale Shopping Centre", Point.fromLngLat(-79.4522, 43.7255), "Luxury and streetwear sale signal: select seasonal items up to 30% off today.", -24.0)
+    ),
+    "London" to listOf(
+        ShoppingSaleVenue("Westfield London", Point.fromLngLat(-0.2219, 51.5073), "Fashion, trainer, and beauty stores are running 25-50% off flash offers until close.", -28.0),
+        ShoppingSaleVenue("Westfield Stratford City", Point.fromLngLat(-0.0067, 51.5433), "Shopping signal: electronics accessories and streetwear bundles marked down today.", 18.0)
+    ),
+    "Tokyo" to listOf(
+        ShoppingSaleVenue("Shibuya Scramble Square", Point.fromLngLat(139.7020, 35.6585), "Department floors are showing limited-time fashion, skincare, and lifestyle markdowns.", 34.0)
+    ),
+    "Paris" to listOf(
+        ShoppingSaleVenue("Westfield Forum des Halles", Point.fromLngLat(2.3470, 48.8626), "Beauty, sneakers, and casualwear sale signal: select collections 20-40% off today.", 18.0),
+        ShoppingSaleVenue("Galeries Lafayette Haussmann", Point.fromLngLat(2.3321, 48.8738), "Designer and fragrance counters are flagged for limited in-store offers.", -22.0)
+    ),
+    "Sydney" to listOf(
+        ShoppingSaleVenue("Westfield Sydney", Point.fromLngLat(151.2089, -33.8705), "Fashion and beauty retailers are running 20-40% off selected seasonal edits.", -26.0)
+    ),
+    "Singapore" to listOf(
+        ShoppingSaleVenue("ION Orchard", Point.fromLngLat(103.8319, 1.3040), "Orchard Road retail signal: beauty, luxury, and sneaker offers running through close.", 22.0)
+    ),
+    "Dubai" to listOf(
+        ShoppingSaleVenue("The Dubai Mall", Point.fromLngLat(55.2796, 25.1972), "Mall-wide shopping signal: fashion, fragrance, and electronics offers up to 50% off.", 18.0)
+    )
+)
+
+private val SportsScoreboardFeeds = listOf(
+    SportsScoreboardFeed("NBA", "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"),
+    SportsScoreboardFeed("NHL", "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard"),
+    SportsScoreboardFeed("MLB", "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"),
+    SportsScoreboardFeed("NFL", "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"),
+    SportsScoreboardFeed("MLS", "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard"),
+    SportsScoreboardFeed("Premier League", "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard")
+)
+
 private fun spoofAiTourInsight(stop: TourStop): AiTourInsight {
     val sportsCities = setOf("New York", "Los Angeles", "Chicago", "Toronto", "London", "Tokyo", "Sydney", "Miami")
     val options = listOf(
@@ -1819,6 +2208,163 @@ private fun spoofAiTourInsight(stop: TourStop): AiTourInsight {
         )
     }
     return options.random()
+}
+
+private suspend fun resolveLiveTourMoment(stop: TourStop): LiveTourMoment? {
+    return resolveLiveSportsMoment(stop) ?: resolveShoppingSaleMoment(stop)
+}
+
+private suspend fun resolveLiveSportsMoment(stop: TourStop): LiveTourMoment? {
+    if (SportsVenueCatalog[stop.cityName].isNullOrEmpty()) return null
+
+    return withContext(Dispatchers.IO) {
+        for (feed in SportsScoreboardFeeds) {
+            val response = runCatching {
+                URL(feed.url).openConnection().apply {
+                    connectTimeout = MUSIC_LOOKUP_TIMEOUT_MS
+                    readTimeout = MUSIC_LOOKUP_TIMEOUT_MS
+                    setRequestProperty("User-Agent", "Poplur2025-Android/1.0")
+                }.getInputStream().bufferedReader().use { it.readText() }
+            }.getOrNull() ?: continue
+
+            val events = runCatching { JSONObject(response).optJSONArray("events") }.getOrNull() ?: continue
+            for (index in 0 until events.length()) {
+                val event = events.optJSONObject(index) ?: continue
+                if (!event.isLiveEspnGame()) continue
+
+                val competition = event.optJSONArray("competitions")?.optJSONObject(0) ?: continue
+                val venue = matchingSportsVenue(stop, event, competition) ?: continue
+                val score = scoreLine(competition)
+                val status = event.optJSONObject("status")
+                val type = status?.optJSONObject("type")
+                val statusText = type?.optString("shortDetail")?.takeIf { it.isNotBlank() }
+                    ?: type?.optString("detail")?.takeIf { it.isNotBlank() }
+                    ?: status?.optString("displayClock")?.takeIf { it.isNotBlank() }
+                    ?: "Live"
+                val matchup = event.optString("shortName").ifBlank {
+                    event.optString("name").ifBlank { feed.leagueName }
+                }
+                val eventId = event.optString("id").ifBlank { matchup }
+
+                return@withContext LiveTourMoment(
+                    id = "sports-${feed.leagueName}-$eventId-${venue.name}",
+                    kind = LiveTourMomentKind.Sports,
+                    title = venue.name,
+                    subtitle = "LIVE ${feed.leagueName}: $score - $statusText. Tuning into ${stop.cityName} game radio.",
+                    coordinate = venue.coordinate,
+                    bearing = venue.bearing,
+                    radiusKm = (stop.radiusKm * 0.45).toInt().coerceIn(35, 75),
+                    zoom = if (stop.zoom < 17.1) 17.1 else stop.zoom,
+                    category = TrendCategory.Sports
+                )
+            }
+        }
+
+        null
+    }
+}
+
+private fun resolveShoppingSaleMoment(stop: TourStop): LiveTourMoment? {
+    val venues = ShoppingSaleCatalog[stop.cityName].orEmpty()
+    if (venues.isEmpty()) return null
+
+    val saleBucket = (System.currentTimeMillis() / 10_800_000L).toString()
+    val venue = venues[stableTourSeed(stop.cityName, "shopping", saleBucket) % venues.size]
+    return LiveTourMoment(
+        id = "shopping-${stop.cityName}-${venue.name}-$saleBucket",
+        kind = LiveTourMomentKind.Shopping,
+        title = venue.name,
+        subtitle = "SALE: ${venue.sale}",
+        coordinate = venue.coordinate,
+        bearing = venue.bearing,
+        radiusKm = (stop.radiusKm * 0.32).toInt().coerceIn(22, 58),
+        zoom = if (stop.zoom < 17.2) 17.2 else stop.zoom,
+        category = TrendCategory.Clothes
+    )
+}
+
+private fun matchingSportsVenue(stop: TourStop, event: JSONObject, competition: JSONObject): SportsVenue? {
+    val knownVenues = SportsVenueCatalog[stop.cityName].orEmpty()
+    val venueObject = competition.optJSONObject("venue")
+    val venueName = venueObject?.optString("fullName").orEmpty()
+    val normalizedVenueName = normalizedTourText(venueName)
+
+    knownVenues.firstOrNull { venue ->
+        val knownName = normalizedTourText(venue.name)
+        knownName.isNotBlank() && (normalizedVenueName.contains(knownName) || knownName.contains(normalizedVenueName))
+    }?.let { return it }
+
+    val venueCity = normalizedTourText(venueObject?.optJSONObject("address")?.optString("city").orEmpty())
+    val stopCity = normalizedTourText(stop.cityName)
+    if (venueCity.isNotBlank() && (venueCity == stopCity || venueCity.contains(stopCity) || stopCity.contains(venueCity))) {
+        return knownVenues.firstOrNull()
+    }
+
+    val competitors = competition.optJSONArray("competitors")
+    val teamText = buildString {
+        if (competitors != null) {
+            for (index in 0 until competitors.length()) {
+                val team = competitors.optJSONObject(index)?.optJSONObject("team")
+                append(' ')
+                append(team?.optString("location").orEmpty())
+                append(' ')
+                append(team?.optString("displayName").orEmpty())
+                append(' ')
+                append(team?.optString("shortDisplayName").orEmpty())
+            }
+        }
+    }
+    val eventText = normalizedTourText("${event.optString("name")} ${event.optString("shortName")} $teamText")
+    return if (eventText.contains(stopCity)) knownVenues.firstOrNull() else null
+}
+
+private fun scoreLine(competition: JSONObject): String {
+    val competitors = competition.optJSONArray("competitors")
+    val entries = if (competitors == null) {
+        emptyList()
+    } else {
+        (0 until competitors.length()).mapNotNull { competitors.optJSONObject(it) }
+    }
+    val away = entries.firstOrNull { it.optString("homeAway").equals("away", ignoreCase = true) } ?: entries.firstOrNull()
+    val home = entries.firstOrNull { it.optString("homeAway").equals("home", ignoreCase = true) } ?: entries.drop(1).firstOrNull()
+
+    fun label(competitor: JSONObject?): String {
+        val team = competitor?.optJSONObject("team")
+        return team?.optString("abbreviation")?.takeIf { it.isNotBlank() }
+            ?: team?.optString("shortDisplayName")?.takeIf { it.isNotBlank() }
+            ?: team?.optString("displayName")?.takeIf { it.isNotBlank() }
+            ?: "TEAM"
+    }
+
+    fun score(competitor: JSONObject?): String {
+        return competitor?.optString("score")?.trim()?.takeIf { it.isNotBlank() } ?: "0"
+    }
+
+    return "${label(away)} ${score(away)} - ${label(home)} ${score(home)}"
+}
+
+private fun JSONObject.isLiveEspnGame(): Boolean {
+    val type = optJSONObject("status")?.optJSONObject("type")
+    val state = type?.optString("state").orEmpty().lowercase(Locale.US)
+    return state == "in" && type?.optBoolean("completed", false) != true
+}
+
+private fun stableTourSeed(vararg parts: String): Int {
+    var value = -2_128_839_295
+    parts.forEach { part ->
+        part.forEach { char ->
+            value = value xor char.code
+            value *= 16_777_619
+        }
+    }
+    return value and Int.MAX_VALUE
+}
+
+private fun normalizedTourText(text: String): String {
+    return text
+        .lowercase(Locale.US)
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
 }
 
 

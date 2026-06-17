@@ -45,52 +45,64 @@ class CombinedGdxAdapter(
     private var instance: ModelInstance? = null
     private var environment: Environment? = null
 
-    var cubeScale: Float = 0.65f
+    private var textureBatch: SpriteBatch? = null
+    private var shapeRenderer: ShapeRenderer? = null
+    @Volatile private var texturesDirty = false
+    @Volatile private var modelDirty = false
+    @Volatile private var materialsDirty = false
+    private var appInstance: com.badlogic.gdx.Application? = null
+
+    var cubeScale: Float = 0.80f
         set(value) {
-            field = value
-            Gdx.app?.postRunnable { rebuildModel() }
+            if (field != value) {
+                field = value
+                modelDirty = true
+            }
         }
 
-    var cornerRadius: Float = 92f
+    var cornerRadius: Float = 0f
         set(value) {
-            field = value
-            Gdx.app?.postRunnable { 
-                rebuildTextures()
-                rebuildModel() 
+            if (field != value) {
+                field = value
+                texturesDirty = true
+                modelDirty = true
             }
         }
 
     var opacity: Float = 1.0f
         set(value) {
-            field = value
-            Gdx.app?.postRunnable { 
-                rebuildMaterialsOpacity() 
+            if (field != value) {
+                field = value
+                materialsDirty = true
             }
         }
 
     var currentIconTitle: String = "Record"
         set(value) {
-            field = value
-            Gdx.app?.postRunnable {
-                rebuildTextures()
-                rebuildModel()
+            if (field != value) {
+                field = value
+                texturesDirty = true
+                modelDirty = true
             }
         }
 
     var profileIconTitle: String = "Profile"
         set(value) {
-            field = value.ifBlank { "Profile" }
-            Gdx.app?.postRunnable {
-                rebuildTextures()
-                rebuildModel()
+            val v = value.ifBlank { "Profile" }
+            if (field != v) {
+                field = v
+                texturesDirty = true
+                modelDirty = true
             }
         }
 
     var yawDegrees: Float = -90f * initialTabIndex
         set(value) {
-            field = value
-            currentYawDegrees = value
-            targetYawDegrees = value
+            if (field != value) {
+                field = value
+                currentYawDegrees = value
+                targetYawDegrees = value
+            }
         }
 
     private var currentYawDegrees = yawDegrees
@@ -111,12 +123,15 @@ class CombinedGdxAdapter(
     private var touchStartMillis = 0L
     private var time = 0f
 
-    private val textures = mutableListOf<Texture>()
-    private val materials = mutableListOf<Material>()
+    private val textures = arrayOfNulls<Texture>(4)
+    private val materials = arrayOfNulls<Material>(4)
+    private val currentTitles = arrayOfNulls<String>(4)
     private var font: BitmapFont? = null
 
     override fun create() {
         try {
+            appInstance = Gdx.app
+            Gdx.graphics.setContinuousRendering(true)
             // Disable LibGDX asset management to avoid multi-instance conflicts
             com.badlogic.gdx.graphics.glutils.ShaderProgram.prependVertexCode = ""
             com.badlogic.gdx.graphics.glutils.ShaderProgram.prependFragmentCode = ""
@@ -137,6 +152,8 @@ class CombinedGdxAdapter(
             }
 
             modelBatch = ModelBatch()
+            textureBatch = SpriteBatch()
+            shapeRenderer = ShapeRenderer().apply { setAutoShapeType(true) }
             font = BitmapFont().apply {
                 data.setScale(2.5f)
                 setUseIntegerPositions(false)
@@ -161,7 +178,7 @@ class CombinedGdxAdapter(
                         if (abs(dy) > 15f && abs(dy) > abs(dx) * 1.5f) isVerticalSwipe = true else if (abs(dx) > 15f) isRotation = true
                     }
                     if (isVerticalSwipe && !isSwipeTriggered && abs(dy) > 40f) {
-                        isSwipeTriggered = true; Gdx.app.postRunnable { onVerticalSwipe?.invoke(dy < 0) }
+                        isSwipeTriggered = true; appInstance?.postRunnable { onVerticalSwipe?.invoke(dy < 0) }
                     }
                     if (isRotation) {
                         val deltaX = screenX.toFloat() - lastX; currentYawDegrees += deltaX * 0.8f; targetYawDegrees = currentYawDegrees
@@ -172,17 +189,17 @@ class CombinedGdxAdapter(
                     dragging = false
                     if (longPressStarted) {
                         longPressStarted = false
-                        Gdx.app.postRunnable { onLongPressEnd?.invoke() }
+                        appInstance?.postRunnable { onLongPressEnd?.invoke() }
                     }
-                    if (isVerticalSwipe && !isSwipeTriggered) Gdx.app.postRunnable { onVerticalSwipe?.invoke((screenY - downY) < 0) }
+                    if (isVerticalSwipe && !isSwipeTriggered) appInstance?.postRunnable { onVerticalSwipe?.invoke((screenY - downY) < 0) }
                     val moved = abs(screenX - downX) > 15f || abs(screenY - downY) > 15f
                     if (!moved && !longPressSent) {
-                        Gdx.app.postRunnable { onTap?.invoke() }
+                        appInstance?.postRunnable { onTap?.invoke() }
                         return true
                     }
                     val snappedIndex = snappedTabIndex(currentYawDegrees)
                     startBounceTo(-90f * snappedIndex)
-                    if (isRotation || abs(screenX - downX) > 15f) Gdx.app.postRunnable { onTabSelected(snappedIndex) }
+                    if (isRotation || abs(screenX - downX) > 15f) appInstance?.postRunnable { onTabSelected(snappedIndex) }
                     return true
                 }
             }
@@ -192,37 +209,45 @@ class CombinedGdxAdapter(
     }
 
     private fun rebuildTextures() {
-        textures.forEach { it.dispose() }
-        textures.clear()
-        materials.clear()
-        
-        // In debug mode, we might want to see the same icon on all faces or just test one
         val recordTitle = if (currentIconTitle != "Record") currentIconTitle else "Record"
         val titles = listOf(recordTitle, "Feed", profileIconTitle, "Map")
 
-        titles.forEach { title ->
-            val texture = createFaceTexture(title)
-            textures += texture
-            materials += Material(
-                TextureAttribute.createDiffuse(texture),
-                ColorAttribute.createDiffuse(Color.WHITE),
-                BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, opacity)
-            )
+        var anyChanged = false
+        titles.forEachIndexed { index, title ->
+            if (currentTitles[index] != title) {
+                textures[index]?.dispose()
+                val texture = createFaceTexture(title)
+                textures[index] = texture
+                materials[index] = Material(
+                    TextureAttribute.createDiffuse(texture),
+                    ColorAttribute.createDiffuse(Color.WHITE),
+                    BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, opacity)
+                )
+                currentTitles[index] = title
+                anyChanged = true
+            }
+        }
+        
+        if (anyChanged) {
+            modelDirty = true
         }
     }
 
     private fun rebuildMaterialsOpacity() {
         materials.forEach { material ->
-            val blending = material.get(BlendingAttribute.Type) as? BlendingAttribute
+            val blending = material?.get(BlendingAttribute.Type) as? BlendingAttribute
             blending?.opacity = opacity
         }
     }
 
     private fun rebuildModel() {
         val oldModel = model
-        model = buildCube(materials)
-        instance = ModelInstance(model)
-        oldModel?.dispose()
+        val nonNullMaterials = materials.filterNotNull()
+        if (nonNullMaterials.size == 4) {
+            model = buildCube(nonNullMaterials)
+            instance = ModelInstance(model)
+            oldModel?.dispose()
+        }
     }
 
     private fun buildCube(materials: List<Material>): Model {
@@ -241,10 +266,15 @@ class CombinedGdxAdapter(
 
     private fun createFaceTexture(title: String): Texture {
         val size = 384
-        val fbo = FrameBuffer(Pixmap.Format.RGBA8888, size, size, false)
+        val fbo = try {
+            FrameBuffer(Pixmap.Format.RGBA8888, size, size, false)
+        } catch (e: Exception) {
+            // FBO creation might fail if GL context is unstable or out of memory
+            return Texture(size, size, Pixmap.Format.RGBA8888) 
+        }
         val projection = Matrix4().setToOrtho2D(0f, 0f, size.toFloat(), size.toFloat())
-        val sr = ShapeRenderer().apply { setAutoShapeType(true) }
-        val batch = SpriteBatch()
+        val sr = shapeRenderer ?: ShapeRenderer().also { shapeRenderer = it; it.setAutoShapeType(true) }
+        val batch = textureBatch ?: SpriteBatch().also { textureBatch = it }
 
         fbo.begin()
         Gdx.gl.glViewport(0, 0, size, size)
@@ -255,10 +285,11 @@ class CombinedGdxAdapter(
         sr.projectionMatrix = projection
         sr.begin(ShapeRenderer.ShapeType.Filled)
 
-        // Dark indigo background — matches iOS baseColor(white:0.2) × .indigo multiply
+        // Dark indigo background — matches iOS baseColor(white:0.2) × .indigo multiply.
+        // Fill the whole texture so adjacent cube faces visually meet at every edge.
         val bgR = 0.07f; val bgG = 0.07f; val bgB = 0.18f
         val bgColor = Color(bgR, bgG, bgB, 1f)
-        val pad = 20f
+        val pad = 0f
         val r = cornerRadius
         sr.color = bgColor
         sr.filledRoundRect(pad, pad, size - pad * 2, size - pad * 2, r)
@@ -372,7 +403,7 @@ class CombinedGdxAdapter(
         for (y in 0 until size) upright.drawPixmap(pixmap, 0, size - y - 1, size, 1, 0, y, size, 1)
         val tex = Texture(upright)
         tex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
-        sr.dispose(); batch.dispose(); pixmap.dispose(); upright.dispose(); fbo.dispose()
+        pixmap.dispose(); upright.dispose(); fbo.dispose()
         return tex
     }
 
@@ -389,7 +420,7 @@ class CombinedGdxAdapter(
 
     private fun updateAnimation() {
         if (dragging && !longPressSent && System.currentTimeMillis() - touchStartMillis >= 800L) {
-            longPressSent = true; longPressStarted = true; Gdx.app.postRunnable { onLongPress?.invoke() }
+            longPressSent = true; longPressStarted = true; appInstance?.postRunnable { onLongPress?.invoke() }
         }
         when (bouncePhase) {
             BouncePhase.Idle -> Unit
@@ -414,21 +445,41 @@ class CombinedGdxAdapter(
     }
 
     override fun render() {
-        val deltaTime = Gdx.graphics.deltaTime
-        time += deltaTime
-        if (dragging || bouncePhase != BouncePhase.Idle) updateAnimation()
-        Gdx.gl.glViewport(0, 0, Gdx.graphics.width, Gdx.graphics.height); Gdx.gl.glClearColor(0f, 0f, 0f, 0f); Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
-        instance?.let { cube ->
-            val hoverY = Math.sin(time.toDouble() * 2.0).toFloat() * 0.12f
-            cube.transform.setToTranslation(0f, hoverY, 0f)
-                .rotate(Vector3.Y, currentYawDegrees)
-                .scale(cubeScale.coerceAtLeast(0.01f), cubeScale.coerceAtLeast(0.01f), cubeScale.coerceAtLeast(0.01f))
-            modelBatch?.begin(camera); modelBatch?.render(cube, environment); modelBatch?.end()
+        try {
+            if (texturesDirty) {
+                rebuildTextures()
+                texturesDirty = false
+            }
+            if (modelDirty) {
+                rebuildModel()
+                modelDirty = false
+            }
+            if (materialsDirty) {
+                rebuildMaterialsOpacity()
+                materialsDirty = false
+            }
+
+            val deltaTime = Gdx.graphics.deltaTime
+            time += deltaTime
+            if (dragging || bouncePhase != BouncePhase.Idle) updateAnimation()
+            Gdx.gl.glViewport(0, 0, Gdx.graphics.width, Gdx.graphics.height); Gdx.gl.glClearColor(0f, 0f, 0f, 0f); Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
+            instance?.let { cube ->
+                val hoverY = Math.sin(time.toDouble() * 2.0).toFloat() * 0.12f
+                cube.transform.setToTranslation(0f, hoverY, 0f)
+                    .rotate(Vector3.Y, currentYawDegrees)
+                    .scale(cubeScale.coerceAtLeast(0.01f), cubeScale.coerceAtLeast(0.01f), cubeScale.coerceAtLeast(0.01f))
+                modelBatch?.begin(camera); modelBatch?.render(cube, environment); modelBatch?.end()
+            }
+        } catch (e: Exception) {
+            Log.e("CombinedGdxAdapter", "Error in render()", e)
         }
     }
 
     override fun dispose() {
-        modelBatch?.dispose(); model?.dispose(); textures.forEach { it.dispose() }; font?.dispose()
+        modelBatch?.dispose(); model?.dispose()
+        textures.forEach { it?.dispose() }
+        font?.dispose()
+        textureBatch?.dispose(); shapeRenderer?.dispose()
     }
 
     private fun snappedTabIndex(yaw: Float): Int {

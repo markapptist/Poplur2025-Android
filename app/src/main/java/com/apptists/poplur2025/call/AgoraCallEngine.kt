@@ -28,16 +28,20 @@ object AgoraCallEngine {
 
     fun initialize(context: Context) {
         if (engine != null) return
-        val config = RtcEngineConfig().apply {
-            mContext = context.applicationContext
-            mAppId = AGORA_APP_ID
-            mEventHandler = eventHandler
-        }
-        engine = RtcEngine.create(config)
-        engine?.apply {
-            enableAudio()
-            disableVideo()
-            setDefaultAudioRoutetoSpeakerphone(false) // earpiece by default, like a phone call
+        try {
+            val config = RtcEngineConfig().apply {
+                mContext = context.applicationContext
+                mAppId = AGORA_APP_ID
+                mEventHandler = eventHandler
+            }
+            engine = RtcEngine.create(config)
+            engine?.apply {
+                enableAudio()
+                disableVideo()
+                setDefaultAudioRoutetoSpeakerphone(false) // earpiece by default, like a phone call
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AgoraCallEngine", "Failed to initialize Agora RtcEngine: ${e.message}")
         }
     }
 

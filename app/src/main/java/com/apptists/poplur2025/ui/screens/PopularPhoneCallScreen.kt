@@ -10,6 +10,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -25,6 +28,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -33,6 +38,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,9 +55,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
@@ -59,22 +67,44 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.apptists.poplur2025.R
 import com.apptists.poplur2025.call.CallSessionManager
 import com.apptists.poplur2025.data.UserProfile
+import com.apptists.poplur2025.ui.components.CubeMenuWheelController
+import com.apptists.poplur2025.ui.components.CubeMenuWheelItem
+import com.apptists.poplur2025.ui.components.CubeMenuWheelOverlay
 import com.apptists.poplur2025.ui.components.ShaderNumberText
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas as AndroidCanvas
+import android.graphics.Paint as AndroidPaint
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.zIndex
+import kotlin.math.roundToInt
+import kotlin.random.Random
 
 @Composable
 fun PopularPhoneCallScreen(
     userName: String,
     onHangUp: () -> Unit,
-    userProfile: UserProfile? = null
+    userProfile: UserProfile? = null,
+    onVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
+    val colorWheelScope = rememberCoroutineScope()
     val toneGenerator = remember {
         try {
             ToneGenerator(AudioManager.STREAM_MUSIC, 80)
@@ -82,6 +112,18 @@ fun PopularPhoneCallScreen(
             null
         }
     }
+    val colorWheelController = remember(colorWheelScope) {
+        CubeMenuWheelController(scope = colorWheelScope) {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            try {
+                toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 65)
+            } catch (e: Exception) {
+                // Ignore if the generator is unavailable.
+            }
+        }
+    }
+    var selectedColorway by remember { mutableStateOf(PHONE_COLORWAYS.first()) }
+    var isPhoneButtonActive by remember { mutableStateOf(true) }
     var dialedNumber by remember { mutableStateOf("") }
     var snakeGame by remember { mutableStateOf(SnakeGameState.initial()) }
     var isSnakeActive by remember { mutableStateOf(false) }
@@ -90,6 +132,15 @@ fun PopularPhoneCallScreen(
     var menuScreen by remember { mutableStateOf(PhoneMenuScreen.Main) }
     var selectedMenuIndex by remember { mutableStateOf(0) }
     var menuMessage by remember { mutableStateOf<String?>(null) }
+    var pressedFrameIndex by remember { mutableStateOf<Int?>(null) }
+    var idleSignalFrameIndex by remember(selectedColorway) { mutableStateOf(PHONE_SIGNAL_FRAME_COUNT - 1) }
+    var pressAnimationNonce by remember { mutableStateOf(0) }
+    val pressSheetBitmap = remember(selectedColorway.pressSheetRes) {
+        BitmapFactory.decodeResource(context.resources, selectedColorway.pressSheetRes).asImageBitmap()
+    }
+    val signalSheetBitmap = remember(selectedColorway.signalSheetRes) {
+        BitmapFactory.decodeResource(context.resources, selectedColorway.signalSheetRes).asImageBitmap()
+    }
     val callState by CallSessionManager.callState.collectAsState()
     val elapsedSeconds by CallSessionManager.elapsedSeconds.collectAsState()
     val visibleAlpha by animateFloatAsState(
@@ -104,7 +155,11 @@ fun PopularPhoneCallScreen(
     )
 
     DisposableEffect(toneGenerator) {
-        onDispose { toneGenerator?.release() }
+        onVisibilityChanged(true)
+        onDispose {
+            onVisibilityChanged(false)
+            toneGenerator?.release()
+        }
     }
 
     LaunchedEffect(isSnakeActive, snakeGame.direction) {
@@ -125,6 +180,13 @@ fun PopularPhoneCallScreen(
         }
     }
 
+    LaunchedEffect(pressAnimationNonce) {
+        if (pressedFrameIndex != null) {
+            delay(140)
+            pressedFrameIndex = null
+        }
+    }
+
     fun currentMenuItems(): List<PhoneMenuItem> = phoneMenuItems(menuScreen, userName)
 
     fun returnToMenu(screen: PhoneMenuScreen = PhoneMenuScreen.Main) {
@@ -136,6 +198,30 @@ fun PopularPhoneCallScreen(
 
     fun flashMenuDetail(message: String) {
         menuMessage = message
+    }
+
+    fun colorWheelItems(): List<CubeMenuWheelItem> {
+        return PHONE_COLORWAYS.map { colorway ->
+            CubeMenuWheelItem(
+                label = colorway.label,
+                icon = Icons.Filled.Circle,
+                accent = colorway.swatch
+            ) {
+                selectedColorway = colorway
+                flashMenuDetail(colorway.label.uppercase())
+            }
+        }
+    }
+
+    fun togglePhoneButtonActive() {
+        isPhoneButtonActive = !isPhoneButtonActive
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        flashMenuDetail(if (isPhoneButtonActive) "BUTTON ACTIVE" else "BUTTON LOCKED")
+    }
+
+    fun showPhonePress(control: String) {
+        pressedFrameIndex = phonePressFrameIndex(control)
+        pressAnimationNonce += 1
     }
 
     fun placeCurrentProfileCall() {
@@ -239,19 +325,41 @@ fun PopularPhoneCallScreen(
             }
             val showPhoneMenu = !isSnakeActive && !isDialerActive && callStatusText == null
 
+            LaunchedEffect(selectedColorway, showPhoneMenu, pressedFrameIndex, isScreenLit) {
+                if (!showPhoneMenu || pressedFrameIndex != null || !isScreenLit) {
+                    idleSignalFrameIndex = PHONE_SIGNAL_FRAME_COUNT - 1
+                    return@LaunchedEffect
+                }
+
+                while (true) {
+                    delay(Random.nextLong(1_200L, 4_200L))
+                    val frameOrder = if (Random.nextBoolean()) {
+                        0 until PHONE_SIGNAL_FRAME_COUNT
+                    } else {
+                        (PHONE_SIGNAL_FRAME_COUNT - 1 downTo 0)
+                    }
+                    for (frame in frameOrder) {
+                        idleSignalFrameIndex = frame
+                        delay(Random.nextLong(55L, 95L))
+                    }
+                    idleSignalFrameIndex = PHONE_SIGNAL_FRAME_COUNT - 1
+                }
+            }
+
             Box(
                 modifier = Modifier.size(phoneWidth, phoneHeight),
                 contentAlignment = Alignment.Center
             ) {
                 Image(
-                    painter = painterResource(R.drawable.popular_phone_body),
+                    painter = painterResource(selectedColorway.drawableRes),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.FillBounds,
-                    colorFilter = ColorFilter.colorMatrix(plasticColorMatrix())
+                    contentScale = ContentScale.FillBounds
                 )
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    drawPhonePlasticOverlay()
+                pressedFrameIndex?.let { frameIndex ->
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        drawPhonePressFrame(pressSheetBitmap, frameIndex)
+                    }
                 }
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     if (isSnakeActive) {
@@ -287,34 +395,35 @@ fun PopularPhoneCallScreen(
                         )
                     }
                 }
-                PhoneKeypadLabels(modifier = Modifier.fillMaxSize())
+                if (showPhoneMenu && pressedFrameIndex == null) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        drawPhoneSignalFrame(signalSheetBitmap, idleSignalFrameIndex)
+                    }
+                }
                 PhoneKeypadTouchLayer(
                     modifier = Modifier.fillMaxSize(),
-                    onCallPressed = {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        if (showPhoneMenu) {
-                            activateMenuItem()
-                        } else if (!isSnakeActive) {
-                            val profile = userProfile
-                            when {
-                                profile != null && callState is CallSessionManager.CallState.Idle ->
-                                    CallSessionManager.placeCall(profile)
-                                callState is CallSessionManager.CallState.Outgoing ||
-                                callState is CallSessionManager.CallState.Connected ->
-                                    CallSessionManager.endCall()
-                                else ->
-                                    launchDialer(context, dialedNumber)
-                            }
-                        }
+                    onTopButtonTap = {
+                        showPhonePress("call")
+                        togglePhoneButtonActive()
+                    },
+                    onTopButtonHoldStart = {
+                        showPhonePress("call")
+                        colorWheelController.beginHold(colorWheelItems())
+                    },
+                    onTopButtonHoldEnd = { activateSelected ->
+                        colorWheelController.endHold(activateSelected)
                     },
                     onDigitPressed = { digit ->
+                        showPhonePress(digit)
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         try {
                             toneGenerator?.startTone(toneForDigit(digit), 140)
                         } catch (e: Exception) {
                             // Ignore if released
                         }
-                        if (isSnakeActive) {
+                        if (!isPhoneButtonActive) {
+                            flashMenuDetail("BUTTON LOCKED")
+                        } else if (isSnakeActive) {
                             when (digit) {
                                 "2" -> snakeGame = snakeGame.turn(GridPoint(0, 1))
                                 "8" -> snakeGame = snakeGame.turn(GridPoint(0, -1))
@@ -336,6 +445,11 @@ fun PopularPhoneCallScreen(
                 )
             }
         }
+
+        CubeMenuWheelOverlay(
+            controller = colorWheelController,
+            modifier = Modifier.zIndex(40f)
+        )
     }
 }
 
@@ -353,12 +467,14 @@ private fun PhoneMenuDisplay(
         Column(Modifier.fillMaxSize()) {
             Text(
                 text = title,
+                modifier = Modifier.fillMaxWidth(),
                 color = Color(0xFF1C350D),
                 fontFamily = FontFamily.Monospace,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Black,
                 lineHeight = 13.sp,
                 letterSpacing = 0.sp,
+                textAlign = TextAlign.Center,
                 maxLines = 1
             )
             Spacer(Modifier.height(3.dp))
@@ -576,10 +692,55 @@ private fun DrawScope.drawPhoneScreenFill(alpha: Float = 1f) {
     )
 }
 
+private fun DrawScope.drawPhonePressFrame(spriteSheet: ImageBitmap, frameIndex: Int) {
+    val safeIndex = frameIndex.coerceIn(0, PHONE_PRESS_COLUMNS * PHONE_PRESS_ROWS - 1)
+    val cellWidth = spriteSheet.width / PHONE_PRESS_COLUMNS
+    val cellHeight = spriteSheet.height / PHONE_PRESS_ROWS
+    val column = safeIndex % PHONE_PRESS_COLUMNS
+    val row = safeIndex / PHONE_PRESS_COLUMNS
+
+    drawImage(
+        image = spriteSheet,
+        srcOffset = IntOffset(column * cellWidth, row * cellHeight),
+        srcSize = IntSize(cellWidth, cellHeight),
+        dstOffset = IntOffset(0, 0),
+        dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
+    )
+}
+
+private fun DrawScope.drawPhoneSignalFrame(spriteSheet: ImageBitmap, frameIndex: Int) {
+    val safeIndex = frameIndex.coerceIn(0, PHONE_SIGNAL_FRAME_COUNT - 1)
+    val cellWidth = spriteSheet.width / PHONE_SIGNAL_COLUMNS
+    val cellHeight = spriteSheet.height / PHONE_SIGNAL_ROWS
+    val column = safeIndex % PHONE_SIGNAL_COLUMNS
+    val row = safeIndex / PHONE_SIGNAL_COLUMNS
+
+    val sourceLeft = column * cellWidth + (cellWidth * PHONE_SIGNAL_PATCH_LEFT_FRACTION).roundToInt()
+    val sourceTop = row * cellHeight + (cellHeight * PHONE_SIGNAL_PATCH_TOP_FRACTION).roundToInt()
+    val sourceWidth = (cellWidth * PHONE_SIGNAL_PATCH_WIDTH_FRACTION).roundToInt()
+    val sourceHeight = (cellHeight * PHONE_SIGNAL_PATCH_HEIGHT_FRACTION).roundToInt()
+
+    drawImage(
+        image = spriteSheet,
+        srcOffset = IntOffset(sourceLeft, sourceTop),
+        srcSize = IntSize(sourceWidth, sourceHeight),
+        dstOffset = IntOffset(
+            x = (size.width * PHONE_SIGNAL_PATCH_LEFT_FRACTION).roundToInt(),
+            y = (size.height * PHONE_SIGNAL_PATCH_TOP_FRACTION).roundToInt()
+        ),
+        dstSize = IntSize(
+            width = (size.width * PHONE_SIGNAL_PATCH_WIDTH_FRACTION).roundToInt(),
+            height = (size.height * PHONE_SIGNAL_PATCH_HEIGHT_FRACTION).roundToInt()
+        )
+    )
+}
+
 @Composable
 private fun PhoneKeypadTouchLayer(
     modifier: Modifier,
-    onCallPressed: () -> Unit,
+    onTopButtonTap: () -> Unit,
+    onTopButtonHoldStart: () -> Unit,
+    onTopButtonHoldEnd: (Boolean) -> Unit,
     onDigitPressed: (String) -> Unit
 ) {
     BoxWithConstraints(modifier = modifier) {
@@ -588,9 +749,9 @@ private fun PhoneKeypadTouchLayer(
         val buttonWidth = maxWidth * 0.18f
         val buttonHeight = maxHeight * 0.055f
         val callButtonWidth = maxWidth * 0.33f
-        val callButtonHeight = maxHeight * 0.09f
-        val xCenters = listOf(0.28f, 0.50f, 0.72f)
-        val yCenters = listOf(0.683f, 0.758f, 0.833f, 0.908f)
+        val callButtonHeight = maxHeight * 0.08f
+        val xCenters = listOf(0.30f, 0.50f, 0.70f)
+        val yCenters = listOf(0.63f, 0.705f, 0.78f, 0.855f)
         val labels = listOf(
             listOf("1", "2", "3"),
             listOf("4", "5", "6"),
@@ -602,10 +763,12 @@ private fun PhoneKeypadTouchLayer(
             InvisiblePhoneButton(
                 digit = "call",
                 xCenter = layerWidth * 0.50f,
-                yCenter = layerHeight * (0.452f + 0.09f / 2f),
+                yCenter = layerHeight * (0.485f + 0.08f / 2f),
                 width = callButtonWidth,
                 height = callButtonHeight,
-                onDigitPressed = { onCallPressed() }
+                onDigitPressed = { onTopButtonTap() },
+                onHoldStart = onTopButtonHoldStart,
+                onHoldEnd = onTopButtonHoldEnd
             )
 
             labels.forEachIndexed { rowIndex, row ->
@@ -631,13 +794,38 @@ private fun InvisiblePhoneButton(
     yCenter: Dp,
     width: Dp,
     height: Dp,
-    onDigitPressed: (String) -> Unit
+    onDigitPressed: (String) -> Unit,
+    onHoldStart: (() -> Unit)? = null,
+    onHoldEnd: ((Boolean) -> Unit)? = null
 ) {
+    val viewConfiguration = LocalViewConfiguration.current
+    val holdStart = onHoldStart
+    val holdEnd = onHoldEnd
+    val pressModifier = if (holdStart != null && holdEnd != null) {
+        Modifier.pointerInput(viewConfiguration, holdStart, holdEnd) {
+            awaitEachGesture {
+                awaitFirstDown()
+                val releasedBeforeHold = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                    waitForUpOrCancellation()
+                }
+                if (releasedBeforeHold != null) {
+                    onDigitPressed(digit)
+                } else {
+                    holdStart()
+                    val release = waitForUpOrCancellation()
+                    holdEnd(release != null)
+                }
+            }
+        }
+    } else {
+        Modifier.clickable { onDigitPressed(digit) }
+    }
+
     Box(
         modifier = Modifier
             .offset(x = xCenter - width / 2f, y = yCenter - height / 2f)
             .size(width, height)
-            .clickable { onDigitPressed(digit) }
+            .then(pressModifier)
     )
 }
 
@@ -658,11 +846,54 @@ private fun toneForDigit(digit: String): Int {
     }
 }
 
+private fun phonePressFrameIndex(control: String): Int {
+    return when (control) {
+        "gear" -> 0
+        "call" -> 1
+        "navUp", "navLeft" -> 2
+        "navDown", "navRight" -> 3
+        "1" -> 4
+        "2" -> 5
+        "3" -> 6
+        "4" -> 7
+        "5" -> 8
+        "6" -> 9
+        "7" -> 10
+        "8" -> 11
+        "9" -> 12
+        "*" -> 13
+        "0" -> 14
+        "#" -> 15
+        else -> 1
+    }
+}
+
 private enum class PhoneCallState {
     Ready,
     Dialing,
     Connected
 }
+
+private data class PhoneColorway(
+    val label: String,
+    val drawableRes: Int,
+    val pressSheetRes: Int,
+    val signalSheetRes: Int,
+    val swatch: Color
+)
+
+private val PHONE_COLORWAYS = listOf(
+    PhoneColorway("Silver", R.drawable.poplur_bling_phone_01_silver_diamond, R.drawable.poplur_phone_press_silver_diamond, R.drawable.poplur_phone_signal_silver_diamond, Color(0xFFE2E2D8)),
+    PhoneColorway("Gold", R.drawable.poplur_bling_phone_02_champagne_gold, R.drawable.poplur_phone_press_champagne_gold, R.drawable.poplur_phone_signal_champagne_gold, Color(0xFFF4B846)),
+    PhoneColorway("Rose", R.drawable.poplur_bling_phone_03_rose_gold_pink, R.drawable.poplur_phone_press_rose_gold_pink, R.drawable.poplur_phone_signal_rose_gold_pink, Color(0xFFFF8CA1)),
+    PhoneColorway("Ruby", R.drawable.poplur_bling_phone_04_ruby_red, R.drawable.poplur_phone_press_ruby_red, R.drawable.poplur_phone_signal_ruby_red, Color(0xFFEA1010)),
+    PhoneColorway("Blue", R.drawable.poplur_bling_phone_05_sapphire_blue, R.drawable.poplur_phone_press_sapphire_blue, R.drawable.poplur_phone_signal_sapphire_blue, Color(0xFF0B54F2)),
+    PhoneColorway("Green", R.drawable.poplur_bling_phone_06_emerald_green, R.drawable.poplur_phone_press_emerald_green, R.drawable.poplur_phone_signal_emerald_green, Color(0xFF00BD40)),
+    PhoneColorway("Purple", R.drawable.poplur_bling_phone_07_amethyst_purple, R.drawable.poplur_phone_press_amethyst_purple, R.drawable.poplur_phone_signal_amethyst_purple, Color(0xFF8F3AEB)),
+    PhoneColorway("Onyx", R.drawable.poplur_bling_phone_08_jet_black_onyx, R.drawable.poplur_phone_press_jet_black_onyx, R.drawable.poplur_phone_signal_jet_black_onyx, Color(0xFF151518)),
+    PhoneColorway("Aqua", R.drawable.poplur_bling_phone_09_icy_aqua_turquoise, R.drawable.poplur_phone_press_icy_aqua_turquoise, R.drawable.poplur_phone_signal_icy_aqua_turquoise, Color(0xFF33EBF2)),
+    PhoneColorway("Holo", R.drawable.poplur_bling_phone_10_holographic_iridescent, R.drawable.poplur_phone_press_holographic_iridescent, R.drawable.poplur_phone_signal_holographic_iridescent, Color(0xFFDBA3FF))
+)
 
 private enum class PhoneMenuScreen {
     Main,
@@ -800,6 +1031,73 @@ private fun launchDialer(context: android.content.Context, dialedNumber: String)
     runCatching { context.startActivity(intent) }
 }
 
+// Ellipse path covering all button regions — used to clip the button-restore and glitter layers.
+// Y fractions here are from the TOP of the image (Android canvas origin), not GLSL UV bottom-origin.
+private fun buildButtonPath(canvasSize: Size): Path {
+    val bw = canvasSize.width * 0.138f
+    val bh = canvasSize.height * 0.052f
+    val xCenters = listOf(0.28f, 0.50f, 0.72f)
+    val yCenters = listOf(0.683f, 0.758f, 0.833f, 0.908f)
+    return Path().apply {
+        for (yc in yCenters) {
+            for (xc in xCenters) {
+                addOval(Rect(
+                    left   = canvasSize.width  * xc - bw,
+                    top    = canvasSize.height * yc - bh,
+                    right  = canvasSize.width  * xc + bw,
+                    bottom = canvasSize.height * yc + bh
+                ))
+            }
+        }
+        // Nav: centre (x=0.50, y=0.497), left (x=0.235), right (x=0.765)
+        val navY = canvasSize.height * 0.497f
+        addOval(Rect(canvasSize.width * 0.50f  - canvasSize.width * 0.195f, navY - canvasSize.height * 0.065f,
+                     canvasSize.width * 0.50f  + canvasSize.width * 0.195f, navY + canvasSize.height * 0.065f))
+        addOval(Rect(canvasSize.width * 0.235f - canvasSize.width * 0.120f, navY - canvasSize.height * 0.062f,
+                     canvasSize.width * 0.235f + canvasSize.width * 0.120f, navY + canvasSize.height * 0.062f))
+        addOval(Rect(canvasSize.width * 0.765f - canvasSize.width * 0.120f, navY - canvasSize.height * 0.062f,
+                     canvasSize.width * 0.765f + canvasSize.width * 0.120f, navY + canvasSize.height * 0.062f))
+    }
+}
+
+// Generates a Nokia-era glitter texture: near-black base with purple/pink/gold flecks
+// and bright white sparkle catch-lights. Screen-blending this over the red body gives
+// holographic sparkle without changing the underlying hue where texture is dark.
+private fun makeGlitterBitmap(): ImageBitmap {
+    val sz = 512
+    val bmp = Bitmap.createBitmap(sz, sz, Bitmap.Config.ARGB_8888)
+    val canvas = AndroidCanvas(bmp)
+    val paint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG)
+
+    canvas.drawColor(android.graphics.Color.BLACK)
+
+    val fleckColors = listOf(
+        android.graphics.Color.argb(224, 204,   0, 230),
+        android.graphics.Color.argb(209, 242,  51, 153),
+        android.graphics.Color.argb(199, 230, 140,  26),
+        android.graphics.Color.argb(184, 179, 173, 230),
+        android.graphics.Color.argb(217, 153,   0, 179)
+    )
+    for (i in 0 until 2800) {
+        val fi = i.toFloat()
+        val x = ((fi * 1.618f) % 1f) * sz
+        val y = ((fi * 2.414f) % 1f) * sz
+        val r = 0.9f + (fi % 6f) * 0.45f
+        paint.color = fleckColors[i % fleckColors.size]
+        canvas.drawCircle(x, y, r, paint)
+    }
+    for (i in 0 until 320) {
+        val fi = i.toFloat()
+        val x = ((fi * 3.14159f) % 1f) * sz
+        val y = ((fi * 2.71828f) % 1f) * sz
+        val r = 1.1f + (fi % 4f) * 1.0f
+        paint.color = android.graphics.Color.WHITE
+        paint.alpha = (220 + (i % 3) * 10).coerceAtMost(255)
+        canvas.drawCircle(x, y, r, paint)
+    }
+    return bmp.asImageBitmap()
+}
+
 // Converts the phone body photo to vivid red plastic.
 // Luma (0.2126R+0.7152G+0.0722B) is mapped to the R channel at 1.55× scale;
 // G and B are zeroed so the body is purely red. +40/255 floor lifts grimy
@@ -861,11 +1159,20 @@ private fun formatCallDuration(seconds: Int): String {
 
 private const val PHONE_IMAGE_WIDTH = 1024f
 private const val PHONE_IMAGE_HEIGHT = 1536f
-private const val PHONE_SCREEN_LEFT_FRACTION = 0.205f
-private const val PHONE_SCREEN_TOP_FRACTION = 0.145f
-private const val PHONE_SCREEN_WIDTH_FRACTION = 0.590f
-private const val PHONE_SCREEN_HEIGHT_FRACTION = 0.235f
-private const val PHONE_SCREEN_CORNER_RADIUS_FRACTION = 0.045f
+private const val PHONE_PRESS_COLUMNS = 4
+private const val PHONE_PRESS_ROWS = 4
+private const val PHONE_SIGNAL_COLUMNS = 4
+private const val PHONE_SIGNAL_ROWS = 4
+private const val PHONE_SIGNAL_FRAME_COUNT = PHONE_SIGNAL_COLUMNS * PHONE_SIGNAL_ROWS
+private const val PHONE_SIGNAL_PATCH_LEFT_FRACTION = 0.265f
+private const val PHONE_SIGNAL_PATCH_TOP_FRACTION = 0.195f
+private const val PHONE_SIGNAL_PATCH_WIDTH_FRACTION = 0.120f
+private const val PHONE_SIGNAL_PATCH_HEIGHT_FRACTION = 0.045f
+private const val PHONE_SCREEN_LEFT_FRACTION = 0.240f
+private const val PHONE_SCREEN_TOP_FRACTION = 0.183f
+private const val PHONE_SCREEN_WIDTH_FRACTION = 0.520f
+private const val PHONE_SCREEN_HEIGHT_FRACTION = 0.245f
+private const val PHONE_SCREEN_CORNER_RADIUS_FRACTION = 0.040f
 private val PHONE_LCD_COLOR = Color(0xFFEFF100)
 private const val SNAKE_COLUMNS = 16
 private const val SNAKE_ROWS = 10

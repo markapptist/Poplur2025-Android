@@ -24,10 +24,9 @@ object DemoPostStore {
     )
 
     private val adImageUrls = listOf(
-        "file:///android_asset/feed_media/feed_28.jpg",
-        "file:///android_asset/feed_media/feed_82.jpg",
-        "file:///android_asset/feed_media/feed_128.jpg",
-        "file:///android_asset/feed_media/feed_184.jpg"
+        "file:///android_asset/feed_ads/poplur_ad_real_humans.jpg",
+        "file:///android_asset/feed_ads/poplur_ad_3d_group.jpg",
+        "file:///android_asset/feed_ads/poplur_ad_3d_creator.jpg"
     )
 
     private val userNames = listOf("mark", "mia", "jay", "food_u", "sky_high", "pixel_art", "traveler", "coder", "gamer", "chef", "vibe_check", "tech_wiz", "nature_lover", "urban_explorer", "fitness_junkie")
@@ -37,7 +36,7 @@ object DemoPostStore {
     private val staticPosts: List<Post> = (0 until 200).map { i ->
         val type = i % 10
         val isVideo = type < 6 // 60% videos
-        val isAd = type == 9 // 10% ads (simulated in post store for more variety)
+        val isAd = false // Poplur-owned ad slots are inserted by FeedScreen.
         
         Post(
             id = "post_$i",

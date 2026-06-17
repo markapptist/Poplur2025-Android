@@ -17,18 +17,25 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
@@ -64,6 +71,7 @@ fun PoplurRoot(
     BackHandler {}
 
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
     val appContext = remember(context) { context.applicationContext }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -178,9 +186,13 @@ fun PoplurRoot(
     var previousTab by remember { mutableStateOf<AppTab?>(null) }
     var currentPostIndex by remember { mutableIntStateOf(0) }
     var feedTvGuideRequest by remember { mutableIntStateOf(0) }
+    var feedNewsRequest by remember { mutableIntStateOf(0) }
+    var feedInteractionTick by remember { mutableIntStateOf(0) }
+    var isFeedChromeAsleep by remember { mutableStateOf(false) }
     var selectedProfile by remember { mutableStateOf(UserProfile()) }
     var cameraPhotoTrigger by remember { mutableIntStateOf(0) }
     var cameraRecordTrigger by remember { mutableIntStateOf(0) }
+    var cameraLiveTrigger by remember { mutableIntStateOf(0) }
     var isAppVisible by remember { mutableStateOf(true) }
     var filtersVisible by remember { mutableStateOf(false) }
     var isPhoneCallScreenVisible by remember { mutableStateOf(false) }
@@ -257,7 +269,9 @@ fun PoplurRoot(
 
     val onVerticalSwipe: (Boolean) -> Unit = { isUp ->
         if (tab == AppTab.Feed) {
+            feedInteractionTick++
             if (isUp) currentPostIndex++ else currentPostIndex--
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             playPopSound()
         }
     }
@@ -274,13 +288,50 @@ fun PoplurRoot(
 
     val onLongPressCube: () -> Unit = {
         if (tab == AppTab.Feed) {
-            feedTvGuideRequest++
+            feedInteractionTick++
+            cubeMenuWheelController.beginHold(
+                listOf(
+                    CubeMenuWheelItem(
+                        label = "TV Guide",
+                        icon = Icons.Default.Tv,
+                        accent = Color(0xFF4DFF58),
+                        onSelected = { feedTvGuideRequest++ }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "News",
+                        icon = Icons.AutoMirrored.Filled.Article,
+                        accent = Color(0xFFFF3333),
+                        onSelected = { feedNewsRequest++ }
+                    )
+                )
+            )
         } else if (tab == AppTab.Map) {
             scope.launch {
                 mapViewModel.triggerCenterOnUser()
             }
         } else if (tab == AppTab.Camera) {
-            cameraRecordTrigger++
+            cubeMenuWheelController.beginHold(
+                listOf(
+                    CubeMenuWheelItem(
+                        label = "Photo",
+                        icon = Icons.Default.PhotoCamera,
+                        accent = Color(0xFF4DFF58),
+                        onSelected = { cameraPhotoTrigger++ }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "Video",
+                        icon = Icons.Default.Videocam,
+                        accent = Color(0xFF7076FF),
+                        onSelected = { cameraRecordTrigger++ }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "Live",
+                        icon = Icons.Default.CellTower,
+                        accent = Color(0xFFFF3333),
+                        onSelected = { cameraLiveTrigger++ }
+                    )
+                )
+            )
         } else if (tab == AppTab.Profile) {
             profileCubeCommittedIconTitle = null
             cubeMenuWheelController.beginHold(
@@ -327,8 +378,10 @@ fun PoplurRoot(
     }
 
     val onLongPressEndCube: () -> Unit = {
-        if (tab == AppTab.Profile) {
-            profileCubeCommittedIconTitle = cubeMenuWheelController.selectedItem?.label
+        if (tab == AppTab.Feed || tab == AppTab.Camera || tab == AppTab.Profile) {
+            if (tab == AppTab.Profile) {
+                profileCubeCommittedIconTitle = cubeMenuWheelController.selectedItem?.label
+            }
             cubeMenuWheelController.endHold(activateSelected = true)
         }
     }
@@ -356,6 +409,16 @@ fun PoplurRoot(
         }
     }
 
+    LaunchedEffect(tab, feedInteractionTick, isFeedTvGuideVisible) {
+        if (tab == AppTab.Feed && !isFeedTvGuideVisible) {
+            isFeedChromeAsleep = false
+            kotlinx.coroutines.delay(30_000)
+            isFeedChromeAsleep = true
+        } else {
+            isFeedChromeAsleep = false
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().zIndex(0f)) {
             when (tab) {
@@ -363,13 +426,21 @@ fun PoplurRoot(
                     currentPostIndex = currentPostIndex,
                     isVisible = isAppVisible,
                     tvGuideRequestToken = feedTvGuideRequest,
+                    timelineToggleRequestToken = feedNewsRequest,
+                    homeChromeInactive = isFeedChromeAsleep,
                     onOpenUser = { profile ->
                         selectedProfile = profile
                         previousTab = tab
                         tab = AppTab.Profile
                     },
                     onTvGuideVisibilityChanged = { isFeedTvGuideVisible = it },
-                    onIndexChange = { currentPostIndex = it; playPopSound() }
+                    onUserInteraction = { feedInteractionTick++ },
+                    onIndexChange = {
+                        feedInteractionTick++
+                        currentPostIndex = it
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        playPopSound()
+                    }
                 )
                 AppTab.Profile -> ProfileScreen(
                     profile = selectedProfile,
@@ -388,12 +459,14 @@ fun PoplurRoot(
                     onProfilePanelIconChanged = { iconTitle ->
                         profilePanelIconTitle = iconTitle
                         profileCubeCommittedIconTitle = iconTitle
-                    }
+                    },
+                    onPhoneCallVisibilityChanged = { isPhoneCallScreenVisible = it }
                 )
                 AppTab.Map -> MapScreen(isVisible = isAppVisible, mapViewModel = mapViewModel)
                 AppTab.Camera -> CameraScreen(
                     photoTrigger = cameraPhotoTrigger,
                     recordTrigger = cameraRecordTrigger,
+                    liveTrigger = cameraLiveTrigger,
                     onFiltersToggle = { filtersVisible = it },
                     onMediaCaptured = { uri, isVideo ->
                         capturedMediaUri = uri
@@ -453,7 +526,9 @@ fun PoplurRoot(
         // Keep the navigation cube fragment alive across screens. Destroying/recreating the
         // embedded LibGDX fragment can terminate the process on some devices.
         PersistentCubeOverlay(
+            modifier = Modifier.alpha(if (tab == AppTab.Feed && isFeedChromeAsleep) 0.18f else 1f),
             profileCubeIconTitle = profileCubeIconTitle,
+            isInteractive = !isPhoneCallScreenVisible && !(tab == AppTab.Feed && isFeedChromeAsleep),
             onVerticalSwipe = { isUp -> currentOnVerticalSwipe(isUp) },
             onLongPress = { currentOnLongPressCube() },
             onLongPressEnd = { currentOnLongPressEndCube() },
@@ -483,6 +558,7 @@ fun PoplurRoot(
 private fun PersistentCubeOverlay(
     modifier: Modifier = Modifier,
     profileCubeIconTitle: String = "Profile",
+    isInteractive: Boolean = true,
     onVerticalSwipe: (Boolean) -> Unit = {},
     onLongPress: () -> Unit = {},
     onLongPressEnd: () -> Unit = {},
@@ -509,16 +585,16 @@ private fun PersistentCubeOverlay(
                             id,
                             GdxNavigationFragment(
                                 initialTabIndex = CUBE_FEED_INDEX,
-                                onVerticalSwipe = onVerticalSwipe,
-                                onLongPress = onLongPress,
-                                onLongPressEnd = onLongPressEnd,
-                                onTap = onTap,
-                                onTabSelected = onTabSelected
+                                onVerticalSwipe = if (isInteractive) onVerticalSwipe else null,
+                                onLongPress = if (isInteractive) onLongPress else null,
+                                onLongPressEnd = if (isInteractive) onLongPressEnd else null,
+                                onTap = if (isInteractive) onTap else null,
+                                onTabSelected = if (isInteractive) onTabSelected else { _: Int -> }
                             ).apply {
                                 setProfileIconTitle(profileCubeIconTitle)
                             }
                         )
-                        ?.commit()
+                        ?.commitAllowingStateLoss()
                 }
             },
             modifier = Modifier
@@ -529,16 +605,28 @@ private fun PersistentCubeOverlay(
                 view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 view.background = null
                 val activity = view.context as? FragmentActivity
+                val verticalSwipeCallback = onVerticalSwipe
+                val longPressCallback = onLongPress
+                val longPressEndCallback = onLongPressEnd
+                val tapCallback = onTap
+                val tabSelectedCallback = onTabSelected
                 (activity?.supportFragmentManager?.findFragmentById(containerId) as? GdxNavigationFragment)
-                    ?.setProfileIconTitle(profileCubeIconTitle)
+                    ?.apply {
+                        setProfileIconTitle(profileCubeIconTitle)
+                        this.onVerticalSwipe = if (isInteractive) verticalSwipeCallback else null
+                        this.onLongPress = if (isInteractive) longPressCallback else null
+                        this.onLongPressEnd = if (isInteractive) longPressEndCallback else null
+                        this.onTap = if (isInteractive) tapCallback else null
+                        this.onTabSelected = if (isInteractive) tabSelectedCallback else null
+                    }
             }
         )
     }
 }
 
 private const val CUBE_FEED_INDEX = 1
-private val CUBE_CONTAINER_SIZE = 240.dp
-private val CUBE_BOTTOM_OFFSET = 120.dp
+private val CUBE_CONTAINER_SIZE = 230.dp
+private val CUBE_BOTTOM_OFFSET = 24.dp
 private const val SYSTEM_VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
 
 private fun Modifier.rootFeedSwipeDetector(

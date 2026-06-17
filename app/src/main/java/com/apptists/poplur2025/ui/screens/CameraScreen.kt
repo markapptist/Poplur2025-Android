@@ -90,6 +90,7 @@ import java.util.concurrent.Executors
 fun CameraScreen(
     photoTrigger: Int = 0,
     recordTrigger: Int = 0,
+    liveTrigger: Int = 0,
     initialShowFilters: Boolean = false,
     onFiltersToggle: (Boolean) -> Unit = {},
     onMediaCaptured: (Uri, Boolean) -> Unit = { _, _ -> }
@@ -105,6 +106,9 @@ fun CameraScreen(
     var frontFlashBurst by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf(false) }
     var recordingSecondsRemaining by remember { mutableIntStateOf(10) }
+    var isLiveVideoActive by remember { mutableStateOf(false) }
+    var liveVideoSeconds by remember { mutableIntStateOf(0) }
+    var liveViewerCount by remember { mutableIntStateOf(128) }
     var captureInFlight by remember { mutableStateOf(false) }
     var selectedMedia by remember { mutableStateOf<Uri?>(null) }
     var selectedFilter by remember { mutableStateOf(ArFilter.Beauty) }
@@ -156,6 +160,13 @@ fun CameraScreen(
         torchEnabled = nextFlashState
         captureOutput = if (nextFlashState) "Flash on" else "Flash off"
     }
+    val stopLiveVideo = {
+        if (isLiveVideoActive) {
+            isLiveVideoActive = false
+            liveVideoSeconds = 0
+            captureOutput = "Live ended"
+        }
+    }
     val releaseCameraUseCases = {
         runCatching { imageAnalysisUseCase?.clearAnalyzer() }
         runCatching { cameraProvider?.unbindAll() }
@@ -168,7 +179,10 @@ fun CameraScreen(
     }
     val capturePhoto = {
         val capture = imageCapture
-        if (captureInFlight) {
+        if (isLiveVideoActive) {
+            captureOutput = "End live to take photo"
+            Unit
+        } else if (captureInFlight) {
             Unit
         } else if (capture == null) {
             captureOutput = "Camera not ready"
@@ -215,7 +229,10 @@ fun CameraScreen(
     }
     val startTenSecondRecording: () -> Recording? = {
         val video = videoCapture
-        if (video == null) {
+        if (isLiveVideoActive) {
+            captureOutput = "End live to record"
+            null
+        } else if (video == null) {
             captureOutput = "Video not ready"
             null
         } else if (activeRecording == null) {
@@ -267,6 +284,20 @@ fun CameraScreen(
             activeRecording
         }
     }
+    val toggleLiveVideo = {
+        if (isLiveVideoActive) {
+            stopLiveVideo()
+        } else {
+            activeRecording?.stop()
+            activeRecording = null
+            recording = false
+            recordingSecondsRemaining = 0
+            liveVideoSeconds = 0
+            liveViewerCount = 128
+            isLiveVideoActive = true
+            captureOutput = "Live video"
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) {
@@ -278,6 +309,10 @@ fun CameraScreen(
 
     LaunchedEffect(photoTrigger) {
         if (photoTrigger > 0) {
+            if (isLiveVideoActive) {
+                captureOutput = "End live to take photo"
+                return@LaunchedEffect
+            }
             activeRecording?.stop()
             if (useFrontCamera && torchEnabled) {
                 frontFlashBurst = true
@@ -293,6 +328,10 @@ fun CameraScreen(
 
     LaunchedEffect(recordTrigger) {
         if (recordTrigger > 0) {
+            if (isLiveVideoActive) {
+                captureOutput = "End live to record"
+                return@LaunchedEffect
+            }
             if (recording) return@LaunchedEffect
             val startedRecording = startTenSecondRecording()
             if (startedRecording != null) {
@@ -303,6 +342,20 @@ fun CameraScreen(
                 recordingSecondsRemaining = 0
                 startedRecording.stop()
             }
+        }
+    }
+
+    LaunchedEffect(liveTrigger) {
+        if (liveTrigger > 0) {
+            toggleLiveVideo()
+        }
+    }
+
+    LaunchedEffect(isLiveVideoActive) {
+        while (isLiveVideoActive) {
+            delay(1_000)
+            liveVideoSeconds += 1
+            liveViewerCount = 128 + ((liveVideoSeconds * 7) % 43)
         }
     }
 
@@ -529,6 +582,17 @@ fun CameraScreen(
             )
         }
 
+        if (isLiveVideoActive) {
+            LiveVideoBadge(
+                seconds = liveVideoSeconds,
+                viewers = liveViewerCount,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 18.dp)
+            )
+        }
+
         if (showFilterPicker) {
             ArFilterSelector(
                 selected = selectedFilter,
@@ -670,6 +734,64 @@ private fun RecordingTimerBadge(
             )
         }
     }
+}
+
+@Composable
+private fun LiveVideoBadge(
+    seconds: Int,
+    viewers: Int,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        color = Color.Black.copy(alpha = 0.58f),
+        shape = RoundedCornerShape(999.dp),
+        tonalElevation = 0.dp,
+        shadowElevation = 8.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier
+                        .size(9.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFF2B2B))
+                )
+                Text(
+                    "LIVE",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.1.sp
+                )
+            }
+            Text(
+                formatLiveDuration(seconds),
+                color = Color.White.copy(alpha = 0.88f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                "$viewers watching",
+                color = Color(0xFF4DFF58),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Black
+            )
+        }
+    }
+}
+
+private fun formatLiveDuration(seconds: Int): String {
+    val minutes = seconds / 60
+    val remaining = seconds % 60
+    return String.format(Locale.US, "%d:%02d", minutes, remaining)
 }
 
 @Composable

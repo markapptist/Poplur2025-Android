@@ -1,5 +1,11 @@
 package com.apptists.poplur2025.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,15 +25,17 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,7 +54,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -62,7 +75,7 @@ fun DMScreen(
     onBack: () -> Unit = {},
     onPhoneCallVisibilityChanged: (Boolean) -> Unit = {}
 ) {
-    var callingUserName by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
     var selectedThread by remember { mutableStateOf<ConversationThread?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     val threads = remember { FakeChatStore.threads }
@@ -78,8 +91,8 @@ fun DMScreen(
         }
     }
 
-    LaunchedEffect(callingUserName) {
-        onPhoneCallVisibilityChanged(callingUserName != null)
+    LaunchedEffect(Unit) {
+        onPhoneCallVisibilityChanged(false)
     }
 
     DisposableEffect(Unit) {
@@ -96,54 +109,47 @@ fun DMScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 20.dp)
             ) {
                 DmTopBar()
 
-                Spacer(modifier = Modifier.height(48.dp))
-
-                Text(
-                    text = "Recent",
-                    color = Color(0xFF9A9AA0),
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 0.sp,
-                    modifier = Modifier.padding(start = 20.dp)
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
                 DmSearchField(
                     query = searchQuery,
-                    onQueryChange = { searchQuery = it }
+                    onQueryChange = { searchQuery = it },
+                    modifier = Modifier
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 18.dp)
                 )
 
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    filteredThreads.forEach { thread ->
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(top = 10.dp)
+                ) {
+                    itemsIndexed(filteredThreads, key = { _, thread -> thread.id }) { index, thread ->
                         DmThreadRow(
                             threadId = thread.id,
                             name = thread.title,
                             preview = thread.lastMessage,
                             onOpen = { selectedThread = thread },
-                            onCall = { callingUserName = thread.title }
+                            onVideoCall = { startVideoCall(context, thread.title) }
                         )
+                        if (index < filteredThreads.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 88.dp, end = 20.dp),
+                                thickness = 1.dp,
+                                color = Color.White.copy(alpha = 0.08f)
+                            )
+                        }
                     }
+                    item { Spacer(modifier = Modifier.height(220.dp)) }
                 }
             }
         } else {
             DMChatDetailScreen(
                 thread = selectedThread!!,
                 onBack = { selectedThread = null },
-                onCall = { callingUserName = selectedThread!!.title }
-            )
-        }
-
-        callingUserName?.let { userName ->
-            PopularPhoneCallScreen(
-                userName = userName,
-                onHangUp = { callingUserName = null }
+                onVideoCall = { startVideoCall(context, selectedThread!!.title) }
             )
         }
     }
@@ -151,33 +157,86 @@ fun DMScreen(
 
 @Composable
 private fun DmTopBar() {
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(112.dp)
+            .padding(horizontal = 20.dp)
+            .padding(top = 18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "Messages",
-            color = Color.White,
-            fontSize = 33.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 0.sp,
-            modifier = Modifier.align(Alignment.Center)
-        )
+        DmLogo(modifier = Modifier.size(84.dp))
 
-        DmCircleIconButton(
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Row(
             modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .size(58.dp),
-            onClick = {}
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.Edit,
-                contentDescription = "New message",
-                tint = Color.White,
-                modifier = Modifier.size(35.dp)
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    text = "Chats",
+                    color = Color.White,
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.sp
+                )
+                Text(
+                    text = "Recent messages",
+                    color = Color(0xFF94949C),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFF141416))
+                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                    .clickable(onClick = {}),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "New message",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun DmLogo(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val logoBitmap = remember {
+        runCatching {
+            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+        }.getOrNull()
+    }
+
+    if (logoBitmap != null) {
+        Image(
+            bitmap = logoBitmap,
+            contentDescription = "Poplur",
+            contentScale = ContentScale.Fit,
+            modifier = modifier
+        )
+    } else {
+        Text(
+            text = "POPLUR",
+            color = Color.White,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.sp,
+            modifier = modifier
+        )
     }
 }
 
@@ -202,43 +261,53 @@ private fun DmCircleIconButton(
 @Composable
 private fun DmSearchField(
     query: String,
-    onQueryChange: (String) -> Unit
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier = Modifier.fillMaxWidth(),
-        leadingIcon = {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                tint = Color(0xFF94949C),
-                modifier = Modifier.size(20.dp)
-            )
-        },
-        placeholder = {
-            Text(
-                text = "Search",
-                color = Color(0xFF8F8F96),
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.sp
-            )
-        },
-        textStyle = androidx.compose.ui.text.TextStyle(
-            color = Color.White,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Bold
-        ),
-        singleLine = true,
-        shape = RoundedCornerShape(28.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = Color.White.copy(alpha = 0.12f),
-            unfocusedBorderColor = Color.White.copy(alpha = 0.08f),
-            focusedContainerColor = Color(0xFF171719),
-            unfocusedContainerColor = Color(0xFF171719),
-            cursorColor = Color.White
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF131316))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = null,
+            tint = Color(0xFF94949C),
+            modifier = Modifier.size(18.dp)
         )
-    )
+
+        Spacer(modifier = Modifier.width(10.dp))
+
+        Box(modifier = Modifier.weight(1f)) {
+            if (query.isEmpty()) {
+                Text(
+                    text = "Search",
+                    color = Color(0xFF8F8F96),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.sp
+                )
+            }
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                singleLine = true,
+                textStyle = TextStyle(
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.sp
+                ),
+                cursorBrush = SolidColor(Color.White),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
 }
 
 @Composable
@@ -247,21 +316,19 @@ private fun DmThreadRow(
     name: String,
     preview: String,
     onOpen: () -> Unit,
-    onCall: () -> Unit
+    onVideoCall: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(82.dp)
-            .clip(RoundedCornerShape(42.dp))
-            .background(Color(0xFF1D1D20))
+            .height(76.dp)
             .clickable(onClick = onOpen)
-            .padding(start = 28.dp, end = 20.dp),
+            .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         DmAvatar(name = name, isOnline = true, modifier = Modifier.size(52.dp))
 
-        Spacer(modifier = Modifier.width(18.dp))
+        Spacer(modifier = Modifier.width(14.dp))
 
         Column(
             modifier = Modifier.weight(1f),
@@ -271,8 +338,8 @@ private fun DmThreadRow(
                 Text(
                     text = name,
                     color = Color.White,
-                    fontSize = 21.sp,
-                    fontWeight = FontWeight.Black,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -281,8 +348,8 @@ private fun DmThreadRow(
                 Text(
                     text = threadTimestamp(threadId),
                     color = if (threadUnreadCount(threadId) > 0) Color(0xFF61FF78) else Color(0xFF8F8F96),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
+                    fontSize = 13.sp,
+                    fontWeight = if (threadUnreadCount(threadId) > 0) FontWeight.SemiBold else FontWeight.Normal,
                     letterSpacing = 0.sp
                 )
             }
@@ -291,8 +358,8 @@ private fun DmThreadRow(
                 Text(
                     text = preview,
                     color = Color(0xFFA8A8B0),
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    fontWeight = if (threadUnreadCount(threadId) > 0) FontWeight.SemiBold else FontWeight.Normal,
                     letterSpacing = 0.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -328,26 +395,19 @@ private fun DmThreadRow(
 
         Spacer(modifier = Modifier.width(14.dp))
 
-        DmCircleIconButton(
-            modifier = Modifier.size(44.dp),
-            onClick = onCall
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clickable(onClick = onVideoCall),
+            contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Default.Call,
-                contentDescription = "Call $name",
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
+                imageVector = Icons.Default.Videocam,
+                contentDescription = "Video call $name",
+                tint = Color(0xFFD0D0D8),
+                modifier = Modifier.size(18.dp)
             )
         }
-
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = null,
-            tint = Color(0xFF6D6D72),
-            modifier = Modifier.size(36.dp)
-        )
     }
 }
 
@@ -362,22 +422,22 @@ private fun DmAvatar(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(CircleShape)
-                .background(Color(0xFF24242A))
-                .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape),
+                .background(Color(0xFF1A1A1F))
+                .border(1.dp, Color.White.copy(alpha = 0.12f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = initialsFor(name),
                 color = Color.White,
                 fontSize = 16.sp,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.sp
             )
         }
         if (isOnline) {
             Box(
                 modifier = Modifier
-                    .size(13.dp)
+                    .size(11.dp)
                     .align(Alignment.BottomEnd)
                     .clip(CircleShape)
                     .background(Color(0xFF61FF78))
@@ -413,7 +473,7 @@ private fun threadUnreadCount(threadId: String): Int = when (threadId) {
 private fun DMChatDetailScreen(
     thread: ConversationThread,
     onBack: () -> Unit,
-    onCall: () -> Unit
+    onVideoCall: () -> Unit
 ) {
     val messages = remember(thread.id) {
         mutableStateListOf(
@@ -472,11 +532,11 @@ private fun DMChatDetailScreen(
 
             DmCircleIconButton(
                 modifier = Modifier.size(52.dp),
-                onClick = onCall
+                onClick = onVideoCall
             ) {
                 Icon(
-                    imageVector = Icons.Default.Call,
-                    contentDescription = "Call ${thread.title}",
+                    imageVector = Icons.Default.Videocam,
+                    contentDescription = "Video call ${thread.title}",
                     tint = Color.White,
                     modifier = Modifier.size(25.dp)
                 )
@@ -667,6 +727,14 @@ private data class ChatBubbleState(
 
 private fun currentBubbleTime(): String =
     SimpleDateFormat("h:mm a", Locale.US).format(Date())
+
+private fun startVideoCall(context: Context, displayName: String) {
+    Toast.makeText(context, "Starting video call with $displayName", Toast.LENGTH_SHORT).show()
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://meet.google.com/new")).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }
+}
 
 @Preview
 @Composable

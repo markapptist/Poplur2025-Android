@@ -2,7 +2,6 @@ package com.apptists.poplur2025.ui.screens
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Typeface
@@ -20,9 +19,12 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.compose.animation.*
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas as ComposeCanvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,18 +32,24 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -54,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
 import com.apptists.poplur2025.ads.AdManager
@@ -70,6 +79,7 @@ import com.apptists.poplur2025.data.DemoPostStore
 
 import com.apptists.poplur2025.data.Post
 import com.apptists.poplur2025.data.UserProfile
+import com.apptists.poplur2025.ui.components.FeedLaunchCover
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.UserInfoOverlay
@@ -80,6 +90,8 @@ import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.random.Random
 
 @Composable
 fun FeedScreen(
@@ -87,8 +99,10 @@ fun FeedScreen(
     isVisible: Boolean = true,
     tvGuideRequestToken: Int = 0,
     timelineToggleRequestToken: Int = 0,
+    homeChromeInactive: Boolean = false,
     onOpenUser: (UserProfile) -> Unit = {},
     onTvGuideVisibilityChanged: (Boolean) -> Unit = {},
+    onUserInteraction: () -> Unit = {},
     onIndexChange: (Int) -> Unit
 ) {
     val context = LocalContext.current
@@ -99,7 +113,12 @@ fun FeedScreen(
     var showTimelineView by remember { mutableStateOf(false) }
     var showTvGuide by remember { mutableStateOf(false) }
     var showFeedLogo by remember { mutableStateOf(true) }
+    var confettiTrigger by remember { mutableIntStateOf(0) }
     var selectedGuideChannelId by remember { mutableStateOf("feed") }
+    var activeFeedPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
+    var likedPulseToken by remember { mutableIntStateOf(0) }
+    var showLikeBurst by remember { mutableStateOf(false) }
+    val likedSlotIds = remember { mutableStateListOf<String>() }
     val feedRotationY by animateFloatAsState(
         targetValue = if (showTimelineView) 180f else 0f,
         animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
@@ -112,7 +131,11 @@ fun FeedScreen(
     }
 
     LaunchedEffect(timelineToggleRequestToken) {
-        if (timelineToggleRequestToken > 0) showTimelineView = !showTimelineView
+        if (timelineToggleRequestToken > 0) {
+            onUserInteraction()
+            showTvGuide = false
+            showTimelineView = true
+        }
     }
 
     LaunchedEffect(showTvGuide) {
@@ -123,12 +146,6 @@ fun FeedScreen(
         onDispose { onTvGuideVisibilityChanged(false) }
     }
     
-    val logoBitmap = remember {
-        runCatching {
-            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
-        }.getOrNull()
-    }
-
     val mediaPlayer = remember {
         if (isInspectionMode) null else {
             MediaPlayer().apply {
@@ -136,6 +153,7 @@ fun FeedScreen(
                     val afd = context.assets.openFd("pop.mp3")
                     setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                     afd.close()
+                    setOnPreparedListener { it.start() }
                     prepareAsync()
                 } catch (e: Exception) { e.printStackTrace() }
             }
@@ -146,14 +164,49 @@ fun FeedScreen(
         onDispose { mediaPlayer?.release() }
     }
 
-    LaunchedEffect(Unit) {
-        showFeedLogo = true
-        mediaPlayer?.let { player ->
-            player.setOnPreparedListener { it.start() }
-            if (!player.isPlaying) {
-                try { player.start() } catch (e: Exception) {}
+    val playFeedPop = remember(mediaPlayer) {
+        {
+            mediaPlayer?.let { player ->
+                try {
+                    if (player.isPlaying) player.pause()
+                    player.seekTo(0)
+                    player.start()
+                } catch (_: Exception) {
+                    // The async media player may not be prepared during the very first frame.
+                }
             }
         }
+    }
+
+    fun likeCurrentSlot() {
+        val slotId = currentSlot.feedSlotId
+        if (!likedSlotIds.contains(slotId)) {
+            likedSlotIds += slotId
+        }
+        onUserInteraction()
+        playFeedPop()
+        likedPulseToken += 1
+        showLikeBurst = true
+    }
+
+    LaunchedEffect(likedPulseToken) {
+        if (likedPulseToken <= 0) return@LaunchedEffect
+        delay(680)
+        showLikeBurst = false
+    }
+
+    LaunchedEffect(isVisible) {
+        if (!isVisible) {
+            activeFeedPlayer = null
+            return@LaunchedEffect
+        }
+        mediaPlayer?.let { player ->
+            if (!player.isPlaying) {
+                playFeedPop()
+            }
+        }
+        showFeedLogo = true
+        confettiTrigger += 1
         delay(2_500)
         showFeedLogo = false
     }
@@ -185,112 +238,98 @@ fun FeedScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 when (slot) {
                     is FeedSlot.PostSlot -> {
-                        MediaContent(post = slot.post, isVisible = isVisible)
+                        MediaContent(
+                            post = slot.post,
+                            isVisible = isVisible,
+                            useExternalVideoSurface = showTvGuide,
+                            onActivePlayerChanged = { player -> activeFeedPlayer = player }
+                        )
                     }
                     is FeedSlot.AdSlot -> FeedAdContent(
                         slot = slot,
-                        fallbackPost = DemoPostStore.getPostForIndex(currentPostIndex),
-                        isVisible = isVisible
+                        isVisible = isVisible,
+                        useExternalVideoSurface = showTvGuide,
+                        onActivePlayerChanged = { player -> activeFeedPlayer = player }
                     )
                 }
             }
         }
 
-        // 2. Top Overlay (Animated User Data)
-        AnimatedContent(
-            targetState = currentSlot,
-            transitionSpec = {
-                (fadeIn() + slideInVertically()).togetherWith(fadeOut() + slideOutVertically())
-            },
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(16.dp)
-                .align(Alignment.TopStart),
-            label = "UserInfoAnimation"
-        ) { slot ->
-            when (slot) {
-                is FeedSlot.PostSlot -> UserInfoOverlay(
-                    displayName = slot.post.displayName,
-                    location = slot.post.locationName,
-                    channelNumber = slot.channelNumber,
-                    channelEmoji = slot.channelEmoji,
-                    channelCategory = slot.channelCategory
-                )
-                is FeedSlot.AdSlot -> UserInfoOverlay(
-                    displayName = "Sponsored",
-                    location = "Nearby",
-                    channelNumber = 100,
-                    channelEmoji = "📢",
-                    channelCategory = "Ad"
-                )
-            }
-        }
-
-        // 3. Bottom Left Overlay (Animated Post Data)
-        AnimatedContent(
-            targetState = currentSlot,
-            transitionSpec = {
-                (fadeIn() + scaleIn()).togetherWith(fadeOut() + scaleOut())
-            },
-            modifier = Modifier
-                .padding(bottom = 48.dp, start = 20.dp)
-                .align(Alignment.BottomStart),
-            label = "TrendingAnimation"
-        ) { slot ->
-            when (slot) {
-                is FeedSlot.PostSlot -> TrendingDisplay(
-                    postsCount = slot.post.userPostsCount,
-                    radiusChange = slot.post.radiusChange,
-                    modifier = Modifier,
-                    contentColor = Color.White
-                )
-                is FeedSlot.AdSlot -> TrendingDisplay(
-                    postsCount = 84, // Real ad engagement could be synced if available
-                    radiusChange = 18,
-                    modifier = Modifier,
-                    contentColor = Color.White
-                )
-            }
-        }
-
-        // 4. Bottom Right Overlay (Animated Radius Data)
-        AnimatedContent(
-            targetState = currentSlot,
-            transitionSpec = {
-                (fadeIn() + slideInHorizontally { it }).togetherWith(fadeOut() + slideOutHorizontally { it })
-            },
-            modifier = Modifier
-                .padding(bottom = 48.dp, end = 20.dp)
-                .align(Alignment.BottomEnd),
-            label = "RadiusAnimation"
-        ) { slot ->
-            RadiusDisplay(
-                radius = when (slot) {
-                    is FeedSlot.PostSlot -> slot.post.radius
-                    is FeedSlot.AdSlot -> 1250 // Ad radius
+        if (!homeChromeInactive) {
+            // 2. Top Overlay (Animated User Data)
+            AnimatedContent(
+                targetState = currentSlot,
+                transitionSpec = {
+                    (fadeIn() + slideInVertically()).togetherWith(fadeOut() + slideOutVertically())
                 },
-                unit = "mi"
-            )
-        }
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .padding(16.dp)
+                    .align(Alignment.TopStart),
+                label = "UserInfoAnimation"
+            ) { slot ->
+                when (slot) {
+                    is FeedSlot.PostSlot -> UserInfoOverlay(
+                        displayName = slot.post.displayName,
+                        location = slot.post.locationName,
+                        channelNumber = slot.channelNumber,
+                        channelEmoji = slot.channelEmoji,
+                        channelCategory = slot.channelCategory
+                    )
+                    is FeedSlot.AdSlot -> UserInfoOverlay(
+                        displayName = slot.creative.brandName,
+                        location = slot.creative.locationName,
+                        channelNumber = 100,
+                        channelEmoji = "📢",
+                        channelCategory = slot.creative.creativeKind
+                    )
+                }
+            }
 
-        if (showFeedLogo) {
-            val logoAlpha by animateFloatAsState(
-                targetValue = 1f,
-                animationSpec = tween(durationMillis = 400),
-                label = "feedLogoAlpha"
-            )
-            logoBitmap?.let { bitmap ->
-                Image(
-                    bitmap = bitmap,
-                    contentDescription = "Poplur",
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(240.dp)
-                        .graphicsLayer {
-                            alpha = logoAlpha
-                            scaleX = 0.9f + logoAlpha * 0.1f
-                            scaleY = 0.9f + logoAlpha * 0.1f
-                        }
+            // 3. Bottom Left Overlay (Animated Post Data)
+            AnimatedContent(
+                targetState = currentSlot,
+                transitionSpec = {
+                    (fadeIn() + scaleIn()).togetherWith(fadeOut() + scaleOut())
+                },
+                modifier = Modifier
+                    .padding(bottom = 48.dp, start = 20.dp)
+                    .align(Alignment.BottomStart),
+                label = "TrendingAnimation"
+            ) { slot ->
+                when (slot) {
+                    is FeedSlot.PostSlot -> TrendingDisplay(
+                        postsCount = slot.post.userPostsCount,
+                        radiusChange = slot.post.radiusChange,
+                        modifier = Modifier,
+                        contentColor = Color.White
+                    )
+                    is FeedSlot.AdSlot -> TrendingDisplay(
+                        postsCount = slot.creative.postsCount,
+                        radiusChange = slot.creative.radiusChange,
+                        modifier = Modifier,
+                        contentColor = Color.White
+                    )
+                }
+            }
+
+            // 4. Bottom Right Overlay (Animated Radius Data)
+            AnimatedContent(
+                targetState = currentSlot,
+                transitionSpec = {
+                    (fadeIn() + slideInHorizontally { it }).togetherWith(fadeOut() + slideOutHorizontally { it })
+                },
+                modifier = Modifier
+                    .padding(bottom = 48.dp, end = 20.dp)
+                    .align(Alignment.BottomEnd),
+                label = "RadiusAnimation"
+            ) { slot ->
+                RadiusDisplay(
+                    radius = when (slot) {
+                        is FeedSlot.PostSlot -> slot.post.radius
+                        is FeedSlot.AdSlot -> slot.creative.radius
+                    },
+                    unit = "mi"
                 )
             }
         }
@@ -299,8 +338,11 @@ fun FeedScreen(
             modifier = Modifier
                 .matchParentSize()
                 .zIndex(80f)
-                .feedDoubleTapDetector { showTimelineView = !showTimelineView }
-                .feedSwipeDetector(currentPostIndex, onIndexChange)
+                .feedDoubleTapDetector(
+                    onTap = onUserInteraction,
+                    onDoubleTap = { likeCurrentSlot() }
+                )
+                .feedSwipeDetector(currentPostIndex, onIndexChange, onUserInteraction)
         )
         }
 
@@ -317,15 +359,60 @@ fun FeedScreen(
             )
         }
 
+        BreakingNewsConfetti(
+            trigger = confettiTrigger,
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(70f)
+        )
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showLikeBurst,
+            enter = scaleIn(initialScale = 0.42f, animationSpec = tween(150)) + fadeIn(animationSpec = tween(120)),
+            exit = scaleOut(targetScale = 1.7f, animationSpec = tween(260)) + fadeOut(animationSpec = tween(260)),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .zIndex(86f)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Favorite,
+                contentDescription = null,
+                tint = Color(0xFFFF365E),
+                modifier = Modifier
+                    .size(116.dp)
+                    .shadow(18.dp, CircleShape)
+            )
+        }
+
+        if (homeChromeInactive && !showingTimelineSide && !showTvGuide) {
+            FeedLiveCommentsOverlay(
+                slot = currentSlot,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(88f)
+            )
+        }
+
+        // Full-screen launch cover — above everything while feed loads
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showFeedLogo,
+            enter = androidx.compose.animation.fadeIn(animationSpec = tween(200)),
+            exit = androidx.compose.animation.fadeOut(animationSpec = tween(500)),
+            modifier = Modifier.fillMaxSize().zIndex(90f)
+        ) {
+            FeedLaunchCover(onPopSound = { playFeedPop() })
+        }
+
         if (showTvGuide) {
             val currentPostName = when (val slot = currentSlot) {
                 is FeedSlot.PostSlot -> slot.post.displayName
-                is FeedSlot.AdSlot -> "Sponsored"
+                is FeedSlot.AdSlot -> slot.creative.brandName
             }
             FeedTvGuideOverlay(
                 channels = guideChannels,
                 currentChannelId = selectedGuideChannelId,
                 currentPostName = currentPostName,
+                activeFeedPlayer = activeFeedPlayer,
                 onChannelSelected = { channel ->
                     selectedGuideChannelId = channel.id
                     onIndexChange(channel.index)
@@ -336,15 +423,103 @@ fun FeedScreen(
     }
 }
 
+@Composable
+private fun BreakingNewsConfetti(
+    trigger: Int,
+    modifier: Modifier = Modifier
+) {
+    val progress = remember { Animatable(1f) }
+    val particles = remember(trigger) { buildBreakingNewsConfetti(trigger) }
+
+    LaunchedEffect(trigger) {
+        if (trigger <= 0) return@LaunchedEffect
+        progress.snapTo(0f)
+        progress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 2_200, easing = LinearEasing)
+        )
+    }
+
+    if (trigger <= 0 || progress.value >= 1f) return
+
+    ComposeCanvas(modifier = modifier) {
+        particles.forEach { particle ->
+            val localProgress = ((progress.value - particle.delay) / (1f - particle.delay)).coerceIn(0f, 1f)
+            if (localProgress <= 0f || localProgress >= 1f) return@forEach
+
+            val alpha = if (localProgress > 0.82f) {
+                ((1f - localProgress) / 0.18f).coerceIn(0f, 1f)
+            } else {
+                1f
+            }
+            val x = size.width * particle.xFraction +
+                particle.driftPx * sin(localProgress * Math.PI.toFloat() * 2f)
+            val y = -48f + (size.height + 130f) * localProgress * particle.speed
+            val pieceSize = particle.sizeDp.toPx()
+
+            rotate(
+                degrees = particle.rotation + localProgress * particle.spin,
+                pivot = Offset(x, y)
+            ) {
+                drawRoundRect(
+                    color = particle.color.copy(alpha = alpha),
+                    topLeft = Offset(x - pieceSize * 0.5f, y - pieceSize * 0.24f),
+                    size = Size(pieceSize, pieceSize * 0.48f),
+                    cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                )
+            }
+        }
+    }
+}
+
+private data class BreakingNewsConfettiPiece(
+    val xFraction: Float,
+    val delay: Float,
+    val driftPx: Float,
+    val speed: Float,
+    val sizeDp: androidx.compose.ui.unit.Dp,
+    val rotation: Float,
+    val spin: Float,
+    val color: Color
+)
+
+private fun buildBreakingNewsConfetti(trigger: Int): List<BreakingNewsConfettiPiece> {
+    val random = Random(trigger * 7_919)
+    val colors = listOf(
+        Color(0xFFFF3158),
+        Color(0xFFFFD91A),
+        Color(0xFFFF7A2D),
+        Color(0xFFFFFFFF)
+    )
+
+    return List(110) {
+        BreakingNewsConfettiPiece(
+            xFraction = random.nextFloat(),
+            delay = random.nextFloat() * 0.28f,
+            driftPx = random.nextFloat() * 120f - 60f,
+            speed = 0.84f + random.nextFloat() * 0.46f,
+            sizeDp = (8 + random.nextInt(12)).dp,
+            rotation = random.nextFloat() * 360f,
+            spin = 220f + random.nextFloat() * 520f,
+            color = colors[random.nextInt(colors.size)]
+        )
+    }
+}
+
 private fun Modifier.feedDoubleTapDetector(
+    onTap: () -> Unit,
     onDoubleTap: () -> Unit
 ): Modifier = pointerInput(Unit) {
-    detectTapGestures(onDoubleTap = { onDoubleTap() })
+    detectTapGestures(
+        onTap = { onTap() },
+        onDoubleTap = { onDoubleTap() }
+    )
 }
 
 private fun Modifier.feedSwipeDetector(
     currentPostIndex: Int,
-    onIndexChange: (Int) -> Unit
+    onIndexChange: (Int) -> Unit,
+    onInteraction: () -> Unit
 ): Modifier = pointerInput(currentPostIndex) {
     var totalY = 0f
     var triggered = false
@@ -352,6 +527,7 @@ private fun Modifier.feedSwipeDetector(
         onDragStart = {
             totalY = 0f
             triggered = false
+            onInteraction()
         },
         onVerticalDrag = { change, dragAmount ->
             if (!triggered) {
@@ -366,6 +542,148 @@ private fun Modifier.feedSwipeDetector(
     )
 }
 
+private data class FeedLiveComment(
+    val id: String,
+    val username: String,
+    val text: String
+)
+
+@Composable
+private fun FeedLiveCommentsOverlay(
+    slot: FeedSlot,
+    modifier: Modifier = Modifier
+) {
+    val slotId = slot.feedSlotId
+    val seededComments = remember(slotId) { seedLiveComments(slot) }
+    var userComments by remember(slotId) { mutableStateOf<List<FeedLiveComment>>(emptyList()) }
+    var draft by remember(slotId) { mutableStateOf("") }
+    val visibleComments = remember(seededComments, userComments) {
+        (seededComments + userComments).takeLast(5)
+    }
+
+    Box(
+        modifier = modifier
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 12.dp, end = 12.dp, bottom = 18.dp)
+                .widthIn(max = 380.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            visibleComments.forEach { comment ->
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    modifier = Modifier.animateContentSize()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .background(Color.White.copy(alpha = 0.22f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = comment.username.firstOrNull()?.uppercase() ?: "?",
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                    Text(
+                        text = "${comment.username}  ${comment.text}",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 17.sp,
+                        modifier = Modifier
+                            .shadow(4.dp)
+                            .background(Color.Black.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 2.dp, vertical = 1.dp)
+                    )
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    placeholder = {
+                        Text("Comment", color = Color.White.copy(alpha = 0.58f), fontWeight = FontWeight.Bold)
+                    },
+                    singleLine = true,
+                    textStyle = LocalTextStyle.current.copy(
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        cursorColor = Color.White,
+                        focusedBorderColor = Color.White.copy(alpha = 0.58f),
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.38f),
+                        focusedContainerColor = Color.Black.copy(alpha = 0.34f),
+                        unfocusedContainerColor = Color.Black.copy(alpha = 0.34f)
+                    ),
+                    shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = {
+                        val trimmed = draft.trim()
+                        if (trimmed.isNotEmpty()) {
+                            userComments = userComments + FeedLiveComment(
+                                id = "user-${System.nanoTime()}",
+                                username = "you",
+                                text = trimmed
+                            )
+                            draft = ""
+                        }
+                    },
+                    enabled = draft.trim().isNotEmpty(),
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(Color.Black.copy(alpha = 0.34f), CircleShape)
+                        .border(1.dp, Color.White.copy(alpha = 0.34f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Send comment",
+                        tint = if (draft.trim().isEmpty()) Color.White.copy(alpha = 0.36f) else Color.White
+                    )
+                }
+            }
+        }
+    }
+}
+
+private val FeedSlot.feedSlotId: String
+    get() = when (this) {
+        is FeedSlot.PostSlot -> post.id
+        is FeedSlot.AdSlot -> id
+    }
+
+private fun seedLiveComments(slot: FeedSlot): List<FeedLiveComment> {
+    val displayName = when (slot) {
+        is FeedSlot.PostSlot -> slot.post.displayName.ifBlank { slot.post.username }
+        is FeedSlot.AdSlot -> slot.creative.brandName
+    }.ifBlank { "this" }
+    val samples = listOf(
+        FeedLiveComment("live-1", "vi.xi.mmvi", "this is live right now"),
+        FeedLiveComment("live-2", "leurdavoir", "keep the camera there"),
+        FeedLiveComment("live-3", "monsekee", "the radius is going crazy"),
+        FeedLiveComment("live-4", "poplur", "watching $displayName")
+    )
+    val offset = Math.floorMod(slot.feedSlotId.hashCode(), samples.size)
+    return samples.drop(offset) + samples.take(offset)
+}
+
 private data class FeedTvGuideChannel(
     val id: String,
     val index: Int,
@@ -373,7 +691,8 @@ private data class FeedTvGuideChannel(
     val emoji: String,
     val category: String,
     val profile: UserProfile,
-    val program: String
+    val program: String,
+    val videoUrl: String? = null
 )
 
 private fun buildFeedTvGuideChannels(): List<FeedTvGuideChannel> {
@@ -408,7 +727,8 @@ private fun buildFeedTvGuideChannels(): List<FeedTvGuideChannel> {
                 radius = post.radius,
                 posts = post.userPostsCount
             ),
-            program = post.locationName.ifBlank { post.caption }
+            program = post.locationName.ifBlank { post.caption },
+            videoUrl = post.videoUrl
         )
     }
 }
@@ -463,7 +783,7 @@ private fun PoplurNewspaper(
     Box(
         modifier = modifier
             .background(Color.Black)
-            .feedDoubleTapDetector(onDoubleTap)
+            .feedDoubleTapDetector(onTap = {}, onDoubleTap = onDoubleTap)
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
@@ -757,11 +1077,15 @@ private fun FeedTvGuideOverlay(
     channels: List<FeedTvGuideChannel>,
     currentChannelId: String,
     currentPostName: String,
+    activeFeedPlayer: ExoPlayer?,
     onChannelSelected: (FeedTvGuideChannel) -> Unit
 ) {
     val guideGreen = Color(0xFF4EFF40)
     var isTabletMenuOpen by remember { mutableStateOf(true) }
-    val selectedChannel = channels.firstOrNull { it.id == currentChannelId } ?: channels.firstOrNull()
+    // Tracks which channel the PiP is previewing — starts on the current feed channel.
+    // Single-tap a row updates this; double-tap navigates to the feed.
+    var previewedChannelId by remember(currentChannelId) { mutableStateOf(currentChannelId) }
+    val previewedChannel = channels.firstOrNull { it.id == previewedChannelId } ?: channels.firstOrNull()
 
     BoxWithConstraints(
         modifier = Modifier
@@ -772,6 +1096,9 @@ private fun FeedTvGuideOverlay(
             .navigationBarsPadding()
     ) {
         val isTablet = maxWidth >= 700.dp
+        val pipWidth = if (isTablet) 200.dp else 148.dp
+        val pipHeight = pipWidth * (16f / 9f)
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -789,50 +1116,66 @@ private fun FeedTvGuideOverlay(
                     if (isTabletMenuOpen) {
                         FeedTvGuideRail(
                             channels = channels,
-                            currentChannelId = currentChannelId,
+                            currentChannelId = previewedChannelId,
                             guideGreen = guideGreen,
-                            onChannelSelected = onChannelSelected,
+                            onChannelSelected = { previewedChannelId = it.id },
                             modifier = Modifier.width(220.dp)
                         )
                     }
-                    FeedTvGuideList(
-                        channels = channels,
-                        currentChannelId = currentChannelId,
-                        guideGreen = guideGreen,
-                        onChannelSelected = onChannelSelected,
-                        modifier = Modifier.weight(1f)
-                    )
-                    selectedChannel?.let { channel ->
-                        GuidePipPane(
-                            channel = channel,
-                            currentPostName = currentPostName,
+                    // List with floating PiP overlay
+                    Box(modifier = Modifier.weight(1f)) {
+                        FeedTvGuideList(
+                            channels = channels,
+                            previewedChannelId = previewedChannelId,
                             guideGreen = guideGreen,
-                            modifier = Modifier
-                                .width(320.dp)
-                                .padding(horizontal = 18.dp, vertical = 18.dp)
+                            onChannelPreviewed = { previewedChannelId = it.id },
+                            onChannelSelected = onChannelSelected,
+                            modifier = Modifier.fillMaxSize()
                         )
+                        previewedChannel?.let { ch ->
+                            GuidePipVideoPane(
+                                channel = ch,
+                                currentPostName = if (ch.id == currentChannelId) currentPostName else "",
+                                activeFeedPlayer = activeFeedPlayer,
+                                guideGreen = guideGreen,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 8.dp, end = 12.dp)
+                                    .shadow(elevation = 10.dp, shape = RoundedCornerShape(10.dp))
+                                    .width(pipWidth)
+                                    .height(pipHeight)
+                                    .clip(RoundedCornerShape(10.dp))
+                            )
+                        }
                     }
                 }
             } else {
-                selectedChannel?.let { channel ->
-                    GuidePipPane(
-                        channel = channel,
-                        currentPostName = currentPostName,
+                // Phone: list with floating PiP corner overlay
+                Box(modifier = Modifier.fillMaxSize()) {
+                    FeedTvGuideList(
+                        channels = channels,
+                        previewedChannelId = previewedChannelId,
                         guideGreen = guideGreen,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(138.dp)
-                            .padding(horizontal = 18.dp)
-                            .padding(top = 14.dp)
+                        onChannelPreviewed = { previewedChannelId = it.id },
+                        onChannelSelected = onChannelSelected,
+                        modifier = Modifier.fillMaxSize()
                     )
+                    previewedChannel?.let { ch ->
+                        GuidePipVideoPane(
+                            channel = ch,
+                            currentPostName = if (ch.id == currentChannelId) currentPostName else "",
+                            activeFeedPlayer = activeFeedPlayer,
+                            guideGreen = guideGreen,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 8.dp, end = 12.dp)
+                                .shadow(elevation = 10.dp, shape = RoundedCornerShape(10.dp))
+                                .width(pipWidth)
+                                .height(pipHeight)
+                                .clip(RoundedCornerShape(10.dp))
+                        )
+                    }
                 }
-                FeedTvGuideList(
-                    channels = channels,
-                    currentChannelId = currentChannelId,
-                    guideGreen = guideGreen,
-                    onChannelSelected = onChannelSelected,
-                    modifier = Modifier.fillMaxSize()
-                )
             }
         }
     }
@@ -914,8 +1257,9 @@ private fun FeedTvGuideRail(
 @Composable
 private fun FeedTvGuideList(
     channels: List<FeedTvGuideChannel>,
-    currentChannelId: String,
+    previewedChannelId: String,
     guideGreen: Color,
+    onChannelPreviewed: (FeedTvGuideChannel) -> Unit,
     onChannelSelected: (FeedTvGuideChannel) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -939,8 +1283,9 @@ private fun FeedTvGuideList(
             items(channels) { channel ->
                 FeedTvGuideRow(
                     channel = channel,
-                    isSelected = channel.id == currentChannelId,
+                    isPreviewed = channel.id == previewedChannelId,
                     guideGreen = guideGreen,
+                    onChannelPreviewed = { onChannelPreviewed(channel) },
                     onChannelSelected = { onChannelSelected(channel) }
                 )
             }
@@ -951,12 +1296,13 @@ private fun FeedTvGuideList(
 @Composable
 private fun FeedTvGuideRow(
     channel: FeedTvGuideChannel,
-    isSelected: Boolean,
+    isPreviewed: Boolean,
     guideGreen: Color,
+    onChannelPreviewed: () -> Unit,
     onChannelSelected: () -> Unit
 ) {
     val rowColor = when {
-        isSelected -> Color(0xFF172917)
+        isPreviewed -> Color(0xFF172917)
         channel.number % 2 == 0 -> Color(0xFF121316)
         else -> Color(0xFF0B0D0F)
     }
@@ -965,7 +1311,12 @@ private fun FeedTvGuideRow(
             .fillMaxWidth()
             .height(78.dp)
             .background(rowColor)
-            .clickable(onClick = onChannelSelected)
+            .pointerInput(channel.id) {
+                detectTapGestures(
+                    onTap = { onChannelPreviewed() },
+                    onDoubleTap = { onChannelSelected() }
+                )
+            }
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1021,54 +1372,105 @@ private fun FeedTvGuideRow(
 }
 
 @Composable
-private fun GuidePipPane(
+private fun GuidePipVideoPane(
     channel: FeedTvGuideChannel,
     currentPostName: String,
+    activeFeedPlayer: ExoPlayer?,
     guideGreen: Color,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val context = LocalContext.current
+    val videoUrl = channel.videoUrl
+
+    val fallbackPlayer = remember(videoUrl, activeFeedPlayer) {
+        if (activeFeedPlayer != null || videoUrl == null) null
+        else ExoPlayer.Builder(context).build().apply {
+            val item = MediaItem.fromUri(videoUrl)
+            setMediaItem(item)
+            volume = 0f
+            repeatMode = ExoPlayer.REPEAT_MODE_ALL
+            prepare()
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(fallbackPlayer) { onDispose { fallbackPlayer?.release() } }
+
+    val pipPlayer = activeFeedPlayer ?: fallbackPlayer
+
+    Box(modifier = modifier) {
+        // Video surface
+        if (pipPlayer != null) {
+            AndroidView(
+                factory = { ctx ->
+                    TextureView(ctx).also { textureView ->
+                        textureView.isOpaque = false
+                        pipPlayer.setVideoTextureView(textureView)
+                    }
+                },
+                update = { textureView ->
+                    pipPlayer.setVideoTextureView(textureView)
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+        }
+
+        // Green border
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .border(2.dp, guideGreen.copy(alpha = 0.80f), RoundedCornerShape(10.dp))
+        )
+
+        // Bottom info scrim
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.Black.copy(alpha = 0.28f))
-                .border(2.dp, guideGreen.copy(alpha = 0.72f), RoundedCornerShape(8.dp)),
-            contentAlignment = Alignment.BottomStart
+                .align(Alignment.BottomStart)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.80f)
+                        )
+                    )
+                )
+                .padding(8.dp)
         ) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(channel.emoji, fontSize = 18.sp)
-                    Spacer(Modifier.width(8.dp))
-                    Text("CH ${channel.number}", color = guideGreen, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(channel.emoji, fontSize = 13.sp)
+                    Text(
+                        "CH ${channel.number}",
+                        color = guideGreen,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black
+                    )
                 }
                 Text(
                     currentPostName.ifBlank { channel.profile.displayName },
                     color = Color.White,
-                    fontSize = 18.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    channel.category.uppercase(),
-                    color = Color.White.copy(alpha = 0.68f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black
+                    "LIVE",
+                    color = Color.Black,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(guideGreen)
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
                 )
             }
         }
-        Text(
-            "LIVE AUDIO",
-            color = Color.Black,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Black,
-            modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(guideGreen)
-                .padding(horizontal = 9.dp, vertical = 5.dp)
-        )
     }
 }
 
@@ -1076,6 +1478,97 @@ private const val AD_FREQUENCY = 6
 private const val FEED_NATIVE_AD_UNIT_ID = "ca-app-pub-3940256099942544/2247696110"
 private const val ENABLE_FEED_VIDEO_AUTOPLAY = true
 private const val FEED_VIDEO_FIRST_FRAME_TIMEOUT_MS = 6_500L
+
+private data class PoplurAdCreative(
+    val id: String,
+    val brandName: String,
+    val headline: String,
+    val body: String,
+    val callToAction: String,
+    val creativeKind: String,
+    val posterUrl: String,
+    val videoUrl: String?,
+    val locationName: String,
+    val latitude: Double,
+    val longitude: Double,
+    val radius: Int,
+    val postsCount: Int,
+    val radiusChange: Int,
+    val driveFileId: String? = null
+)
+
+private val POPLUR_AD_CREATIVES = listOf(
+    PoplurAdCreative(
+        id = "nearby-reel",
+        brandName = "Poplur Ad",
+        headline = "Real people are already nearby",
+        body = "Human-first Poplur ad slot for finding pop-ups, food, and people around you.",
+        callToAction = "Open the map",
+        creativeKind = "Live human creative",
+        posterUrl = "file:///android_asset/feed_ads/poplur_ad_real_humans.jpg",
+        videoUrl = null,
+        locationName = "New York, NY",
+        latitude = 40.7128,
+        longitude = -74.0060,
+        radius = 1250,
+        postsCount = 840,
+        radiusChange = 18
+    ),
+    PoplurAdCreative(
+        id = "three-d-city-tour",
+        brandName = "Poplur Ad",
+        headline = "Your city is already talking",
+        body = "3D human figures bring local radius discovery into a premium city ad slot.",
+        callToAction = "Start a Poplur tour",
+        creativeKind = "3D human creative",
+        posterUrl = "file:///android_asset/feed_ads/poplur_ad_3d_group.jpg",
+        videoUrl = null,
+        locationName = "Toronto, ON",
+        latitude = 43.6532,
+        longitude = -79.3832,
+        radius = 950,
+        postsCount = 730,
+        radiusChange = 14
+    ),
+    PoplurAdCreative(
+        id = "radius-hero",
+        brandName = "Poplur Ad",
+        headline = "Post it where it matters",
+        body = "Dimensional creator-led ad slot for radius sharing, local discovery, and city energy.",
+        callToAction = "Share with your radius",
+        creativeKind = "3D figure creative",
+        posterUrl = "file:///android_asset/feed_ads/poplur_ad_3d_creator.jpg",
+        videoUrl = null,
+        locationName = "Los Angeles, CA",
+        latitude = 34.0522,
+        longitude = -118.2437,
+        radius = 1500,
+        postsCount = 910,
+        radiusChange = 22
+    )
+)
+
+private fun poplurAdCreativeForIndex(index: Int): PoplurAdCreative =
+    POPLUR_AD_CREATIVES[Math.floorMod(index, POPLUR_AD_CREATIVES.size)]
+
+private fun PoplurAdCreative.toPost(slotId: String): Post = Post(
+    id = slotId,
+    userId = "poplur_ad_$id",
+    username = "poplur_ad",
+    displayName = brandName,
+    userPostsCount = postsCount,
+    caption = headline,
+    mediaUrl = posterUrl,
+    videoUrl = videoUrl,
+    latitude = latitude,
+    longitude = longitude,
+    locationName = locationName,
+    likes = postsCount,
+    comments = max(12, postsCount / 12),
+    radius = radius,
+    totalRadius = radius * 4,
+    radiusChange = radiusChange
+)
 
 
 private data class FeedChannel(val number: Int, val emoji: String, val category: String)
@@ -1098,7 +1591,7 @@ private sealed interface FeedSlot {
         val channelEmoji: String,
         val channelCategory: String
     ) : FeedSlot
-    data class AdSlot(val id: String) : FeedSlot
+    data class AdSlot(val id: String, val creative: PoplurAdCreative) : FeedSlot
 }
 
 private fun resolveFeedSlot(index: Int): FeedSlot {
@@ -1109,7 +1602,10 @@ private fun resolveFeedSlot(index: Int): FeedSlot {
         index
     }
     if ((normalized + 1) % AD_FREQUENCY == 0) {
-        return FeedSlot.AdSlot("ad-$normalized")
+        return FeedSlot.AdSlot(
+            id = "poplur-ad-$normalized",
+            creative = poplurAdCreativeForIndex(normalized)
+        )
     }
     val adsBefore = (normalized + 1) / AD_FREQUENCY
     val postIndex = normalized - adsBefore
@@ -1125,67 +1621,90 @@ private fun resolveFeedSlot(index: Int): FeedSlot {
 @Composable
 private fun FeedAdContent(
     slot: FeedSlot.AdSlot,
-    fallbackPost: Post,
-    isVisible: Boolean
+    isVisible: Boolean,
+    useExternalVideoSurface: Boolean,
+    onActivePlayerChanged: (ExoPlayer?) -> Unit
 ) {
-    val context = LocalContext.current
-    var nativeAd by remember(slot.id) { mutableStateOf<NativeAd?>(null) }
-    var adLoadFailed by remember(slot.id) { mutableStateOf(false) }
-
-    DisposableEffect(slot.id) {
-        var disposed = false
-        AdManager.loadNativeAd(
-            context = context,
-            adUnitId = FEED_NATIVE_AD_UNIT_ID,
-            onLoaded = { loadedAd ->
-                if (disposed) {
-                    loadedAd.destroy()
-                } else {
-                    nativeAd?.destroy()
-                    nativeAd = loadedAd
-                    adLoadFailed = false
-                }
-            },
-            onFailed = {
-                adLoadFailed = true
-            }
-        )
-        onDispose {
-            disposed = true
-            nativeAd?.destroy()
-            nativeAd = null
-        }
-    }
-
-    LaunchedEffect(slot.id, nativeAd) {
-        if (nativeAd == null && !adLoadFailed) {
-            delay(8_000)
-            if (nativeAd == null) {
-                adLoadFailed = true
-            }
-        }
-    }
-
+    val adPost = remember(slot.id) { slot.creative.toPost(slot.id) }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        if (nativeAd != null) {
-            AndroidView(
-                factory = { createFullScreenNativeAdView(it) },
-                update = { view ->
-                    nativeAd?.let { bindFullScreenNativeAd(view, it) }
-                },
-                modifier = Modifier.fillMaxSize()
+        MediaContent(
+            post = adPost,
+            isVisible = isVisible,
+            useExternalVideoSurface = useExternalVideoSurface,
+            onActivePlayerChanged = onActivePlayerChanged
+        )
+        PoplurAdOverlay(creative = slot.creative)
+    }
+}
+
+@Composable
+private fun PoplurAdOverlay(creative: PoplurAdCreative) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.76f)
+                    )
+                )
             )
-        } else if (!adLoadFailed) {
-            CircularProgressIndicator(
-                color = Color.White.copy(alpha = 0.5f),
-                modifier = Modifier.align(Alignment.Center)
+    ) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 138.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            Text(
+                text = "POPLUR AD",
+                color = Color.White.copy(alpha = 0.78f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1
             )
-        } else {
-            MediaContent(post = fallbackPost, isVisible = isVisible)
+            Text(
+                text = creative.headline,
+                color = Color.White,
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Black,
+                lineHeight = 37.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = creative.body,
+                color = Color.White.copy(alpha = 0.88f),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                lineHeight = 19.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+            Box(
+                modifier = Modifier
+                    .padding(top = 3.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White)
+                    .padding(horizontal = 17.dp, vertical = 9.dp)
+            ) {
+                Text(
+                    text = creative.callToAction,
+                    color = Color.Black,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
@@ -1346,7 +1865,12 @@ private fun roundedDrawable(color: Int, radius: Float): GradientDrawable =
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-fun MediaContent(post: Post, isVisible: Boolean = true) {
+fun MediaContent(
+    post: Post,
+    isVisible: Boolean = true,
+    useExternalVideoSurface: Boolean = false,
+    onActivePlayerChanged: (ExoPlayer?) -> Unit = {}
+) {
     val context = LocalContext.current
     val isInspectionMode = LocalInspectionMode.current
     var hasError by remember(post.id) { mutableStateOf(false) }
@@ -1439,12 +1963,14 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
 
                     LaunchedEffect(exoPlayer, isVisible, post.id) {
                         if (isVisible) {
+                            onActivePlayerChanged(exoPlayer)
                             if (exoPlayer.playbackState == Player.STATE_ENDED) {
                                 exoPlayer.seekTo(0)
                             }
                             exoPlayer.playWhenReady = true
                             exoPlayer.play()
                         } else {
+                            onActivePlayerChanged(null)
                             exoPlayer.playWhenReady = false
                             exoPlayer.pause()
                         }
@@ -1452,6 +1978,7 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
 
                     DisposableEffect(exoPlayer) {
                         onDispose {
+                            onActivePlayerChanged(null)
                             exoPlayer.pause()
                             exoPlayer.release()
                         }
@@ -1499,11 +2026,15 @@ fun MediaContent(post: Post, isVisible: Boolean = true) {
                                 isFocusable = false
                                 alpha = 0f
                                 visibility = View.INVISIBLE
-                                exoPlayer.setVideoTextureView(this)
+                                if (!useExternalVideoSurface) {
+                                    exoPlayer.setVideoTextureView(this)
+                                }
                             }
                         },
                         update = { textureView ->
-                            exoPlayer.setVideoTextureView(textureView)
+                            if (!useExternalVideoSurface) {
+                                exoPlayer.setVideoTextureView(textureView)
+                            }
                             textureView.applyCenterCropTransform(videoSize)
                             textureView.alpha = if (hasRenderedVideo) 1f else 0f
                             textureView.visibility = if (hasRenderedVideo) View.VISIBLE else View.INVISIBLE
@@ -1598,6 +2129,15 @@ private fun TextureView.applyCenterCropTransform(videoSize: VideoSize?) {
 }
 
 private fun Drawable.hasLikelyBlackBars(): Boolean {
+    // If it's a BitmapDrawable, handle hardware bitmaps safely
+    if (this is android.graphics.drawable.BitmapDrawable) {
+        val bm = this.bitmap
+        if (bm != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && bm.config == Bitmap.Config.HARDWARE) {
+            val softwareBitmap = bm.copy(Bitmap.Config.ARGB_8888, false)
+            return softwareBitmap?.hasLikelyBlackBars() ?: false
+        }
+    }
+
     val sourceWidth = intrinsicWidth
     val sourceHeight = intrinsicHeight
     if (sourceWidth < 24 || sourceHeight < 24) return false
@@ -1614,6 +2154,12 @@ private fun Drawable.hasLikelyBlackBars(): Boolean {
 }
 
 private fun Bitmap.hasLikelyBlackBars(): Boolean {
+    // If it's a hardware bitmap, we must copy it to a software bitmap to access pixels
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && config == Bitmap.Config.HARDWARE) {
+        val softwareBitmap = copy(Bitmap.Config.ARGB_8888, false)
+        return softwareBitmap?.hasLikelyBlackBars() ?: false
+    }
+
     if (width < 24 || height < 24) return false
 
     val stripHeight = max(2, (height * 0.07f).roundToInt())

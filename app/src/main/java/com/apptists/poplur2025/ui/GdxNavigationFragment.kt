@@ -46,15 +46,10 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
             useAccelerometer = false
             useCompass = false
             useImmersiveMode = false
-            useGL30 = true
+            useGL30 = false
             disableAudio = false // Navigation cube uses audio? Actually, let's keep it consistent
             r = 8; g = 8; b = 8; a = 8
         }
-        
-        // Safety for LibGDX multi-instance managed assets
-        com.badlogic.gdx.graphics.glutils.ShaderProgram.prependVertexCode = ""
-        com.badlogic.gdx.graphics.glutils.ShaderProgram.prependFragmentCode = ""
-
         
         val adapter = CombinedGdxAdapter(initialTabIndex, 
             onVerticalSwipe = { isUp -> activity?.runOnUiThread { onVerticalSwipe?.invoke(isUp) } },
