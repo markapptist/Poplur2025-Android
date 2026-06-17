@@ -139,7 +139,8 @@ fun MapScreen(
     MapScreenContent(
         isVisible = isVisible,
         centerOnUserTrigger = mapViewModel.centerOnUserTrigger,
-        postCoordinateTrigger = mapViewModel.postCoordinateTrigger
+        postCoordinateTrigger = mapViewModel.postCoordinateTrigger,
+        openHoldMenuTrigger = mapViewModel.openHoldMenuTrigger
     )
 }
 
@@ -148,7 +149,8 @@ fun MapScreen(
 fun MapScreenContent(
     isVisible: Boolean = true,
     centerOnUserTrigger: Flow<Unit> = emptyFlow(),
-    postCoordinateTrigger: Flow<Point> = emptyFlow()
+    postCoordinateTrigger: Flow<Point> = emptyFlow(),
+    openHoldMenuTrigger: Flow<Unit> = emptyFlow()
 ) {
     val context = LocalContext.current
     var hasLocationPermission by remember {
@@ -181,6 +183,9 @@ fun MapScreenContent(
     var idleGeneration by remember { mutableIntStateOf(0) }
     var showLocationSearch by remember { mutableStateOf(false) }
     var locationSearchQuery by remember { mutableStateOf("") }
+    var selectedRadioTopics by remember {
+        mutableStateOf(RadioTourTopic.values().filter { it.defaultEnabled }.toSet())
+    }
     val isPreview = LocalInspectionMode.current
     val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
     val mapView = remember { if (isPreview) null else MapView(context) }
@@ -251,7 +256,7 @@ fun MapScreenContent(
             "Tap the 3D map to choose exactly where a post should live."
         }
     }
-    val mapRadioScript = remember(activeCityName, activeMusicStop, activeAiInsight, activeLiveTourMoment, activeRadius, activeWeather, tourSubtext) {
+    val mapRadioScript = remember(activeCityName, activeMusicStop, activeAiInsight, activeLiveTourMoment, activeRadius, activeWeather, tourSubtext, selectedRadioTopics) {
         buildMapRadioScript(
             cityName = activeCityName,
             stop = activeMusicStop,
@@ -260,7 +265,8 @@ fun MapScreenContent(
             visiblePostCount = DemoPostStore.posts.size,
             radius = activeRadius,
             weather = activeWeather,
-            fallbackLine = tourSubtext
+            fallbackLine = tourSubtext,
+            topics = selectedRadioTopics
         )
     }
     val titlePulse by animateFloatAsState(
@@ -360,8 +366,12 @@ fun MapScreenContent(
     LaunchedEffect(mapRadioReady, mapRadioTts) {
         if (mapRadioReady) {
             mapRadioTts?.language = Locale.US
-            mapRadioTts?.setSpeechRate(0.95f)
-            mapRadioTts?.setPitch(1.08f)
+            mapRadioTts?.voices
+                ?.filter { it.locale.language == Locale.US.language && !it.isNetworkConnectionRequired }
+                ?.maxByOrNull { it.quality }
+                ?.let { mapRadioTts?.voice = it }
+            mapRadioTts?.setSpeechRate(0.88f)
+            mapRadioTts?.setPitch(1.01f)
         }
     }
 
@@ -578,6 +588,12 @@ fun MapScreenContent(
         }
     }
 
+    LaunchedEffect(openHoldMenuTrigger) {
+        openHoldMenuTrigger.collect {
+            showLocationSearch = true
+        }
+    }
+
     LaunchedEffect(mapReady, activeMusicStop) {
         if (mapReady) {
             mapView?.mapboxMap?.getStyle { style ->
@@ -679,7 +695,7 @@ fun MapScreenContent(
 
 
 
-    LaunchedEffect(isVisible, mapReady, idleGeneration) {
+    LaunchedEffect(isVisible, mapReady, idleGeneration, selectedRadioTopics) {
         if (!isVisible || !mapReady) return@LaunchedEffect
         delay(IDLE_TOUR_DELAY_MS)
         while (isVisible && mapReady) {
@@ -699,49 +715,59 @@ fun MapScreenContent(
                     mapAnimationOptions { duration(2600) }
                 )
                 delay(3300)
-                val liveMoment = resolveLiveTourMoment(stop)
-                val focusStop = liveMoment?.let { moment ->
-                    stop.copy(
-                        coordinate = moment.coordinate,
-                        bearing = moment.bearing,
-                        radiusKm = moment.radiusKm,
-                        zoom = moment.zoom
+                val itinerary = listOf(landmarkFocus(stop)) + tourFocusesFor(stop, selectedRadioTopics)
+                itinerary.forEachIndexed { index, focus ->
+                    val focusStop = stop.copy(
+                        coordinate = focus.coordinate,
+                        bearing = focus.bearing,
+                        radiusKm = focus.radiusKm,
+                        zoom = focus.zoom
                     )
-                } ?: stop
-                val insight = liveMoment?.let { moment ->
-                    AiTourInsight(
-                        id = moment.id,
-                        subtitle = moment.subtitle,
-                        category = moment.category
+                    val insight = AiTourInsight(
+                        id = focus.liveMoment?.id ?: "${stop.cityName}-${focus.topic.name}-$index-${SystemClock.uptimeMillis()}",
+                        subtitle = focus.subtitle,
+                        category = focus.category
                     )
-                } ?: spoofAiTourInsight(stop)
 
-                activeTourFocusStop = focusStop
-                activeLiveTourMoment = liveMoment
-                activeCityName = liveMoment?.title ?: stop.cityName
-                activeRadius = focusStop.radiusKm
-                activeWeatherPoint = focusStop.coordinate
-                activeAiInsight = insight
-                mapView?.mapboxMap?.flyTo(
-                    CameraOptions.Builder()
-                        .center(focusStop.coordinate)
-                        .zoom(focusStop.zoom)
-                        .pitch(66.0)
-                        .bearing(focusStop.bearing)
-                        .build(),
-                    mapAnimationOptions { duration(4200) }
-                )
-                delay(TREND_POP_START_DELAY_MS)
-                mapView?.mapboxMap?.getStyle { style ->
-                    style.setTrendPopIcon(insight)
-                    style.clearTrendPopSource()
+                    activeTourFocusStop = focusStop
+                    activeLiveTourMoment = focus.liveMoment
+                    activeCityName = if (index == 0) stop.cityName else focus.title
+                    activeRadius = focus.radiusKm
+                    activeWeatherPoint = focus.coordinate
+                    activeAiInsight = insight
+                    val focusScript = radioScriptForFocus(focus, stop, index, itinerary.size)
+                    mapRadioDisplayLine = focusScript
+                    if (mapRadioReady) {
+                        mapRadioLive = true
+                        mapRadioTts?.speak(
+                            focusScript,
+                            TextToSpeech.QUEUE_FLUSH,
+                            null,
+                            MAP_RADIO_UTTERANCE_ID
+                        )
+                    }
+                    mapView?.mapboxMap?.flyTo(
+                        CameraOptions.Builder()
+                            .center(focus.coordinate)
+                            .zoom(focus.zoom)
+                            .pitch(66.0)
+                            .bearing(focus.bearing)
+                            .build(),
+                        mapAnimationOptions { duration(if (index == 0) 4200 else 3000) }
+                    )
+                    delay(TREND_POP_START_DELAY_MS)
+                    mapView?.mapboxMap?.getStyle { style ->
+                        style.setTrendPopIcon(insight)
+                        style.clearTrendPopSource()
+                    }
+                    repeat(3) { burstIndex ->
+                        popTone?.play(125 + burstIndex * 12)
+                        confettiTrigger++
+                        delay(180L)
+                    }
+                    val dwell = if (index == 0) TOUR_TOPIC_DWELL_MS + 4_000L else TOUR_TOPIC_DWELL_MS
+                    delay((dwell - TREND_POP_START_DELAY_MS).coerceAtLeast(0L))
                 }
-                repeat(3) { index ->
-                    popTone?.play(125 + index * 12)
-                    confettiTrigger++
-                    delay(180L)
-                }
-                delay((TOUR_STOP_DWELL_MS - TREND_POP_START_DELAY_MS).coerceAtLeast(0L))
             }
         }
     }
@@ -958,6 +984,15 @@ fun MapScreenContent(
                 query = locationSearchQuery,
                 onQueryChange = { locationSearchQuery = it },
                 stops = locationSearchStops,
+                selectedTopics = selectedRadioTopics,
+                radioScript = mapRadioScript,
+                isRadioLive = mapRadioLive,
+                onToggleTopic = { topic ->
+                    selectedRadioTopics = selectedRadioTopics.toMutableSet().apply {
+                        if (contains(topic)) remove(topic) else add(topic)
+                    }
+                },
+                onToggleRadio = toggleMapRadio,
                 onDismiss = {
                     showLocationSearch = false
                     locationSearchQuery = ""
@@ -1090,6 +1125,11 @@ private fun LocationSearchDialog(
     query: String,
     onQueryChange: (String) -> Unit,
     stops: List<TourStop>,
+    selectedTopics: Set<RadioTourTopic>,
+    radioScript: String,
+    isRadioLive: Boolean,
+    onToggleTopic: (RadioTourTopic) -> Unit,
+    onToggleRadio: () -> Unit,
     onDismiss: () -> Unit,
     onSelect: (TourStop) -> Unit
 ) {
@@ -1106,7 +1146,7 @@ private fun LocationSearchDialog(
             modifier = Modifier
                 .padding(horizontal = 18.dp, vertical = 22.dp)
                 .fillMaxWidth()
-                .heightIn(max = 460.dp),
+                .heightIn(max = 680.dp),
             shape = RoundedCornerShape(8.dp),
             color = MaterialTheme.colorScheme.surface
         ) {
@@ -1114,7 +1154,23 @@ private fun LocationSearchDialog(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Search locations", fontWeight = FontWeight.Black)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("Search Menu", fontWeight = FontWeight.Black, fontSize = 20.sp)
+                        Text(
+                            "Choose what Poplur Radio should follow on the tour.",
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                            fontSize = 12.sp
+                        )
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text("Done")
+                    }
+                }
                 OutlinedTextField(
                     value = query,
                     onValueChange = onQueryChange,
@@ -1128,9 +1184,19 @@ private fun LocationSearchDialog(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 320.dp),
+                        .weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    item {
+                        Text(
+                            "Places",
+                            modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.64f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.1.sp
+                        )
+                    }
                     items(stops, key = { "${it.cityName}-${it.storefront}" }) { stop ->
                         Column(
                             modifier = Modifier
@@ -1146,6 +1212,63 @@ private fun LocationSearchDialog(
                             )
                         }
                     }
+                    item {
+                        Text(
+                            "Poplur Radio Checklist",
+                            modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.64f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.1.sp
+                        )
+                    }
+                    items(RadioTourTopic.values().toList(), key = { it.name }) { topic ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onToggleTopic(topic) }
+                                .padding(vertical = 8.dp, horizontal = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Checkbox(
+                                checked = topic in selectedTopics,
+                                onCheckedChange = { onToggleTopic(topic) }
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(topic.title, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "Tour pans here when ${topic.shortTitle.lowercase(Locale.US)} are available.",
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f),
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                    item {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+                        ) {
+                            Text(
+                                radioScript,
+                                modifier = Modifier.padding(12.dp),
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
+                                maxLines = 4
+                            )
+                        }
+                    }
+                }
+                Button(
+                    onClick = onToggleRadio,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (isRadioLive) "Pause Radio" else "Play Radio")
                 }
             }
         }
@@ -1763,6 +1886,7 @@ private const val MUSIC_WAVE_IMAGE_ID_PREFIX = "poplur-gdx-music-wave"
 private const val MAPBOX_BASEMAP_IMPORT_ID = "basemap"
 private const val IDLE_TOUR_DELAY_MS = 30_000L
 private const val TOUR_STOP_DWELL_MS = 30_000L
+private const val TOUR_TOPIC_DWELL_MS = 14_000L
 private const val TOUR_STOPS_PER_CYCLE = 12
 private const val MUSIC_WAVE_FRAME_MS = 180L
 private const val WEATHER_PARTICLE_FRAME_MS = 140L
@@ -1801,6 +1925,36 @@ private enum class TourSubtextMode {
     Popular
 }
 
+private enum class RadioTourTopic(
+    val title: String,
+    val shortTitle: String,
+    val defaultEnabled: Boolean,
+    val category: TrendCategory
+) {
+    Malls("Malls", "Malls", true, TrendCategory.Clothes),
+    Universities("Universities/Colleges", "Colleges", false, TrendCategory.Clothes),
+    Restaurants("Restaurants & Food Courts", "Food", true, TrendCategory.Food),
+    Stadiums("Stadiums & Arenas", "Arenas", true, TrendCategory.Sports),
+    Airports("Airports", "Airports", false, TrendCategory.Travel),
+    Concerts("Concert Venues", "Concerts", true, TrendCategory.Music),
+    Downtown("Downtown Districts", "Downtown", true, TrendCategory.Travel),
+    ThemeParks("Theme Parks", "Parks", false, TrendCategory.Travel),
+    Casinos("Casinos", "Casinos", false, TrendCategory.Nightlife),
+    Hotels("Hotels & Resorts", "Hotels", false, TrendCategory.Travel)
+}
+
+private data class TourFocus(
+    val topic: RadioTourTopic,
+    val title: String,
+    val subtitle: String,
+    val coordinate: Point,
+    val bearing: Double,
+    val radiusKm: Int,
+    val zoom: Double,
+    val category: TrendCategory,
+    val liveMoment: LiveTourMoment? = null
+)
+
 private fun activeCityTitle(cityName: String, stop: TourStop?, userCountryCode: String?): String {
     val code = stop?.storefront ?: (if (cityName != "World" && cityName != "Selected Location") userCountryCode else null)
     return code?.let { "$cityName ${countryFlagEmoji(it)}" } ?: cityName
@@ -1814,7 +1968,8 @@ private fun buildMapRadioScript(
     visiblePostCount: Int,
     radius: Int,
     weather: WeatherBadge,
-    fallbackLine: String
+    fallbackLine: String,
+    topics: Set<RadioTourTopic>
 ): String {
     val activeCity = stop?.cityName ?: cityName.ifBlank { "your map" }
     val headline = when {
@@ -1828,13 +1983,252 @@ private fun buildMapRadioScript(
         "We are tracking $visiblePostCount visible ${if (visiblePostCount == 1) "post" else "posts"} around this map."
     }
 
+    val activeTopics = (topics.ifEmpty { RadioTourTopic.values().filter { it.defaultEnabled }.toSet() })
+        .map { it.shortTitle }
+        .sorted()
+        .joinToString(", ")
+
     return listOf(
-        "You are listening to Poplur Radio.",
-        "I am Nova, live over $activeCity.",
+        "You are listening to Poplur Radio. I am Nova, riding with you over $activeCity.",
+        "On this tour, I am watching $activeTopics.",
         cleanMapRadioLine(headline),
         activity,
         "The active radius signal is set to ${formatMapRadioRadius(radius)}.",
-        "Weather on the layer reads ${weather.label}. Keep the map open and I will call out what starts moving."
+        "Weather on the layer reads ${weather.label}. Keep the map open. If something useful pops off, I will take you there and talk you through it."
+    )
+        .map(::cleanMapRadioLine)
+        .filter { it.isNotBlank() }
+        .joinToString(" ")
+}
+
+private fun enabledRadioTopics(topics: Set<RadioTourTopic>): List<RadioTourTopic> {
+    val active = topics.ifEmpty { RadioTourTopic.values().filter { it.defaultEnabled }.toSet() }
+    return RadioTourTopic.values().filter { it in active }
+}
+
+private fun landmarkFocus(stop: TourStop): TourFocus {
+    val landmarkName = mainLandmarkName(stop)
+    return TourFocus(
+        topic = RadioTourTopic.Downtown,
+        title = landmarkName,
+        subtitle = "Starting the tour at $landmarkName, the main landmark signal for ${stop.cityName}.",
+        coordinate = stop.coordinate,
+        bearing = stop.bearing,
+        radiusKm = stop.radiusKm,
+        zoom = stop.zoom,
+        category = TrendCategory.Travel
+    )
+}
+
+private suspend fun tourFocusesFor(stop: TourStop, topics: Set<RadioTourTopic>): List<TourFocus> {
+    return enabledRadioTopics(topics).mapNotNull { topic ->
+        tourFocusFor(stop, topic)
+    }
+}
+
+private suspend fun tourFocusFor(stop: TourStop, topic: RadioTourTopic): TourFocus? {
+    return when (topic) {
+        RadioTourTopic.Malls -> resolveShoppingSaleMoment(stop)?.let { focusFrom(it, topic) }
+        RadioTourTopic.Universities -> syntheticFocus(
+            topic,
+            stop,
+            "${stop.cityName} university district",
+            "Campus posts are being checked for meetups, club events, study spots, and student life clips."
+        )
+        RadioTourTopic.Restaurants -> syntheticFocus(
+            topic,
+            stop,
+            "${stop.cityName} food court",
+            "Food posts are being checked for busy restaurants, table shots, cafe lines, and late-night orders."
+        )
+        RadioTourTopic.Stadiums -> {
+            resolveLiveSportsMoment(stop)?.let { return focusFrom(it, topic) }
+            SportsVenueCatalog[stop.cityName]?.firstOrNull()?.let { venue ->
+                TourFocus(
+                    topic = topic,
+                    title = venue.name,
+                    subtitle = "Poplur is watching the arena signal here. If a live game starts, Radio will jump into the score and crowd posts.",
+                    coordinate = venue.coordinate,
+                    bearing = venue.bearing,
+                    radiusKm = (stop.radiusKm * 0.45).toInt().coerceIn(35, 80),
+                    zoom = if (stop.zoom < 17.0) 17.0 else stop.zoom,
+                    category = topic.category
+                )
+            }
+        }
+        RadioTourTopic.Airports -> syntheticFocus(
+            topic,
+            stop,
+            "${stop.cityName} arrivals",
+            "Airport posts are being checked for arrival waves, travel delays, gate crowds, and visitor clips."
+        )
+        RadioTourTopic.Concerts -> syntheticFocus(
+            topic,
+            stop,
+            "${stop.cityName} concert venue",
+            "Concert posts are being checked for lineups, soundcheck clips, merch tables, and show-night energy."
+        )
+        RadioTourTopic.Downtown -> syntheticFocus(
+            topic,
+            stop,
+            "Downtown ${stop.cityName}",
+            "Downtown posts are being checked for street style, public squares, nightlife, and fast-moving local clips."
+        )
+        RadioTourTopic.ThemeParks -> themeParkName(stop)?.let { name ->
+            syntheticFocus(
+                topic,
+                stop,
+                name,
+                "Theme park posts are being checked for ride waits, food drops, character moments, and crowd movement."
+            )
+        }
+        RadioTourTopic.Casinos -> casinoName(stop)?.let { name ->
+            syntheticFocus(
+                topic,
+                stop,
+                name,
+                "Casino posts are being checked for resort floors, shows, restaurants, and late-night crowd movement."
+            )
+        }
+        RadioTourTopic.Hotels -> syntheticFocus(
+            topic,
+            stop,
+            "${stop.cityName} hotel district",
+            "Hotel and resort posts are being checked for lobby events, rooftop views, pool scenes, and visitor traffic."
+        )
+    }
+}
+
+private fun focusFrom(moment: LiveTourMoment, topic: RadioTourTopic): TourFocus {
+    return TourFocus(
+        topic = topic,
+        title = moment.title,
+        subtitle = moment.subtitle,
+        coordinate = moment.coordinate,
+        bearing = moment.bearing,
+        radiusKm = moment.radiusKm,
+        zoom = moment.zoom,
+        category = moment.category,
+        liveMoment = moment
+    )
+}
+
+private fun syntheticFocus(
+    topic: RadioTourTopic,
+    stop: TourStop,
+    placeName: String,
+    subtitle: String
+): TourFocus {
+    return TourFocus(
+        topic = topic,
+        title = placeName,
+        subtitle = subtitle,
+        coordinate = offsetPoint(stop.coordinate, topic, stop.cityName),
+        bearing = stop.bearing + ((topic.ordinal % 4) - 1.5) * 14.0,
+        radiusKm = (stop.radiusKm * 0.38).toInt().coerceIn(24, 90),
+        zoom = if (stop.zoom < 16.8) 16.8 else stop.zoom,
+        category = topic.category
+    )
+}
+
+private fun offsetPoint(point: Point, topic: RadioTourTopic, cityName: String): Point {
+    val seed = stableTourSeed(cityName, topic.name).toDouble()
+    val jitter = ((seed % 17.0) - 8.0) / 10_000.0
+    val offsets = when (topic) {
+        RadioTourTopic.Malls -> 0.018 to -0.022
+        RadioTourTopic.Universities -> -0.026 to 0.020
+        RadioTourTopic.Restaurants -> 0.012 to 0.018
+        RadioTourTopic.Stadiums -> -0.018 to -0.018
+        RadioTourTopic.Airports -> 0.052 to -0.040
+        RadioTourTopic.Concerts -> -0.016 to 0.030
+        RadioTourTopic.Downtown -> 0.008 to -0.010
+        RadioTourTopic.ThemeParks -> 0.044 to 0.026
+        RadioTourTopic.Casinos -> -0.030 to 0.014
+        RadioTourTopic.Hotels -> 0.024 to 0.008
+    }
+    return Point.fromLngLat(
+        point.longitude() + offsets.first + jitter,
+        point.latitude() + offsets.second - jitter
+    )
+}
+
+private fun mainLandmarkName(stop: TourStop): String = when (stop.cityName) {
+    "Paris" -> "Eiffel Tower"
+    "New York" -> "Empire State Building"
+    "Los Angeles" -> "Hollywood Sign"
+    "Chicago" -> "Cloud Gate"
+    "Miami" -> "Downtown Miami"
+    "Las Vegas" -> "Las Vegas Strip"
+    "New Orleans" -> "Jackson Square"
+    "San Francisco" -> "Golden Gate Bridge"
+    "Seattle" -> "Space Needle"
+    "Washington DC" -> "White House"
+    "Toronto" -> "CN Tower"
+    "Vancouver" -> "Canada Place"
+    "Montreal" -> "Old Montreal"
+    "Calgary" -> "Calgary Tower"
+    "Mexico City" -> "Zocalo"
+    "Rio de Janeiro" -> "Christ the Redeemer"
+    "Sao Paulo" -> "Paulista Avenue"
+    "Tokyo" -> "Tokyo Tower"
+    "Seoul" -> "Gwanghwamun Square"
+    "Singapore" -> "Marina Bay"
+    "Bangkok" -> "Grand Palace"
+    "Jakarta" -> "National Monument"
+    "Manila" -> "Rizal Park"
+    "London" -> "Big Ben"
+    "Dubai" -> "Burj Khalifa"
+    "Doha" -> "The Corniche"
+    "Riyadh" -> "Kingdom Centre"
+    "Istanbul" -> "Hagia Sophia"
+    "Petra" -> "The Treasury"
+    "Mumbai" -> "Gateway of India"
+    "Delhi" -> "India Gate"
+    "Jaipur" -> "Hawa Mahal"
+    "Bengaluru" -> "Vidhana Soudha"
+    "Cairo" -> "Pyramids of Giza"
+    "Lagos" -> "Lekki-Ikoyi Bridge"
+    "Nairobi" -> "Kenyatta International Convention Centre"
+    "Cape Town" -> "Table Mountain"
+    "Marrakech" -> "Jemaa el-Fnaa"
+    "Accra" -> "Independence Arch"
+    "Sydney" -> "Sydney Opera House"
+    else -> stop.cityName
+}
+
+private fun casinoName(stop: TourStop): String? = when (stop.cityName) {
+    "Las Vegas" -> "Bellagio and the Strip"
+    "Singapore" -> "Marina Bay Sands Casino"
+    "Dubai" -> "Dubai resort district"
+    else -> null
+}
+
+private fun themeParkName(stop: TourStop): String? = when (stop.cityName) {
+    "Los Angeles" -> "Universal Studios Hollywood"
+    "Tokyo" -> "Tokyo Disney Resort"
+    "Paris" -> "Disneyland Paris"
+    "Singapore" -> "Universal Studios Singapore"
+    "Dubai" -> "Dubai Parks and Resorts"
+    else -> null
+}
+
+private fun radioScriptForFocus(
+    focus: TourFocus,
+    cityStop: TourStop,
+    index: Int,
+    total: Int
+): String {
+    val opener = if (index == 0) {
+        "Starting in ${cityStop.cityName} at ${focus.title}."
+    } else {
+        "Stop ${index + 1} of $total: moving to ${focus.title} for ${focus.topic.shortTitle}."
+    }
+    val livePrefix = if (focus.liveMoment != null) "This is live. " else ""
+    return listOf(
+        "Poplur Radio with Nova.",
+        opener,
+        "$livePrefix${focus.subtitle}",
+        "I will keep panning to checked places when ${cityStop.cityName} has them."
     )
         .map(::cleanMapRadioLine)
         .filter { it.isNotBlank() }

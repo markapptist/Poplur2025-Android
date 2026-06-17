@@ -10,6 +10,8 @@ class MapViewModel : ViewModel() {
     val centerOnUserTrigger = _centerOnUserTrigger.asSharedFlow()
     private val _postCoordinateTrigger = MutableSharedFlow<Point>(replay = 0)
     val postCoordinateTrigger = _postCoordinateTrigger.asSharedFlow()
+    private val _openHoldMenuTrigger = MutableSharedFlow<Unit>(replay = 0)
+    val openHoldMenuTrigger = _openHoldMenuTrigger.asSharedFlow()
 
     suspend fun triggerCenterOnUser() {
         _centerOnUserTrigger.emit(Unit)
@@ -17,5 +19,9 @@ class MapViewModel : ViewModel() {
 
     suspend fun triggerPostCoordinate(point: Point) {
         _postCoordinateTrigger.emit(point)
+    }
+
+    suspend fun triggerOpenHoldMenu() {
+        _openHoldMenuTrigger.emit(Unit)
     }
 }

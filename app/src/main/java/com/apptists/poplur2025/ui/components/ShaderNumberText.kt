@@ -53,6 +53,8 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont
 import com.badlogic.gdx.graphics.g2d.GlyphLayout
 import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.glutils.ShaderProgram
+import kotlin.math.max
+import kotlin.math.min
 import com.badlogic.gdx.graphics.Color as GdxColor
 
 /**
@@ -72,26 +74,27 @@ fun ShaderNumberText(
     autoSize: Boolean = false,
     maxLines: Int = Int.MAX_VALUE,
     softWrap: Boolean = true,
-    overflow: TextOverflow = TextOverflow.Clip
+    overflow: TextOverflow = TextOverflow.Clip,
+    forceShader: Boolean = false
 ) {
     val context = LocalContext.current
     val isInspectionMode = LocalInspectionMode.current
     val activity = context as? FragmentActivity
     val density = LocalDensity.current
     val transition = rememberInfiniteTransition(label = "poplur-number-shader")
-    val phase by transition.animateFloat(
+    val time by transition.animateFloat(
         initialValue = 0f,
-        targetValue = 6.28318f,
+        targetValue = 60f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2400, easing = LinearEasing),
+            animation = tween(durationMillis = 60000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "poplur-number-shader-phase"
+        label = "poplur-number-shader-time"
     )
 
     // Safety: Fallback if too many instances or on low-end devices
     val shaderCount = GdxState.activeShaderTextCount.get()
-    val useFallback = activity == null || isInspectionMode || shaderCount > 6
+    val useFallback = activity == null || isInspectionMode || (!forceShader && shaderCount > 6)
 
     if (useFallback) {
         FallbackShaderNumberText(
@@ -131,13 +134,13 @@ fun ShaderNumberText(
     Box(
         modifier = Modifier
             .width(estimatedWidth)
-            .height(lineHeightDp.coerceAtLeast(12.dp))
+            .height(lineHeightDp.value.coerceAtLeast(12f).dp)
             .then(modifier)
     ) {
         AndroidView(
             modifier = Modifier
                 .width(estimatedWidth)
-                .height(lineHeightDp.coerceAtLeast(12.dp)),
+                .height(lineHeightDp.value.coerceAtLeast(12f).dp),
             factory = { viewContext ->
                 FragmentContainerView(viewContext).apply {
                     id = containerId
@@ -149,7 +152,7 @@ fun ShaderNumberText(
                             text = text,
                             color = color,
                             intensity = intensity,
-                            phase = phase,
+                            time = time,
                             fontScale = fontDp.value,
                             lineHeight = lineHeightDp.value
                         )
@@ -167,7 +170,7 @@ fun ShaderNumberText(
                         text = text,
                         color = color,
                         intensity = intensity,
-                        phase = phase,
+                        time = time,
                         fontScale = fontDp.value,
                         lineHeight = lineHeightDp.value
                     )
@@ -190,6 +193,48 @@ private fun TextUnit.toDpOrDefault(defaultValue: Dp): Dp {
     return if (isSp) value.dp else defaultValue
 }
 
+private fun poplurGlowPalette(color: Color): Pair<Color, Color> {
+    val r = color.red
+    val g = color.green
+    val b = color.blue
+    val cmax = max(r, max(g, b))
+    val cmin = min(r, min(g, b))
+    val delta = cmax - cmin
+
+    var hue = 0f
+    if (delta > 0.001f) {
+        hue = when (cmax) {
+            r -> (((g - b) / delta + 6f) % 6f) / 6f
+            g -> (2f + (b - r) / delta) / 6f
+            else -> (4f + (r - g) / delta) / 6f
+        }
+    }
+
+    val lum = r * 0.2126f + g * 0.7152f + b * 0.0722f
+    val isRed = ((1f - smoothstep(0f, 0.10f, hue)) + smoothstep(0.90f, 1f, hue)).coerceIn(0f, 1f)
+    val isGreen = smoothstep(0.25f, 0.38f, hue) * (1f - smoothstep(0.38f, 0.50f, hue))
+    val isBlue = smoothstep(0.55f, 0.65f, hue) * (1f - smoothstep(0.65f, 0.78f, hue))
+    val isNeutral = smoothstep(0.72f, 0.90f, lum) * (1f - isRed) * (1f - isGreen) * (1f - isBlue)
+    val isOther = (1f - isRed - isGreen - isBlue - isNeutral).coerceIn(0f, 1f)
+
+    val glowA = Color(
+        red = isRed * 1.00f + isGreen * 0.65f + isBlue * 0.40f + isNeutral * 0.82f + isOther * 1.00f,
+        green = isRed * 0.42f + isGreen * 1.00f + isBlue * 0.12f + isNeutral * 0.88f + isOther * 0.62f,
+        blue = isRed * 0.06f + isGreen * 0.10f + isBlue * 1.00f + isNeutral * 1.00f + isOther * 0.18f
+    )
+    val glowB = Color(
+        red = isRed * 1.00f + isGreen * 0.18f + isBlue * 0.12f + isNeutral * 0.18f + isOther * 0.18f,
+        green = isRed * 0.10f + isGreen * 1.00f + isBlue * 0.72f + isNeutral * 0.75f + isOther * 0.82f,
+        blue = isRed * 0.28f + isGreen * 0.55f + isBlue * 1.00f + isNeutral * 1.00f + isOther * 1.00f
+    )
+    return glowA to glowB
+}
+
+private fun smoothstep(edge0: Float, edge1: Float, x: Float): Float {
+    val t = ((x - edge0) / (edge1 - edge0)).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
 @Composable
 private fun FallbackShaderNumberText(
     text: String,
@@ -208,41 +253,84 @@ private fun FallbackShaderNumberText(
     val transition = rememberInfiniteTransition(label = "poplur-number-shader-fallback")
     val time by transition.animateFloat(
         initialValue = 0f,
-        targetValue = 6.28318f,
+        targetValue = 60f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2400, easing = LinearEasing),
+            animation = tween(durationMillis = 60000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "poplur-number-shader-fallback-time"
     )
-    val brush = remember(color, time) {
+    val palette = remember(color) { poplurGlowPalette(color) }
+    val scan = ((time * 42f) % 220f) - 110f
+    val brush = remember(color, palette, scan) {
         Brush.linearGradient(
-            colors = listOf(color, Color(0xFFFFA12B), Color(0xFF54D8FF), color),
-            start = Offset.Zero,
-            end = Offset.Infinite
+            colors = listOf(color, palette.first, palette.second, color),
+            start = Offset(scan, 0f),
+            end = Offset(scan + 220f, 90f)
         )
     }
     val onLayout: ((TextLayoutResult) -> Unit)? = if (autoSize) ({ }) else null
+    val textModifier = Modifier
+    val orangeShadow = Color(1.0f, 0.55f, 0.12f)
+    val cyanShadow = Color(0.18f, 0.78f, 1.0f)
 
-    Text(
-        text = text,
-        modifier = modifier,
-        maxLines = if (autoSize) 1 else maxLines,
-        softWrap = if (autoSize) false else softWrap,
-        overflow = if (autoSize) TextOverflow.Visible else overflow,
-        onTextLayout = onLayout,
-        style = TextStyle(
-            brush = brush,
-            fontSize = fontSize,
-            fontWeight = fontWeight,
-            lineHeight = lineHeight,
-            shadow = Shadow(
-                color = glowColor.copy(alpha = 0.32f * intensity),
-                offset = Offset.Zero,
-                blurRadius = 9f * intensity
+    Box(modifier = modifier) {
+        Text(
+            text = text,
+            modifier = textModifier,
+            maxLines = if (autoSize) 1 else maxLines,
+            softWrap = if (autoSize) false else softWrap,
+            overflow = if (autoSize) TextOverflow.Visible else overflow,
+            style = TextStyle(
+                color = orangeShadow.copy(alpha = 0.28f * intensity),
+                fontSize = fontSize,
+                fontWeight = fontWeight,
+                lineHeight = lineHeight,
+                shadow = Shadow(
+                    color = orangeShadow.copy(alpha = 0.28f * intensity),
+                    offset = Offset.Zero,
+                    blurRadius = 8f
+                )
             )
         )
-    )
+        Text(
+            text = text,
+            modifier = textModifier,
+            maxLines = if (autoSize) 1 else maxLines,
+            softWrap = if (autoSize) false else softWrap,
+            overflow = if (autoSize) TextOverflow.Visible else overflow,
+            style = TextStyle(
+                color = cyanShadow.copy(alpha = 0.18f * intensity),
+                fontSize = fontSize,
+                fontWeight = fontWeight,
+                lineHeight = lineHeight,
+                shadow = Shadow(
+                    color = cyanShadow.copy(alpha = 0.18f * intensity),
+                    offset = Offset.Zero,
+                    blurRadius = 12f
+                )
+            )
+        )
+        Text(
+            text = text,
+            modifier = textModifier,
+            maxLines = if (autoSize) 1 else maxLines,
+            softWrap = if (autoSize) false else softWrap,
+            overflow = if (autoSize) TextOverflow.Visible else overflow,
+            onTextLayout = onLayout,
+            style = TextStyle(
+                brush = brush,
+                fontSize = fontSize,
+                fontWeight = fontWeight,
+                lineHeight = lineHeight,
+                shadow = Shadow(
+                    color = glowColor.copy(alpha = 0.10f * intensity),
+                    offset = Offset.Zero,
+                    blurRadius = 4f
+                )
+            )
+        )
+    }
 }
 
 class GdxShaderNumberFragment : AndroidFragmentApplication() {
@@ -252,7 +340,7 @@ class GdxShaderNumberFragment : AndroidFragmentApplication() {
         text: String,
         color: Color,
         intensity: Float,
-        phase: Float,
+        time: Float,
         fontScale: Float,
         lineHeight: Float
     ) {
@@ -260,7 +348,7 @@ class GdxShaderNumberFragment : AndroidFragmentApplication() {
             text = text,
             color = color.toGdxColor(),
             intensity = intensity,
-            phase = phase,
+            time = time,
             fontScale = fontScale,
             lineHeight = lineHeight
         )
@@ -306,7 +394,7 @@ private class GdxShaderNumberAdapter : ApplicationAdapter() {
     @Volatile private var text = ""
     @Volatile private var color = GdxColor.WHITE
     @Volatile private var intensity = 1f
-    @Volatile private var phase = 0f
+    @Volatile private var time = 0f
     @Volatile private var requestedFontScale = 24f
     @Volatile private var requestedLineHeight = 28f
     @Volatile private var dirty = false
@@ -322,14 +410,14 @@ private class GdxShaderNumberAdapter : ApplicationAdapter() {
         text: String,
         color: GdxColor,
         intensity: Float,
-        phase: Float,
+        time: Float,
         fontScale: Float,
         lineHeight: Float
     ) {
         this.text = text
         this.color = color
         this.intensity = intensity
-        this.phase = phase
+        this.time = time
         this.requestedFontScale = fontScale
         this.requestedLineHeight = lineHeight
         this.dirty = true
@@ -382,16 +470,41 @@ private class GdxShaderNumberAdapter : ApplicationAdapter() {
             val y = (height + activeLayout.height) * 0.5f
 
             activeBatch.projectionMatrix = camera?.combined
+            activeBatch.shader = null
+            activeBatch.begin()
+            drawShadow(
+                activeBatch = activeBatch,
+                activeFont = activeFont,
+                activeLayout = activeLayout,
+                x = x,
+                y = y,
+                width = width,
+                height = height,
+                color = GdxColor(1.0f, 0.55f, 0.12f, (0.28f * intensity).coerceIn(0f, 0.48f)),
+                spread = 1.8f
+            )
+            drawShadow(
+                activeBatch = activeBatch,
+                activeFont = activeFont,
+                activeLayout = activeLayout,
+                x = x,
+                y = y,
+                width = width,
+                height = height,
+                color = GdxColor(0.18f, 0.78f, 1.0f, (0.18f * intensity).coerceIn(0f, 0.36f)),
+                spread = 2.8f
+            )
+            activeBatch.end()
+
             activeBatch.shader = activeShader
             activeBatch.begin()
             if (activeShader != null) {
-                if (activeShader.hasUniform("u_time")) activeShader.setUniformf("u_time", phase)
+                if (activeShader.hasUniform("u_time")) activeShader.setUniformf("u_time", time)
                 if (activeShader.hasUniform("u_intensity")) activeShader.setUniformf("u_intensity", intensity)
                 if (activeShader.hasUniform("u_size")) activeShader.setUniformf("u_size", width, height)
                 if (activeShader.hasUniform("u_baseColor")) activeShader.setUniformf("u_baseColor", color.r, color.g, color.b, color.a)
             }
 
-            drawGlow(activeBatch, activeFont, activeLayout, x, y, width, height)
             activeFont.color = color
             activeFont.draw(activeBatch, activeLayout, x, y)
             activeBatch.end()
@@ -401,18 +514,19 @@ private class GdxShaderNumberAdapter : ApplicationAdapter() {
         }
     }
 
-    private fun drawGlow(
+    private fun drawShadow(
         activeBatch: SpriteBatch,
         activeFont: BitmapFont,
         activeLayout: GlyphLayout,
         x: Float,
         y: Float,
         width: Float,
-        height: Float
+        height: Float,
+        color: GdxColor,
+        spread: Float
     ) {
-        val glowAlpha = (0.18f * intensity).coerceIn(0f, 0.42f)
-        val offsets = floatArrayOf(-2.2f, 0f, 2.2f)
-        activeFont.color = GdxColor(color.r, color.g, color.b, glowAlpha)
+        val offsets = floatArrayOf(-spread, 0f, spread)
+        activeFont.color = color
         offsets.forEach { dx ->
             offsets.forEach { dy ->
                 if (dx != 0f || dy != 0f) {
@@ -457,7 +571,11 @@ void main() {
 
 private const val FRAGMENT_SHADER = """
 #ifdef GL_ES
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
+#endif
 #endif
 
 varying vec4 v_color;

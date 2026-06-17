@@ -1,10 +1,6 @@
 package com.apptists.poplur2025.ui.screens
 
-import android.content.Context
-import android.content.Intent
 import android.graphics.BitmapFactory
-import android.net.Uri
-import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,6 +28,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Videocam
@@ -75,29 +72,21 @@ fun DMScreen(
     onBack: () -> Unit = {},
     onPhoneCallVisibilityChanged: (Boolean) -> Unit = {}
 ) {
-    val context = LocalContext.current
     var selectedThread by remember { mutableStateOf<ConversationThread?>(null) }
     var searchQuery by remember { mutableStateOf("") }
+    var callTarget by remember { mutableStateOf<Pair<String, Boolean>?>(null) } // name, isVideo
     val threads = remember { FakeChatStore.threads }
     val filteredThreads = remember(searchQuery, threads) {
         val query = searchQuery.trim()
-        if (query.isEmpty()) {
-            threads
-        } else {
-            threads.filter {
-                it.title.contains(query, ignoreCase = true) ||
-                    it.lastMessage.contains(query, ignoreCase = true)
-            }
+        if (query.isEmpty()) threads
+        else threads.filter {
+            it.title.contains(query, ignoreCase = true) ||
+                it.lastMessage.contains(query, ignoreCase = true)
         }
     }
 
-    LaunchedEffect(Unit) {
-        onPhoneCallVisibilityChanged(false)
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { onPhoneCallVisibilityChanged(false) }
-    }
+    LaunchedEffect(Unit) { onPhoneCallVisibilityChanged(false) }
+    DisposableEffect(Unit) { onDispose { onPhoneCallVisibilityChanged(false) } }
 
     Box(
         modifier = Modifier
@@ -106,10 +95,7 @@ fun DMScreen(
             .statusBarsPadding()
     ) {
         if (selectedThread == null) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-            ) {
+            Column(modifier = Modifier.fillMaxSize()) {
                 DmTopBar()
 
                 DmSearchField(
@@ -132,7 +118,7 @@ fun DMScreen(
                             name = thread.title,
                             preview = thread.lastMessage,
                             onOpen = { selectedThread = thread },
-                            onVideoCall = { startVideoCall(context, thread.title) }
+                            onVideoCall = { callTarget = thread.title to true }
                         )
                         if (index < filteredThreads.lastIndex) {
                             HorizontalDivider(
@@ -149,7 +135,17 @@ fun DMScreen(
             DMChatDetailScreen(
                 thread = selectedThread!!,
                 onBack = { selectedThread = null },
-                onVideoCall = { startVideoCall(context, selectedThread!!.title) }
+                onVideoCall = { callTarget = selectedThread!!.title to true },
+                onAudioCall = { callTarget = selectedThread!!.title to false }
+            )
+        }
+
+        // Full-screen call overlay — routes through Poplur phone UI
+        callTarget?.let { (name, isVideo) ->
+            DMCallCoordinatorScreen(
+                calleeName = name,
+                isVideo = isVideo,
+                onDismiss = { callTarget = null }
             )
         }
     }
@@ -473,7 +469,8 @@ private fun threadUnreadCount(threadId: String): Int = when (threadId) {
 private fun DMChatDetailScreen(
     thread: ConversationThread,
     onBack: () -> Unit,
-    onVideoCall: () -> Unit
+    onVideoCall: () -> Unit,
+    onAudioCall: () -> Unit = {}
 ) {
     val messages = remember(thread.id) {
         mutableStateListOf(
@@ -530,16 +527,29 @@ private fun DMChatDetailScreen(
                 )
             }
 
-            DmCircleIconButton(
-                modifier = Modifier.size(52.dp),
-                onClick = onVideoCall
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Videocam,
-                    contentDescription = "Video call ${thread.title}",
-                    tint = Color.White,
-                    modifier = Modifier.size(25.dp)
-                )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                DmCircleIconButton(
+                    modifier = Modifier.size(44.dp),
+                    onClick = onAudioCall
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Call,
+                        contentDescription = "Call ${thread.title}",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                DmCircleIconButton(
+                    modifier = Modifier.size(44.dp),
+                    onClick = onVideoCall
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Videocam,
+                        contentDescription = "Video call ${thread.title}",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
             }
         }
 
@@ -728,13 +738,6 @@ private data class ChatBubbleState(
 private fun currentBubbleTime(): String =
     SimpleDateFormat("h:mm a", Locale.US).format(Date())
 
-private fun startVideoCall(context: Context, displayName: String) {
-    Toast.makeText(context, "Starting video call with $displayName", Toast.LENGTH_SHORT).show()
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://meet.google.com/new")).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    runCatching { context.startActivity(intent) }
-}
 
 @Preview
 @Composable

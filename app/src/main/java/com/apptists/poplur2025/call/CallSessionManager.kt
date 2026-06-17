@@ -131,6 +131,26 @@ object CallSessionManager {
         }
     }
 
+    // Simulates a local-only outgoing call (no Firestore signaling) — used for DM calls.
+    fun simulateLocalCall(calleeName: String) {
+        if (_callState.value !is CallState.Idle) return
+        _callState.value = CallState.Outgoing(calleeName = calleeName)
+        timeoutJob = scope.launch {
+            delay(3_000)
+            if (_callState.value is CallState.Outgoing) {
+                _callState.value = CallState.Connected(calleeName = calleeName, channelId = "local")
+                startElapsedTimer()
+            }
+        }
+    }
+
+    fun cancelSimulatedCall() {
+        timeoutJob?.cancel()
+        timerJob?.cancel()
+        _callState.value = CallState.Idle
+        _elapsedSeconds.value = 0
+    }
+
     private fun listenToDocument(id: String, calleeName: String) {
         documentListener?.remove()
         documentListener = db.collection("calls").document(id)

@@ -91,6 +91,7 @@ fun CameraScreen(
     photoTrigger: Int = 0,
     recordTrigger: Int = 0,
     liveTrigger: Int = 0,
+    filtersTrigger: Int = 0,
     initialShowFilters: Boolean = false,
     onFiltersToggle: (Boolean) -> Unit = {},
     onMediaCaptured: (Uri, Boolean) -> Unit = { _, _ -> }
@@ -351,6 +352,12 @@ fun CameraScreen(
         }
     }
 
+    LaunchedEffect(filtersTrigger) {
+        if (filtersTrigger > 0) {
+            showFilterPicker = true
+        }
+    }
+
     LaunchedEffect(isLiveVideoActive) {
         while (isLiveVideoActive) {
             delay(1_000)
@@ -551,7 +558,7 @@ fun CameraScreen(
                 .statusBarsPadding()
                 .padding(top = 14.dp, start = 16.dp)
                 .align(Alignment.TopStart),
-            colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.3f))
+            colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Transparent)
         ) {
             Icon(
                 if (torchEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
@@ -567,7 +574,7 @@ fun CameraScreen(
                 .statusBarsPadding()
                 .padding(top = 14.dp, end = 16.dp)
                 .align(Alignment.TopEnd),
-            colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Black.copy(alpha = 0.3f))
+            colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Transparent)
         ) {
             Icon(Icons.Default.FlipCameraAndroid, "Switch Camera", tint = Color.White)
         }
@@ -959,16 +966,13 @@ private fun FaceArOverlay(
                 mirrored = mirrored
             )
 
-            /* Bounding box removed - ML is background only */
-            /*
             drawRoundRect(
-                color = Color(0xFF66E7FF).copy(alpha = .84f),
+                color = Color(0xFF4DFF58).copy(alpha = .9f),
                 topLeft = Offset(box.left, box.top),
                 size = Size(box.width, box.height),
-                cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx()),
-                style = Stroke(width = 2.4.dp.toPx())
+                cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
+                style = Stroke(width = 3.dp.toPx())
             )
-            */
 
             when (selectedFilter) {
                 ArFilter.None -> Unit

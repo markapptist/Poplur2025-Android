@@ -123,6 +123,12 @@ class CombinedGdxAdapter(
     private var touchStartMillis = 0L
     private var time = 0f
 
+    // Face texture cache — all possible titles are rendered once at create() time so
+    // runtime icon changes (e.g. Profile wheel cycling every 620 ms) are just HashMap
+    // lookups instead of FrameBuffer + glReadPixels GPU stalls on the render thread.
+    private val textureCache = HashMap<String, Texture>()
+    private var lastCachedCornerRadius = -1f  // forces initial cache build
+
     private val textures = arrayOfNulls<Texture>(4)
     private val materials = arrayOfNulls<Material>(4)
     private val currentTitles = arrayOfNulls<String>(4)
@@ -158,6 +164,11 @@ class CombinedGdxAdapter(
                 data.setScale(2.5f)
                 setUseIntegerPositions(false)
             }
+
+            // Pre-render every face title we will ever show. This is the only time
+            // createFaceTexture (which calls glReadPixels) runs — never again during
+            // the render loop, so icon changes are zero-stall.
+            buildTextureCache()
 
             rebuildTextures()
             rebuildModel()
@@ -208,28 +219,52 @@ class CombinedGdxAdapter(
         }
     }
 
+    private fun buildTextureCache() {
+        // If cornerRadius changed since the last cache build, discard stale textures.
+        if (lastCachedCornerRadius != cornerRadius) {
+            textureCache.values.forEach { it.dispose() }
+            textureCache.clear()
+            currentTitles.fill(null)
+            lastCachedCornerRadius = cornerRadius
+        }
+        // All titles that any face of the cube can ever show.
+        listOf("Record", "Feed", "Profile", "Map", "Mail", "Settings", "Alerts", "Phone", "Store")
+            .forEach { title ->
+                if (!textureCache.containsKey(title)) {
+                    textureCache[title] = createFaceTexture(title)
+                }
+            }
+    }
+
     private fun rebuildTextures() {
+        // Rebuild cache if cornerRadius changed (rare; typically never after init).
+        if (lastCachedCornerRadius != cornerRadius) buildTextureCache()
+
         val recordTitle = if (currentIconTitle != "Record") currentIconTitle else "Record"
         val titles = listOf(recordTitle, "Feed", profileIconTitle, "Map")
 
-        var anyChanged = false
         titles.forEachIndexed { index, title ->
             if (currentTitles[index] != title) {
-                textures[index]?.dispose()
-                val texture = createFaceTexture(title)
+                // Cache hit is the common path — no FBO, no glReadPixels, no GPU stall.
+                val texture = textureCache.getOrPut(title) { createFaceTexture(title) }
                 textures[index] = texture
-                materials[index] = Material(
-                    TextureAttribute.createDiffuse(texture),
-                    ColorAttribute.createDiffuse(Color.WHITE),
-                    BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, opacity)
-                )
+                val existing = materials[index]
+                if (existing == null) {
+                    // First time — create the Material; model must be built around it.
+                    materials[index] = Material(
+                        TextureAttribute.createDiffuse(texture),
+                        ColorAttribute.createDiffuse(Color.WHITE),
+                        BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, opacity)
+                    )
+                    modelDirty = true
+                } else {
+                    // Update the texture attribute in-place on the object the model
+                    // already references — the model picks up the change automatically
+                    // on the next render without a rebuild.
+                    existing.set(TextureAttribute.createDiffuse(texture))
+                }
                 currentTitles[index] = title
-                anyChanged = true
             }
-        }
-        
-        if (anyChanged) {
-            modelDirty = true
         }
     }
 
@@ -477,7 +512,9 @@ class CombinedGdxAdapter(
 
     override fun dispose() {
         modelBatch?.dispose(); model?.dispose()
-        textures.forEach { it?.dispose() }
+        // textureCache owns all Texture objects; textures[] just holds references into it.
+        textureCache.values.forEach { it.dispose() }
+        textureCache.clear()
         font?.dispose()
         textureBatch?.dispose(); shapeRenderer?.dispose()
     }

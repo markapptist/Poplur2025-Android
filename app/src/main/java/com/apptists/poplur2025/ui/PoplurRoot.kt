@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Notifications
@@ -193,6 +194,7 @@ fun PoplurRoot(
     var cameraPhotoTrigger by remember { mutableIntStateOf(0) }
     var cameraRecordTrigger by remember { mutableIntStateOf(0) }
     var cameraLiveTrigger by remember { mutableIntStateOf(0) }
+    var cameraFiltersTrigger by remember { mutableIntStateOf(0) }
     var isAppVisible by remember { mutableStateOf(true) }
     var filtersVisible by remember { mutableStateOf(false) }
     var isPhoneCallScreenVisible by remember { mutableStateOf(false) }
@@ -307,7 +309,7 @@ fun PoplurRoot(
             )
         } else if (tab == AppTab.Map) {
             scope.launch {
-                mapViewModel.triggerCenterOnUser()
+                mapViewModel.triggerOpenHoldMenu()
             }
         } else if (tab == AppTab.Camera) {
             cubeMenuWheelController.beginHold(
@@ -329,6 +331,12 @@ fun PoplurRoot(
                         icon = Icons.Default.CellTower,
                         accent = Color(0xFFFF3333),
                         onSelected = { cameraLiveTrigger++ }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "AR",
+                        icon = Icons.Default.AutoAwesome,
+                        accent = Color(0xFF18D8E8),
+                        onSelected = { cameraFiltersTrigger++ }
                     )
                 )
             )
@@ -467,6 +475,7 @@ fun PoplurRoot(
                     photoTrigger = cameraPhotoTrigger,
                     recordTrigger = cameraRecordTrigger,
                     liveTrigger = cameraLiveTrigger,
+                    filtersTrigger = cameraFiltersTrigger,
                     onFiltersToggle = { filtersVisible = it },
                     onMediaCaptured = { uri, isVideo ->
                         capturedMediaUri = uri

@@ -2,6 +2,7 @@ package com.apptists.poplur2025.ui.screens
 
 import android.content.Intent
 import android.media.AudioManager
+import android.media.RingtoneManager
 import android.media.ToneGenerator
 import android.net.Uri
 import androidx.compose.animation.core.animateFloatAsState
@@ -59,7 +60,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
@@ -77,7 +77,9 @@ import com.apptists.poplur2025.ui.components.CubeMenuWheelController
 import com.apptists.poplur2025.ui.components.CubeMenuWheelItem
 import com.apptists.poplur2025.ui.components.CubeMenuWheelOverlay
 import com.apptists.poplur2025.ui.components.ShaderNumberText
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -160,6 +162,24 @@ fun PopularPhoneCallScreen(
             onVisibilityChanged(false)
             toneGenerator?.release()
         }
+    }
+
+    val ringtone = remember(context) {
+        runCatching {
+            RingtoneManager.getRingtone(context, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
+        }.getOrNull()
+    }
+
+    LaunchedEffect(callState) {
+        when (callState) {
+            is CallSessionManager.CallState.Outgoing,
+            is CallSessionManager.CallState.Incoming -> ringtone?.play()
+            else -> ringtone?.stop()
+        }
+    }
+
+    DisposableEffect(ringtone) {
+        onDispose { ringtone?.stop() }
     }
 
     LaunchedEffect(isSnakeActive, snakeGame.direction) {
@@ -380,6 +400,7 @@ fun PopularPhoneCallScreen(
                             width = phoneWidth * PHONE_SCREEN_WIDTH_FRACTION,
                             height = phoneHeight * PHONE_SCREEN_HEIGHT_FRACTION
                         )
+                        .clipToBounds()
                     if (showPhoneMenu) {
                         PhoneMenuDisplay(
                             title = phoneMenuTitle(menuScreen),
@@ -571,7 +592,8 @@ private fun PhoneKeypadLabels(modifier: Modifier = Modifier) {
                             lineHeight = (btnH.value * 0.52f).sp,
                             intensity = 1.45f,
                             glowColor = digitGreen,
-                            autoSize = true
+                            autoSize = true,
+                            forceShader = false
                         )
                         if (sub.isNotEmpty()) {
                             ShaderNumberText(
@@ -582,7 +604,8 @@ private fun PhoneKeypadLabels(modifier: Modifier = Modifier) {
                                 lineHeight = (btnH.value * 0.28f).sp,
                                 intensity = 0.75f,
                                 glowColor = digitGreen,
-                                autoSize = true
+                                autoSize = true,
+                                forceShader = false
                             )
                         }
                     }
@@ -699,12 +722,19 @@ private fun DrawScope.drawPhonePressFrame(spriteSheet: ImageBitmap, frameIndex: 
     val column = safeIndex % PHONE_PRESS_COLUMNS
     val row = safeIndex / PHONE_PRESS_COLUMNS
 
+    // Press spritesheets have ~10% more transparent padding per side than the resting image.
+    // Scale up 1.10× centered so the phone body stays the same visual size during a press.
+    val scaledW = (size.width * PHONE_PRESS_SCALE_FACTOR).roundToInt()
+    val scaledH = (size.height * PHONE_PRESS_SCALE_FACTOR).roundToInt()
+    val dxOff = ((scaledW - size.width) / 2f).roundToInt()
+    val dyOff = ((scaledH - size.height) / 2f).roundToInt()
+
     drawImage(
         image = spriteSheet,
         srcOffset = IntOffset(column * cellWidth, row * cellHeight),
         srcSize = IntSize(cellWidth, cellHeight),
-        dstOffset = IntOffset(0, 0),
-        dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
+        dstOffset = IntOffset(-dxOff, -dyOff),
+        dstSize = IntSize(scaledW, scaledH)
     )
 }
 
@@ -798,22 +828,29 @@ private fun InvisiblePhoneButton(
     onHoldStart: (() -> Unit)? = null,
     onHoldEnd: ((Boolean) -> Unit)? = null
 ) {
-    val viewConfiguration = LocalViewConfiguration.current
     val holdStart = onHoldStart
     val holdEnd = onHoldEnd
     val pressModifier = if (holdStart != null && holdEnd != null) {
-        Modifier.pointerInput(viewConfiguration, holdStart, holdEnd) {
-            awaitEachGesture {
-                awaitFirstDown()
-                val releasedBeforeHold = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                    waitForUpOrCancellation()
-                }
-                if (releasedBeforeHold != null) {
-                    onDigitPressed(digit)
-                } else {
-                    holdStart()
-                    val release = waitForUpOrCancellation()
-                    holdEnd(release != null)
+        // Use a concurrent launch instead of withTimeoutOrNull so finger drift doesn't
+        // prematurely cancel the hold path (waitForUpOrCancellation returns null on drift,
+        // which the old code misread as "released before hold").
+        Modifier.pointerInput(holdStart, holdEnd) {
+            coroutineScope {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    var held = false
+                    val holdJob = launch {
+                        delay(350L)
+                        held = true
+                        holdStart()
+                    }
+                    val up = waitForUpOrCancellation()
+                    holdJob.cancel()
+                    if (held) {
+                        holdEnd(up != null)
+                    } else if (up != null) {
+                        onDigitPressed(digit)
+                    }
                 }
             }
         }
@@ -1166,12 +1203,13 @@ private const val PHONE_SIGNAL_ROWS = 4
 private const val PHONE_SIGNAL_FRAME_COUNT = PHONE_SIGNAL_COLUMNS * PHONE_SIGNAL_ROWS
 private const val PHONE_SIGNAL_PATCH_LEFT_FRACTION = 0.265f
 private const val PHONE_SIGNAL_PATCH_TOP_FRACTION = 0.195f
-private const val PHONE_SIGNAL_PATCH_WIDTH_FRACTION = 0.120f
-private const val PHONE_SIGNAL_PATCH_HEIGHT_FRACTION = 0.045f
+private const val PHONE_SIGNAL_PATCH_WIDTH_FRACTION = 0.135f
+private const val PHONE_SIGNAL_PATCH_HEIGHT_FRACTION = 0.058f
 private const val PHONE_SCREEN_LEFT_FRACTION = 0.240f
 private const val PHONE_SCREEN_TOP_FRACTION = 0.183f
 private const val PHONE_SCREEN_WIDTH_FRACTION = 0.520f
 private const val PHONE_SCREEN_HEIGHT_FRACTION = 0.245f
+private const val PHONE_PRESS_SCALE_FACTOR = 1.10f
 private const val PHONE_SCREEN_CORNER_RADIUS_FRACTION = 0.040f
 private val PHONE_LCD_COLOR = Color(0xFFEFF100)
 private const val SNAKE_COLUMNS = 16
