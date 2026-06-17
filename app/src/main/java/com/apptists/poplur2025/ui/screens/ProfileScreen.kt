@@ -693,7 +693,7 @@ private fun AnimatedPoplurCard(
     Image(
         painter = painterResource(product.frameResIds.first()),
         contentDescription = product.name,
-        contentScale = ContentScale.Fit,
+        contentScale = ContentScale.FillBounds,
         modifier = modifier
             .aspectRatio(482f / 320f)
             .clip(RoundedCornerShape(18.dp))
