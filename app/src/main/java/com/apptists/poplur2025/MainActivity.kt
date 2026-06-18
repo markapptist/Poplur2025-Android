@@ -4,10 +4,12 @@ import android.media.AudioManager
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import com.apptists.poplur2025.call.AgoraCallEngine
 import com.apptists.poplur2025.ui.PoplurRoot
 import androidx.fragment.app.FragmentActivity
@@ -16,13 +18,14 @@ import com.badlogic.gdx.backends.android.AndroidFragmentApplication
 class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         volumeControlStream = AudioManager.STREAM_MUSIC
         AgoraCallEngine.initialize(this)
-        setContent { 
-            MaterialTheme { 
-                Surface(Modifier.fillMaxSize()) {
-                    PoplurRoot() 
-                } 
+        setContent {
+            MaterialTheme {
+                Surface(Modifier.fillMaxSize(), color = Color.Black) {
+                    PoplurRoot()
+                }
             }
         }
     }

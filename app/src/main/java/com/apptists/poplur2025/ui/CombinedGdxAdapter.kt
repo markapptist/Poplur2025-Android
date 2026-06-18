@@ -134,6 +134,9 @@ class CombinedGdxAdapter(
     private val currentTitles = arrayOfNulls<String>(4)
     private var font: BitmapFont? = null
 
+    private var lastWidth = 0
+    private var lastHeight = 0
+
     override fun create() {
         try {
             appInstance = Gdx.app
@@ -149,6 +152,8 @@ class CombinedGdxAdapter(
 
             val w = Gdx.graphics.width.toFloat().coerceAtLeast(1f)
             val h = Gdx.graphics.height.toFloat().coerceAtLeast(1f)
+            lastWidth = w.toInt()
+            lastHeight = h.toInt()
             camera = PerspectiveCamera(40f, w, h).apply {
                 position.set(0f, 0f, 5f)
                 lookAt(0f, 0f, 0f)
@@ -476,6 +481,8 @@ class CombinedGdxAdapter(
     }
 
     override fun resize(width: Int, height: Int) {
+        lastWidth = width
+        lastHeight = height
         camera?.viewportWidth = width.toFloat().coerceAtLeast(1f); camera?.viewportHeight = height.toFloat().coerceAtLeast(1f); camera?.update()
     }
 
@@ -497,7 +504,13 @@ class CombinedGdxAdapter(
             val deltaTime = Gdx.graphics.deltaTime
             time += deltaTime
             if (dragging || bouncePhase != BouncePhase.Idle) updateAnimation()
-            Gdx.gl.glViewport(0, 0, Gdx.graphics.width, Gdx.graphics.height); Gdx.gl.glClearColor(0f, 0f, 0f, 0f); Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
+            
+            val w = lastWidth.coerceAtLeast(1)
+            val h = lastHeight.coerceAtLeast(1)
+            Gdx.gl.glViewport(0, 0, w, h)
+            Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
+            Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
+
             instance?.let { cube ->
                 val hoverY = Math.sin(time.toDouble() * 2.0).toFloat() * 0.12f
                 cube.transform.setToTranslation(0f, hoverY, 0f)

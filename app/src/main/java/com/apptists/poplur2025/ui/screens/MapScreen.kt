@@ -360,7 +360,7 @@ fun MapScreenContent(
         if (mapRadioLive) {
             mapRadioTts?.stop()
             mapRadioLive = false
-        } else {
+        } else if (mapRadioReady) {
             mapRadioDisplayLine = mapRadioScript
             mapRadioLive = true
             mapRadioTts?.speak(
@@ -374,13 +374,21 @@ fun MapScreenContent(
 
     LaunchedEffect(mapRadioReady, mapRadioTts) {
         if (mapRadioReady) {
-            mapRadioTts?.language = Locale.US
+            val langResult = mapRadioTts?.setLanguage(Locale.US) ?: TextToSpeech.LANG_NOT_SUPPORTED
+            if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                mapRadioTts?.setLanguage(Locale.getDefault())
+            }
             mapRadioTts?.voices
                 ?.filter { it.locale.language == Locale.US.language && !it.isNetworkConnectionRequired }
                 ?.maxByOrNull { it.quality }
                 ?.let { mapRadioTts?.voice = it }
             mapRadioTts?.setSpeechRate(0.88f)
             mapRadioTts?.setPitch(1.01f)
+            val ttsAudioAttrs = android.media.AudioAttributes.Builder()
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                .build()
+            mapRadioTts?.setAudioAttributes(ttsAudioAttrs)
         }
     }
 
@@ -746,6 +754,10 @@ fun MapScreenContent(
                     activeAiInsight = insight
                     val focusScript = radioScriptForFocus(focus, stop, index, itinerary.size)
                     mapRadioDisplayLine = focusScript
+                    if (!mapRadioReady) {
+                        var waited = 0
+                        while (!mapRadioReady && waited < 50) { delay(100L); waited++ }
+                    }
                     if (mapRadioReady) {
                         mapRadioLive = true
                         mapRadioTts?.speak(
@@ -1067,67 +1079,17 @@ private fun MapRadioBroadcastCard(
 ) {
     Surface(
         onClick = onToggle,
-        modifier = modifier.widthIn(max = 262.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = Color.Black.copy(alpha = 0.58f),
-        contentColor = Color.White
+        modifier = modifier.size(48.dp),
+        shape = RoundedCornerShape(100.dp),
+        color = Color(0xFF57FF67).copy(alpha = if (isLive) 0.24f else 0.12f),
+        contentColor = Color(0xFF57FF67)
     ) {
-        Row(
-            modifier = Modifier.padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Surface(
-                modifier = Modifier.size(42.dp),
-                shape = RoundedCornerShape(100.dp),
-                color = Color(0xFF57FF67).copy(alpha = if (isLive) 0.24f else 0.12f),
-                contentColor = Color(0xFF57FF67)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = if (isLive) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        "POPLUR RADIO",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.1.sp
-                    )
-                    if (isLive) {
-                        Surface(
-                            shape = RoundedCornerShape(100.dp),
-                            color = Color(0xFF57FF67),
-                            contentColor = Color.Black
-                        ) {
-                            Text(
-                                "LIVE",
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                    }
-                }
-                Text(
-                    script,
-                    color = Color.White.copy(alpha = 0.86f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    lineHeight = 15.sp,
-                    maxLines = 2
-                )
-            }
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = if (isLive) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = if (isLive) "Stop Radio" else "Play Radio",
+                modifier = Modifier.size(22.dp)
+            )
         }
     }
 }

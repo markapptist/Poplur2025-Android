@@ -53,7 +53,8 @@ private enum class ProfilePanel {
 enum class ProfileCubeMenuAction {
     Phone,
     Notifications,
-    Store
+    Store,
+    GoHome
 }
 
 data class ProfileCubeMenuCommand(
@@ -226,7 +227,9 @@ fun ProfileScreen(
     onOpenMessages: () -> Unit = {},
     cubeMenuCommand: ProfileCubeMenuCommand? = null,
     onProfilePanelIconChanged: (String?) -> Unit = {},
-    onPhoneCallVisibilityChanged: (Boolean) -> Unit = {}
+    onPhoneCallVisibilityChanged: (Boolean) -> Unit = {},
+    onColorwaySelected: (Color) -> Unit = {},
+    forcedColorway: Color? = null
 ) {
     ProfileScreenContent(
         profile = profile,
@@ -234,7 +237,9 @@ fun ProfileScreen(
         onOpenMessages = onOpenMessages,
         cubeMenuCommand = cubeMenuCommand,
         onProfilePanelIconChanged = onProfilePanelIconChanged,
-        onPhoneCallVisibilityChanged = onPhoneCallVisibilityChanged
+        onPhoneCallVisibilityChanged = onPhoneCallVisibilityChanged,
+        onColorwaySelected = onColorwaySelected,
+        forcedColorway = forcedColorway
     )
 }
 
@@ -245,7 +250,9 @@ fun ProfileScreenContent(
     onOpenMessages: () -> Unit = {},
     cubeMenuCommand: ProfileCubeMenuCommand? = null,
     onProfilePanelIconChanged: (String?) -> Unit = {},
-    onPhoneCallVisibilityChanged: (Boolean) -> Unit = {}
+    onPhoneCallVisibilityChanged: (Boolean) -> Unit = {},
+    onColorwaySelected: (Color) -> Unit = {},
+    forcedColorway: Color? = null
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var currentProfile by remember { mutableStateOf(profile) }
@@ -262,6 +269,7 @@ fun ProfileScreenContent(
                 activePanel = ProfilePanel.Notifications
             }
             ProfileCubeMenuAction.Store -> activePanel = ProfilePanel.Store
+            ProfileCubeMenuAction.GoHome -> activePanel = ProfilePanel.Home
             null -> Unit
         }
     }
@@ -294,7 +302,10 @@ fun ProfileScreenContent(
         ProfilePanel.Phone -> PopularPhoneCallScreen(
             userName = "Poplur Phone",
             onHangUp = { activePanel = ProfilePanel.Home },
-            onVisibilityChanged = onPhoneCallVisibilityChanged
+            onVisibilityChanged = onPhoneCallVisibilityChanged,
+            onMiddleButtonClick = { activePanel = ProfilePanel.Home },
+            onColorwaySelected = onColorwaySelected,
+            forcedColorway = forcedColorway
         )
         ProfilePanel.Store -> ProfileStorePanel(
             purchasedRadius = purchasedRadius,
