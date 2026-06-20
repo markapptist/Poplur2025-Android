@@ -2,6 +2,7 @@ package com.apptists.poplur2025.ui.screens
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Typeface
@@ -22,7 +23,8 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas as ComposeCanvas
 import androidx.compose.foundation.Image
@@ -38,13 +40,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.CornerRadius
@@ -55,8 +58,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -65,6 +71,7 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
+import com.apptists.poplur2025.R
 import com.apptists.poplur2025.ads.AdManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -79,19 +86,22 @@ import com.apptists.poplur2025.data.DemoPostStore
 
 import com.apptists.poplur2025.data.Post
 import com.apptists.poplur2025.data.UserProfile
-import com.apptists.poplur2025.ui.components.FeedLaunchCover
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.UserInfoOverlay
+import com.apptists.poplur2025.ui.components.poplurRadiusDisplayModifier
 import com.google.android.gms.ads.nativead.MediaView
 import com.google.android.gms.ads.nativead.NativeAd
 import com.google.android.gms.ads.nativead.NativeAdView
 import kotlinx.coroutines.delay
+import com.apptists.poplur2025.data.AITranslationCaptionProvider
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
+import com.apptists.poplur2025.data.PoplurLanguage
 
 @Composable
 fun FeedScreen(
@@ -99,6 +109,12 @@ fun FeedScreen(
     isVisible: Boolean = true,
     tvGuideRequestToken: Int = 0,
     timelineToggleRequestToken: Int = 0,
+    likeRequestToken: Int = 0,
+    openProfileRequestToken: Int = 0,
+    submittedComment: String = "",
+    commentSubmitToken: Int = 0,
+    preferredLanguage: PoplurLanguage = PoplurLanguage.English,
+    closedCaptionsEnabled: Boolean = true,
     homeChromeInactive: Boolean = false,
     onOpenUser: (UserProfile) -> Unit = {},
     onTvGuideVisibilityChanged: (Boolean) -> Unit = {},
@@ -106,25 +122,22 @@ fun FeedScreen(
     onIndexChange: (Int) -> Unit
 ) {
     val context = LocalContext.current
-    val density = LocalDensity.current.density
     val isInspectionMode = LocalInspectionMode.current
     val currentSlot = remember(currentPostIndex) { resolveFeedSlot(currentPostIndex) }
     val guideChannels = remember { buildFeedTvGuideChannels() }
     var showTimelineView by remember { mutableStateOf(false) }
     var showTvGuide by remember { mutableStateOf(false) }
-    var showFeedLogo by remember { mutableStateOf(true) }
+    var showFeedEntryLogo by remember { mutableStateOf(true) }
     var confettiTrigger by remember { mutableIntStateOf(0) }
     var selectedGuideChannelId by remember { mutableStateOf("feed") }
     var activeFeedPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
     var likedPulseToken by remember { mutableIntStateOf(0) }
     var showLikeBurst by remember { mutableStateOf(false) }
     val likedSlotIds = remember { mutableStateListOf<String>() }
-    val feedRotationY by animateFloatAsState(
-        targetValue = if (showTimelineView) 180f else 0f,
-        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
-        label = "feedFlipRotation"
-    )
-    val showingTimelineSide = feedRotationY > 90f
+    var showCommentCredits by remember { mutableStateOf(false) }
+    val userCommentCreditsBySlot = remember { mutableStateMapOf<String, List<FeedCommentCredit>>() }
+    val showingTimelineSide = showTimelineView
+    var showChannelLogo by remember { mutableStateOf(false) }
 
     LaunchedEffect(tvGuideRequestToken) {
         if (tvGuideRequestToken > 0) showTvGuide = true
@@ -189,26 +202,79 @@ fun FeedScreen(
         showLikeBurst = true
     }
 
+    fun openCurrentPostProfile() {
+        val slot = currentSlot
+        if (slot is FeedSlot.PostSlot && slot.post.userId.isNotBlank() && slot.post.userId != "ad_partner") {
+            onUserInteraction()
+            playFeedPop()
+            onOpenUser(slot.post.toUserProfile())
+        }
+    }
+
+    fun commentsForCredits(slot: FeedSlot): List<FeedCommentCredit> {
+        return (seedCommentCredits(slot) + userCommentCreditsBySlot[slot.feedSlotId].orEmpty()).takeLast(12)
+    }
+
+    fun advanceToNextPost() {
+        showCommentCredits = false
+        onIndexChange(currentPostIndex + 1)
+    }
+
+    LaunchedEffect(likeRequestToken) {
+        if (likeRequestToken > 0) likeCurrentSlot()
+    }
+
+    LaunchedEffect(openProfileRequestToken) {
+        if (openProfileRequestToken > 0) openCurrentPostProfile()
+    }
+
+    LaunchedEffect(commentSubmitToken, submittedComment) {
+        val trimmed = submittedComment.trim()
+        if (commentSubmitToken > 0 && trimmed.isNotEmpty()) {
+            val slotId = currentSlot.feedSlotId
+            userCommentCreditsBySlot[slotId] = userCommentCreditsBySlot[slotId].orEmpty() + FeedCommentCredit(
+                id = "you-$commentSubmitToken",
+                username = "you",
+                text = trimmed
+            )
+        }
+    }
+
+    LaunchedEffect(currentSlot.feedSlotId, showTvGuide, showingTimelineSide) {
+        showCommentCredits = false
+    }
+
     LaunchedEffect(likedPulseToken) {
         if (likedPulseToken <= 0) return@LaunchedEffect
         delay(680)
         showLikeBurst = false
     }
 
+    // Clear player when app is backgrounded; play pop + confetti on re-entry
     LaunchedEffect(isVisible) {
         if (!isVisible) {
             activeFeedPlayer = null
             return@LaunchedEffect
         }
-        mediaPlayer?.let { player ->
-            if (!player.isPlaying) {
-                playFeedPop()
-            }
-        }
-        showFeedLogo = true
+        mediaPlayer?.let { player -> if (!player.isPlaying) playFeedPop() }
         confettiTrigger += 1
-        delay(2_500)
-        showFeedLogo = false
+    }
+
+    LaunchedEffect(Unit) {
+        playFeedPop()
+        delay(900)
+        showFeedEntryLogo = false
+    }
+
+    LaunchedEffect(isVisible) {
+        if (!isVisible) { showChannelLogo = false; return@LaunchedEffect }
+        while (true) {
+            delay(30_000L)
+            playFeedPop()
+            showChannelLogo = true
+            delay(4_500L)
+            showChannelLogo = false
+        }
     }
 
     Box(
@@ -216,15 +282,8 @@ fun FeedScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    cameraDistance = 16f * density
-                    rotationY = if (showingTimelineSide) 90f else feedRotationY
-                    alpha = if (showingTimelineSide) 0f else 1f
-                }
-        ) {
+        if (!showingTimelineSide) {
+            Box(modifier = Modifier.fillMaxSize()) {
         // 1. Background Content (TV Flip Effect)
         AnimatedContent(
             targetState = currentSlot,
@@ -241,15 +300,20 @@ fun FeedScreen(
                         MediaContent(
                             post = slot.post,
                             isVisible = isVisible,
+                            isMuted = false,
                             useExternalVideoSurface = showTvGuide,
-                            onActivePlayerChanged = { player -> activeFeedPlayer = player }
+                            onActivePlayerChanged = { player -> activeFeedPlayer = player },
+                            onCreditsVisibilityChanged = { showCommentCredits = it },
+                            onAdvanceToNext = { advanceToNextPost() }
                         )
                     }
                     is FeedSlot.AdSlot -> FeedAdContent(
                         slot = slot,
                         isVisible = isVisible,
                         useExternalVideoSurface = showTvGuide,
-                        onActivePlayerChanged = { player -> activeFeedPlayer = player }
+                        onActivePlayerChanged = { player -> activeFeedPlayer = player },
+                        onCreditsVisibilityChanged = { showCommentCredits = it },
+                        onAdvanceToNext = { advanceToNextPost() }
                     )
                 }
             }
@@ -274,7 +338,8 @@ fun FeedScreen(
                         location = slot.post.locationName,
                         channelNumber = slot.channelNumber,
                         channelEmoji = slot.channelEmoji,
-                        channelCategory = slot.channelCategory
+                        channelCategory = slot.channelCategory,
+                        channelIconResId = slot.channelIconResId
                     )
                     is FeedSlot.AdSlot -> UserInfoOverlay(
                         displayName = slot.creative.brandName,
@@ -319,9 +384,7 @@ fun FeedScreen(
                 transitionSpec = {
                     (fadeIn() + slideInHorizontally { it }).togetherWith(fadeOut() + slideOutHorizontally { it })
                 },
-                modifier = Modifier
-                    .padding(bottom = 48.dp, end = 20.dp)
-                    .align(Alignment.BottomEnd),
+                modifier = poplurRadiusDisplayModifier(),
                 label = "RadiusAnimation"
             ) { slot ->
                 RadiusDisplay(
@@ -334,26 +397,39 @@ fun FeedScreen(
             }
         }
 
+        if (closedCaptionsEnabled && !showingTimelineSide && !showTvGuide && !homeChromeInactive) {
+            val slot = currentSlot
+            if (slot is FeedSlot.PostSlot && slot.post.videoUrl != null) {
+                AICaptionOverlay(
+                    post = slot.post,
+                    channelCategory = slot.channelCategory,
+                    preferredLanguage = preferredLanguage,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 24.dp)
+                        .padding(bottom = 116.dp)
+                        .zIndex(84f)
+                )
+            }
+        }
+
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .zIndex(80f)
-                .feedDoubleTapDetector(
-                    onTap = onUserInteraction,
-                    onDoubleTap = { likeCurrentSlot() }
-                )
+                .pointerInput(currentSlot.feedSlotId) {
+                    detectTapGestures(onTap = { onUserInteraction() })
+                }
                 .feedSwipeDetector(currentPostIndex, onIndexChange, onUserInteraction)
         )
+        }
         }
 
         if (showingTimelineSide) {
             PoplurNewspaper(
+                posts = DemoPostStore.posts,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        cameraDistance = 16f * density
-                        rotationY = feedRotationY - 180f
-                    }
                     .zIndex(60f),
                 onDoubleTap = { showTimelineView = false }
             )
@@ -384,23 +460,42 @@ fun FeedScreen(
             )
         }
 
-        if (homeChromeInactive && !showingTimelineSide && !showTvGuide) {
-            FeedLiveCommentsOverlay(
-                slot = currentSlot,
+        if (showCommentCredits && !showingTimelineSide && !showTvGuide) {
+            FeedCommentCreditsOverlay(
+                comments = commentsForCredits(currentSlot),
                 modifier = Modifier
                     .fillMaxSize()
                     .zIndex(88f)
             )
         }
 
-        // Full-screen launch cover — above everything while feed loads
         androidx.compose.animation.AnimatedVisibility(
-            visible = showFeedLogo,
-            enter = androidx.compose.animation.fadeIn(animationSpec = tween(200)),
-            exit = androidx.compose.animation.fadeOut(animationSpec = tween(500)),
-            modifier = Modifier.fillMaxSize().zIndex(90f)
+            visible = showFeedEntryLogo,
+            enter = scaleIn(initialScale = 0.72f, animationSpec = tween(140)) + fadeIn(animationSpec = tween(120)),
+            exit = scaleOut(targetScale = 1.28f, animationSpec = tween(180)) + fadeOut(animationSpec = tween(180)),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .zIndex(90f)
         ) {
-            FeedLaunchCover(onPopSound = { playFeedPop() })
+            FeedEntryLogoPop()
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showChannelLogo,
+            enter = scaleIn(
+                initialScale = 0.01f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium)
+            ) + fadeIn(animationSpec = tween(80)),
+            exit = scaleOut(targetScale = 0.01f, animationSpec = tween(220)) + fadeOut(animationSpec = tween(220)),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .zIndex(92f)
+        ) {
+            val logo = guideChannels.firstOrNull { it.id == selectedGuideChannelId }
+            ChannelLogoCard(
+                category = logo?.category ?: "Music",
+                emoji = logo?.emoji ?: "🎵"
+            )
         }
 
         if (showTvGuide) {
@@ -506,6 +601,119 @@ private fun buildBreakingNewsConfetti(trigger: Int): List<BreakingNewsConfettiPi
     }
 }
 
+@Composable
+private fun FeedEntryLogoPop() {
+    val context = LocalContext.current
+    val logoBitmap = remember {
+        runCatching {
+            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+        }.getOrNull()
+    }
+    val scale = remember { Animatable(0.76f) }
+
+    LaunchedEffect(Unit) {
+        scale.snapTo(0.76f)
+        scale.animateTo(1.26f, animationSpec = tween(120, easing = FastOutSlowInEasing))
+        scale.animateTo(0.94f, animationSpec = tween(90, easing = FastOutSlowInEasing))
+        scale.animateTo(1.0f, animationSpec = tween(80, easing = FastOutSlowInEasing))
+    }
+
+    Box(
+        modifier = Modifier
+            .size(156.dp)
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (logoBitmap != null) {
+            Image(
+                bitmap = logoBitmap,
+                contentDescription = "Poplur",
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Text(
+                text = "POPLUR",
+                color = Color.White,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Black
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChannelLogoCard(category: String, emoji: String) {
+    val (topColor, botColor) = channelLogoColors(category)
+    Box(
+        modifier = Modifier
+            .size(220.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(brush = Brush.linearGradient(listOf(topColor, botColor))),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        ComposeCanvas(Modifier.fillMaxSize()) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color.White.copy(alpha = 0.18f), Color.Transparent),
+                    center = Offset(80.dp.toPx(), 60.dp.toPx()),
+                    radius = 140.dp.toPx()
+                ),
+                center = Offset(80.dp.toPx(), 60.dp.toPx()),
+                radius = 140.dp.toPx()
+            )
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.18f),
+                topLeft = Offset(8.dp.toPx(), 8.dp.toPx()),
+                size = Size(size.width - 16.dp.toPx(), size.height - 16.dp.toPx()),
+                cornerRadius = CornerRadius(20.dp.toPx()),
+                style = Stroke(2.5.dp.toPx())
+            )
+        }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(top = 24.dp, start = 12.dp, end = 12.dp)
+        ) {
+            Text(emoji, fontSize = 72.sp)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = category.uppercase(),
+                fontSize = if (category.length > 7) 22.sp else 28.sp,
+                fontWeight = FontWeight.Black,
+                color = Color.White,
+                letterSpacing = 2.sp,
+                maxLines = 1
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "POPLUR TV",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = Color.White.copy(alpha = 0.60f),
+                letterSpacing = 3.sp
+            )
+        }
+    }
+}
+
+private fun channelLogoColors(category: String): Pair<Color, Color> = when (category.lowercase()) {
+    "food"                -> Color(0xFFFF7300) to Color(0xFFB80A00)
+    "fitness"             -> Color(0xFF1AD138) to Color(0xFF007515)
+    "beauty", "style"     -> Color(0xFFFF2E8C) to Color(0xFF9E0066)
+    "sports"              -> Color(0xFF1F5CFF) to Color(0xFF001A9E)
+    "modelling"           -> Color(0xFFFFD100) to Color(0xFFB86100)
+    "fashion", "shopping" -> Color(0xFF9E1AF5) to Color(0xFF470099)
+    "music"               -> Color(0xFF00D1F5) to Color(0xFF005CB3)
+    "tech", "gaming"      -> Color(0xFF2985FF) to Color(0xFF002E99)
+    "news", "film"        -> Color(0xFFE01A1A) to Color(0xFF700000)
+    "french"              -> Color(0xFF0F38D6) to Color(0xFFB80013)
+    "spanish"             -> Color(0xFFE0A800) to Color(0xFFB80013)
+    "city"                -> Color(0xFF2040C0) to Color(0xFF080030)
+    else                  -> Color(0xFF471AE5) to Color(0xFF1A0080)
+}
+
 private fun Modifier.feedDoubleTapDetector(
     onTap: () -> Unit,
     onDoubleTap: () -> Unit
@@ -542,120 +750,89 @@ private fun Modifier.feedSwipeDetector(
     )
 }
 
-private data class FeedLiveComment(
+private data class FeedCommentCredit(
     val id: String,
     val username: String,
     val text: String
 )
 
 @Composable
-private fun FeedLiveCommentsOverlay(
-    slot: FeedSlot,
+private fun FeedCommentCreditsOverlay(
+    comments: List<FeedCommentCredit>,
     modifier: Modifier = Modifier
 ) {
-    val slotId = slot.feedSlotId
-    val seededComments = remember(slotId) { seedLiveComments(slot) }
-    var userComments by remember(slotId) { mutableStateOf<List<FeedLiveComment>>(emptyList()) }
-    var draft by remember(slotId) { mutableStateOf("") }
-    val visibleComments = remember(seededComments, userComments) {
-        (seededComments + userComments).takeLast(5)
+    val progress = remember(comments) { Animatable(0f) }
+
+    LaunchedEffect(comments) {
+        progress.snapTo(0f)
+        progress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 7_600, easing = LinearEasing)
+        )
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
+        val screenHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
+        val startY = screenHeightPx + 120f
+        val endY = -screenHeightPx * 0.40f
+        val yOffset = startY + (endY - startY) * progress.value
+
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.28f),
+                            Color.Black.copy(alpha = 0.62f)
+                        )
+                    )
+                )
+        )
+
         Column(
             modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 12.dp, end = 12.dp, bottom = 18.dp)
-                .widthIn(max = 380.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .align(Alignment.BottomCenter)
+                .offset { androidx.compose.ui.unit.IntOffset(0, yOffset.roundToInt()) }
+                .padding(horizontal = 28.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(13.dp)
         ) {
-            visibleComments.forEach { comment ->
-                Row(
-                    verticalAlignment = Alignment.Top,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    modifier = Modifier.animateContentSize()
+            Text(
+                text = "COMMENTS",
+                color = Color(0xFFFFD91A),
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.1.sp
+            )
+            comments.forEach { comment ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .background(Color.White.copy(alpha = 0.22f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = comment.username.firstOrNull()?.uppercase() ?: "?",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
                     Text(
-                        text = "${comment.username}  ${comment.text}",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        lineHeight = 17.sp,
-                        modifier = Modifier
-                            .shadow(4.dp)
-                            .background(Color.Black.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 2.dp, vertical = 1.dp)
+                        text = comment.username.uppercase(),
+                        color = Color.White.copy(alpha = 0.74f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                }
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    placeholder = {
-                        Text("Comment", color = Color.White.copy(alpha = 0.58f), fontWeight = FontWeight.Bold)
-                    },
-                    singleLine = true,
-                    textStyle = LocalTextStyle.current.copy(
+                    Text(
+                        text = comment.text,
                         color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    ),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        cursorColor = Color.White,
-                        focusedBorderColor = Color.White.copy(alpha = 0.58f),
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.38f),
-                        focusedContainerColor = Color.Black.copy(alpha = 0.34f),
-                        unfocusedContainerColor = Color.Black.copy(alpha = 0.34f)
-                    ),
-                    shape = RoundedCornerShape(28.dp),
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(
-                    onClick = {
-                        val trimmed = draft.trim()
-                        if (trimmed.isNotEmpty()) {
-                            userComments = userComments + FeedLiveComment(
-                                id = "user-${System.nanoTime()}",
-                                username = "you",
-                                text = trimmed
-                            )
-                            draft = ""
-                        }
-                    },
-                    enabled = draft.trim().isNotEmpty(),
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(Color.Black.copy(alpha = 0.34f), CircleShape)
-                        .border(1.dp, Color.White.copy(alpha = 0.34f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send comment",
-                        tint = if (draft.trim().isEmpty()) Color.White.copy(alpha = 0.36f) else Color.White
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black,
+                        lineHeight = 25.sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -669,16 +846,66 @@ private val FeedSlot.feedSlotId: String
         is FeedSlot.AdSlot -> id
     }
 
-private fun seedLiveComments(slot: FeedSlot): List<FeedLiveComment> {
+private fun Post.toUserProfile(): UserProfile =
+    UserProfile(
+        id = userId,
+        username = username,
+        displayName = displayName.ifBlank { username.ifBlank { userId } },
+        bio = caption.ifBlank { locationName },
+        radius = radius,
+        posts = userPostsCount
+    )
+
+@Composable
+private fun AICaptionOverlay(
+    post: Post,
+    channelCategory: String,
+    preferredLanguage: PoplurLanguage,
+    modifier: Modifier = Modifier
+) {
+    val caption = remember(post.id, channelCategory, preferredLanguage) {
+        AITranslationCaptionProvider.captionFor(post, channelCategory, preferredLanguage)
+    }
+
+    Column(
+        modifier = modifier
+            .widthIn(max = 460.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.Black.copy(alpha = 0.68f))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = caption.badge,
+            color = Color(0xFF4DFF58),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = caption.text,
+            color = Color.White,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            lineHeight = 18.sp,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private fun seedCommentCredits(slot: FeedSlot): List<FeedCommentCredit> {
     val displayName = when (slot) {
         is FeedSlot.PostSlot -> slot.post.displayName.ifBlank { slot.post.username }
         is FeedSlot.AdSlot -> slot.creative.brandName
     }.ifBlank { "this" }
     val samples = listOf(
-        FeedLiveComment("live-1", "vi.xi.mmvi", "this is live right now"),
-        FeedLiveComment("live-2", "leurdavoir", "keep the camera there"),
-        FeedLiveComment("live-3", "monsekee", "the radius is going crazy"),
-        FeedLiveComment("live-4", "poplur", "watching $displayName")
+        FeedCommentCredit("credit-1", "vi.xi.mmvi", "this is live right now"),
+        FeedCommentCredit("credit-2", "leurdavoir", "keep the camera there"),
+        FeedCommentCredit("credit-3", "monsekee", "the radius is going crazy"),
+        FeedCommentCredit("credit-4", "poplur", "watching $displayName")
     )
     val offset = Math.floorMod(slot.feedSlotId.hashCode(), samples.size)
     return samples.drop(offset) + samples.take(offset)
@@ -690,46 +917,53 @@ private data class FeedTvGuideChannel(
     val number: Int,
     val emoji: String,
     val category: String,
+    val iconResId: Int? = null,
     val profile: UserProfile,
     val program: String,
     val videoUrl: String? = null
 )
 
 private fun buildFeedTvGuideChannels(): List<FeedTvGuideChannel> {
-    val categories = listOf(
-        "🍔" to "Food",
-        "🎮" to "Gaming",
-        "🎵" to "Music",
-        "🏙️" to "City",
-        "💄" to "Style",
-        "⚽" to "Sports",
-        "🎬" to "Film",
-        "🛍️" to "Shopping"
-    )
     val uniquePosts = DemoPostStore.posts
         .filter { it.userId.isNotBlank() && it.userId != "ad_partner" }
         .distinctBy { it.userId }
-        .take(categories.size)
+        .take(FEED_CHANNELS.size)
 
-    return uniquePosts.mapIndexed { index, post ->
-        val (emoji, category) = categories[index % categories.size]
+    return FEED_CHANNELS.mapIndexed { index, channel ->
+        val post = uniquePosts.getOrNull(index) ?: DemoPostStore.getPostForIndex(index)
+        val category = channel.category
         FeedTvGuideChannel(
             id = "channel_${post.userId.ifBlank { index.toString() }}",
             index = index,
-            number = 101 + index,
-            emoji = emoji,
+            number = channel.number,
+            emoji = channel.emoji,
             category = category,
+            iconResId = channel.iconResId,
             profile = UserProfile(
                 id = post.userId,
                 username = post.username,
-                displayName = post.displayName,
+                displayName = languageChannelDisplayName(category) ?: post.displayName,
                 bio = post.caption,
                 radius = post.radius,
                 posts = post.userPostsCount
             ),
-            program = post.locationName.ifBlank { post.caption },
-            videoUrl = post.videoUrl
+            program = languageChannelProgram(category) ?: post.locationName.ifBlank { post.caption },
+            videoUrl = languageChannelVideoUrl(category) ?: channel.videoUrl ?: post.videoUrl
         )
+    }
+}
+
+@Composable
+private fun FeedChannelIcon(iconResId: Int?, fallbackEmoji: String, size: Dp, fallbackFontSize: TextUnit) {
+    if (iconResId != null) {
+        Image(
+            painter = painterResource(iconResId),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(size)
+        )
+    } else {
+        Text(fallbackEmoji, fontSize = fallbackFontSize)
     }
 }
 
@@ -740,27 +974,32 @@ private fun buildFeedTvGuideChannels(): List<FeedTvGuideChannel> {
 private data class NpMapEvent(
     val city: String, val flag: String,
     val headline: String, val detail: String,
-    val userCount: Int, val timeAgo: String
+    val userCount: Int, val timeAgo: String,
+    val lat: Double = 0.0, val lon: Double = 0.0
 )
 
 private data class NpTrending(
     val city: String, val flag: String,
     val headline: String, val detail: String,
-    val growthPercent: Int, val activeUsers: Int, val timeAgo: String
+    val growthPercent: Int, val activeUsers: Int, val timeAgo: String,
+    val lat: Double = 0.0, val lon: Double = 0.0
 )
 
 private data class NpDominance(
     val username: String,
     val city: String, val flag: String,
     val headline: String, val detail: String,
-    val radiusText: String, val score: Int, val timeAgo: String
+    val radiusText: String, val score: Int, val timeAgo: String,
+    val lat: Double = 0.0, val lon: Double = 0.0
 )
 
 private data class NpUserPost(
     val username: String,
     val city: String, val flag: String,
     val headline: String, val detail: String,
-    val likes: Int, val comments: Int, val timeAgo: String
+    val likes: Int, val comments: Int, val timeAgo: String,
+    val lat: Double = 0.0, val lon: Double = 0.0,
+    val mediaUrl: String? = null
 )
 
 private sealed class NpArticle {
@@ -772,10 +1011,11 @@ private sealed class NpArticle {
 
 @Composable
 private fun PoplurNewspaper(
+    posts: List<Post> = DemoPostStore.posts,
     modifier: Modifier = Modifier,
     onDoubleTap: () -> Unit
 ) {
-    val articles = remember { NewspaperContentGen.generate(24) }
+    val articles = remember(posts) { NewspaperContentGen.generate(24, posts) }
     val today = remember {
         java.text.SimpleDateFormat("MMMM d, yyyy", java.util.Locale.US).format(java.util.Date())
     }
@@ -818,6 +1058,208 @@ private fun NewspaperMasthead(date: String) {
     }
 }
 
+private enum class NpVisualKind { MapEvent, Trending, Dominance, UserPost }
+
+private data class NpVisualPoint(val x: Float, val y: Float, val radius: Float, val alpha: Float)
+
+@Composable
+private fun NewspaperArticleVisual(
+    kind: NpVisualKind,
+    city: String,
+    flag: String,
+    headline: String,
+    accent: Color,
+    lat: Double,
+    lon: Double,
+    username: String?,
+    mediaUrl: String?,
+    modifier: Modifier = Modifier
+) {
+    val seed = remember(kind, headline, city, username) {
+        stableNewsVisualSeed("${kind.name}-$headline-$city-${username.orEmpty()}")
+    }
+    val points = remember(seed) {
+        val random = Random(seed)
+        List(18) {
+            NpVisualPoint(
+                x = random.nextFloat(),
+                y = random.nextFloat(),
+                radius = 0.025f + random.nextFloat() * 0.11f,
+                alpha = 0.10f + random.nextFloat() * 0.22f
+            )
+        }
+    }
+    val mapZoom = if (kind == NpVisualKind.Dominance) 11 else 12
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF111118))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
+    ) {
+        if (kind == NpVisualKind.UserPost && mediaUrl != null) {
+            AsyncImage(
+                model = mediaUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize()
+            )
+        } else {
+            AsyncImage(
+                model = osmTileUrl(lat, lon, mapZoom),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize()
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.06f), Color.Black.copy(alpha = 0.78f))
+                    )
+                )
+        )
+
+        ComposeCanvas(Modifier.matchParentSize()) {
+            val w = size.width
+            val h = size.height
+            val base = minOf(w, h)
+
+            repeat(5) { i ->
+                val phase = ((seed shr (i * 5)) and 63) / 63f
+                drawLine(
+                    color = Color.White.copy(alpha = 0.07f),
+                    start = Offset(w * (0.08f + phase * 0.82f), -18f),
+                    end = Offset(w * (0.08f + phase * 0.82f) + (i - 2) * 36f, h + 28f),
+                    strokeWidth = 1.3.dp.toPx()
+                )
+            }
+
+            when (kind) {
+                NpVisualKind.Dominance -> {
+                    val center = Offset(w * 0.58f, h * 0.46f)
+                    repeat(4) { i ->
+                        drawCircle(
+                            color = accent.copy(alpha = 0.78f - i * 0.12f),
+                            radius = base * (0.18f + i * 0.16f),
+                            center = center,
+                            style = Stroke(width = if (i == 0) 4.dp.toPx() else 2.dp.toPx())
+                        )
+                    }
+                    repeat(9) { i ->
+                        val angle = (i / 9f) * Math.PI.toFloat() * 2f + (seed % 29) / 29f
+                        val radius = base * (0.24f + ((seed shr i) and 7) / 60f)
+                        val point = Offset(
+                            x = center.x + cos(angle) * radius,
+                            y = center.y + sin(angle) * radius
+                        )
+                        drawLine(accent.copy(alpha = 0.34f), center, point, strokeWidth = 1.dp.toPx())
+                        drawCircle(Color.White.copy(alpha = 0.75f), radius = 3.dp.toPx(), center = point)
+                    }
+                }
+                NpVisualKind.Trending -> {
+                    val cols = 7
+                    val rows = 4
+                    val cellW = w / cols
+                    val cellH = h / rows
+                    repeat(rows) { row ->
+                        repeat(cols) { col ->
+                            val mix = ((row * cols + col) * 37 + seed % 97) / 100f
+                            drawRoundRect(
+                                color = accent.copy(alpha = 0.05f + (mix % 1f) * 0.18f),
+                                topLeft = Offset(col * cellW + 4.dp.toPx(), row * cellH + 4.dp.toPx()),
+                                size = Size(cellW - 8.dp.toPx(), cellH - 8.dp.toPx()),
+                                cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx())
+                            )
+                        }
+                    }
+                    var previous: Offset? = null
+                    repeat(8) { i ->
+                        val point = Offset(
+                            x = (i / 7f) * w,
+                            y = h * (0.78f - i * 0.07f + (((seed shr i) and 3) * 0.018f))
+                        )
+                        previous?.let { drawLine(accent.copy(alpha = 0.92f), it, point, strokeWidth = 4.dp.toPx()) }
+                        previous = point
+                    }
+                }
+                NpVisualKind.MapEvent -> {
+                    points.forEach {
+                        val center = Offset(it.x * w, it.y * h)
+                        val radius = it.radius * base
+                        drawCircle(accent.copy(alpha = it.alpha), radius = radius, center = center)
+                        drawCircle(
+                            Color.White.copy(alpha = 0.13f),
+                            radius = radius,
+                            center = center,
+                            style = Stroke(width = 1.dp.toPx())
+                        )
+                    }
+                }
+                NpVisualKind.UserPost -> {
+                    val center = Offset(w * 0.5f, h * 0.5f)
+                    points.forEachIndexed { index, _ ->
+                        val angle = (index / points.size.toFloat()) * Math.PI.toFloat() * 2f + (seed % 31) / 31f
+                        val radius = base * (0.13f + (index % 5) * 0.042f)
+                        val point = Offset(center.x + cos(angle) * radius, center.y + sin(angle) * radius)
+                        drawLine(accent.copy(alpha = 0.18f), center, point, strokeWidth = 1.dp.toPx())
+                        drawCircle(Color.White.copy(alpha = 0.7f), radius = 2.2.dp.toPx(), center = point)
+                    }
+                    drawRoundRect(
+                        color = accent.copy(alpha = 0.68f),
+                        topLeft = Offset(center.x - base * 0.24f, center.y - base * 0.24f),
+                        size = Size(base * 0.48f, base * 0.48f),
+                        cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx()),
+                        style = Stroke(width = 2.5.dp.toPx())
+                    )
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(13.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    when (kind) {
+                        NpVisualKind.Dominance -> "LIVE MAP CAPTURE"
+                        NpVisualKind.UserPost -> "AI STORY IMAGE"
+                        else -> "AI GENERATED"
+                    },
+                    color = if (kind == NpVisualKind.Dominance) Color.White else Color.Black,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier
+                        .background(accent, RoundedCornerShape(50))
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                )
+                Spacer(Modifier.width(7.dp))
+                Text("$flag $city", color = Color.White.copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (kind == NpVisualKind.Dominance && username != null) "@$username territory lock" else headline,
+                color = Color.White,
+                fontSize = if (kind == NpVisualKind.Dominance) 16.sp else 14.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+private fun stableNewsVisualSeed(text: String): Int {
+    var result = 5381
+    text.forEach { char -> result = result * 33 + char.code }
+    return result and Int.MAX_VALUE
+}
+
 @Composable
 private fun NewspaperCard(article: NpArticle, edition: Int) {
     val chipBg: Color
@@ -830,6 +1272,12 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
     val detail: String
     val stat1: String
     val stat2: String
+    val visualKind: NpVisualKind
+    val visualAccent: Color
+    val visualLat: Double
+    val visualLon: Double
+    val visualUsername: String?
+    val visualMediaUrl: String?
     var extraRow: (@Composable () -> Unit)? = null
 
     when (article) {
@@ -839,6 +1287,12 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
             headline = article.d.headline; detail = article.d.detail
             stat1 = "👥 ${npCount(article.d.userCount)} users nearby"
             stat2 = "📍 Live tracking"
+            visualKind = NpVisualKind.MapEvent
+            visualAccent = chipBg
+            visualLat = article.d.lat
+            visualLon = article.d.lon
+            visualUsername = null
+            visualMediaUrl = null
         }
         is NpArticle.Trending -> {
             chipBg = Color(0xFF2EE880); chipFg = Color.Black; chipLabel = "TRENDING"
@@ -846,6 +1300,12 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
             headline = article.d.headline; detail = article.d.detail
             stat1 = "📈 +${article.d.growthPercent}% engagement"
             stat2 = "🟢 ${npCount(article.d.activeUsers)} active"
+            visualKind = NpVisualKind.Trending
+            visualAccent = chipBg
+            visualLat = article.d.lat
+            visualLon = article.d.lon
+            visualUsername = null
+            visualMediaUrl = null
         }
         is NpArticle.Dominance -> {
             chipBg = Color(0xFFD91818); chipFg = Color.White; chipLabel = "DOMINANCE"
@@ -853,6 +1313,12 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
             headline = article.d.headline; detail = article.d.detail
             stat1 = "🎯 ${article.d.radiusText} radius"
             stat2 = "⭐ ${npCount(article.d.score)} score"
+            visualKind = NpVisualKind.Dominance
+            visualAccent = chipBg
+            visualLat = article.d.lat
+            visualLon = article.d.lon
+            visualUsername = article.d.username
+            visualMediaUrl = null
             extraRow = {
                 Row(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
@@ -876,6 +1342,12 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
             headline = article.d.headline; detail = article.d.detail
             stat1 = "❤️ ${npCount(article.d.likes)} likes"
             stat2 = "💬 ${article.d.comments} comments"
+            visualKind = NpVisualKind.UserPost
+            visualAccent = chipBg
+            visualLat = article.d.lat
+            visualLon = article.d.lon
+            visualUsername = article.d.username
+            visualMediaUrl = article.d.mediaUrl
             extraRow = {
                 Text(
                     "@${article.d.username}",
@@ -935,6 +1407,22 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
             modifier = Modifier.padding(horizontal = 20.dp)
         )
 
+        NewspaperArticleVisual(
+            kind = visualKind,
+            city = city,
+            flag = flag,
+            headline = headline,
+            accent = visualAccent,
+            lat = visualLat,
+            lon = visualLon,
+            username = visualUsername,
+            mediaUrl = visualMediaUrl,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(176.dp)
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        )
+
         // Detail body
         Text(
             detail,
@@ -963,14 +1451,29 @@ private fun npCount(n: Int): String = when {
 
 private object NewspaperContentGen {
 
+    private data class CityEntry(val name: String, val flag: String, val lat: Double, val lon: Double)
+
     private val cities = listOf(
-        "Tokyo" to "🇯🇵", "London" to "🇬🇧", "New York" to "🇺🇸",
-        "Paris" to "🇫🇷", "Sydney" to "🇦🇺", "Toronto" to "🇨🇦",
-        "Dubai" to "🇦🇪", "Singapore" to "🇸🇬", "Berlin" to "🇩🇪",
-        "Barcelona" to "🇪🇸", "Seoul" to "🇰🇷", "São Paulo" to "🇧🇷",
-        "Mumbai" to "🇮🇳", "Bangkok" to "🇹🇭", "Istanbul" to "🇹🇷",
-        "Lagos" to "🇳🇬", "Cairo" to "🇪🇬", "Mexico City" to "🇲🇽",
-        "Jakarta" to "🇮🇩", "Chicago" to "🇺🇸"
+        CityEntry("Tokyo",       "🇯🇵",  35.6762,  139.6503),
+        CityEntry("London",      "🇬🇧",  51.5074,   -0.1278),
+        CityEntry("New York",    "🇺🇸",  40.7128,  -74.0060),
+        CityEntry("Paris",       "🇫🇷",  48.8566,    2.3522),
+        CityEntry("Sydney",      "🇦🇺", -33.8688,  151.2093),
+        CityEntry("Toronto",     "🇨🇦",  43.6532,  -79.3832),
+        CityEntry("Dubai",       "🇦🇪",  25.2048,   55.2708),
+        CityEntry("Singapore",   "🇸🇬",   1.3521,  103.8198),
+        CityEntry("Berlin",      "🇩🇪",  52.5200,   13.4050),
+        CityEntry("Barcelona",   "🇪🇸",  41.3851,    2.1734),
+        CityEntry("Seoul",       "🇰🇷",  37.5665,  126.9780),
+        CityEntry("São Paulo",   "🇧🇷", -23.5505,  -46.6333),
+        CityEntry("Mumbai",      "🇮🇳",  19.0760,   72.8777),
+        CityEntry("Bangkok",     "🇹🇭",  13.7563,  100.5018),
+        CityEntry("Istanbul",    "🇹🇷",  41.0082,   28.9784),
+        CityEntry("Lagos",       "🇳🇬",   6.5244,    3.3792),
+        CityEntry("Cairo",       "🇪🇬",  30.0444,   31.2357),
+        CityEntry("Mexico City", "🇲🇽",  19.4326,  -99.1332),
+        CityEntry("Jakarta",     "🇮🇩",  -6.2088,  106.8456),
+        CityEntry("Chicago",     "🇺🇸",  41.8781,  -87.6298)
     )
 
     private val mapHeadlines = listOf(
@@ -1046,30 +1549,57 @@ private object NewspaperContentGen {
     private val fakeComms   = listOf(12, 34, 88, 210, 7, 400, 55)
     private val fakeHandles = listOf("MavericK", "SkylineJ", "UrbanLens", "NovaBeat")
 
-    fun generate(count: Int): List<NpArticle> = (0 until count).map { gi ->
-        val (cityName, cityFlag) = cities[(gi * 7 + gi * 3) % cities.size]
+    fun generate(count: Int, posts: List<Post> = emptyList()): List<NpArticle> = (0 until count).map { gi ->
+        val city = cities[(gi * 7 + gi * 3) % cities.size]
         val timeAgo = times[gi % times.size] + " ago"
+        val jitter = { (-0.08..0.08).random() }
         when (gi % 20) {
             in 0..5 -> {
                 val (h, d) = mapHeadlines[gi % mapHeadlines.size]
-                NpArticle.MapEvent(NpMapEvent(cityName, cityFlag, h, d, userCounts[gi % userCounts.size], timeAgo))
+                NpArticle.MapEvent(NpMapEvent(city.name, city.flag, h, d, userCounts[gi % userCounts.size], timeAgo,
+                    city.lat + jitter(), city.lon + jitter()))
             }
             in 6..10 -> {
                 val t = trendHeadlines[gi % trendHeadlines.size]
-                NpArticle.Trending(NpTrending(cityName, cityFlag, t.headline, t.detail, t.growth, t.active, timeAgo))
+                NpArticle.Trending(NpTrending(city.name, city.flag, t.headline, t.detail, t.growth, t.active, timeAgo,
+                    city.lat + jitter(), city.lon + jitter()))
             }
             in 11..15 -> {
                 val (h, d) = domHeadlines[gi % domHeadlines.size]
-                NpArticle.Dominance(NpDominance(domNames[gi % domNames.size], cityName, cityFlag, h, d,
-                    radii[gi % radii.size], scores[gi % scores.size], timeAgo))
+                NpArticle.Dominance(NpDominance(domNames[gi % domNames.size], city.name, city.flag, h, d,
+                    radii[gi % radii.size], scores[gi % scores.size], timeAgo,
+                    city.lat + jitter(), city.lon + jitter()))
             }
             else -> {
                 val (h, d) = postHeadlines[gi % postHeadlines.size]
-                NpArticle.UserPost(NpUserPost(fakeHandles[gi % fakeHandles.size], cityName, cityFlag, h, d,
-                    fakeLikes[gi % fakeLikes.size], fakeComms[gi % fakeComms.size], timeAgo))
+                val post = posts.getOrNull(gi % max(1, posts.size))
+                NpArticle.UserPost(NpUserPost(
+                    username = post?.displayName?.ifBlank { post.username } ?: fakeHandles[gi % fakeHandles.size],
+                    city = post?.locationName?.substringBefore(",")?.ifBlank { city.name } ?: city.name,
+                    flag = city.flag,
+                    headline = h,
+                    detail = d,
+                    likes = post?.likes ?: fakeLikes[gi % fakeLikes.size],
+                    comments = post?.comments ?: fakeComms[gi % fakeComms.size],
+                    timeAgo = timeAgo,
+                    lat = post?.latitude ?: (city.lat + jitter()),
+                    lon = post?.longitude ?: (city.lon + jitter()),
+                    mediaUrl = post?.mediaUrl
+                ))
             }
         }
     }
+}
+
+private fun ClosedFloatingPointRange<Double>.random(): Double =
+    start + Math.random() * (endInclusive - start)
+
+private fun osmTileUrl(lat: Double, lon: Double, zoom: Int = 12): String {
+    val n = 1 shl zoom
+    val x = ((lon + 180.0) / 360.0 * n).toInt().coerceIn(0, n - 1)
+    val latRad = Math.toRadians(lat)
+    val y = ((1.0 - Math.log(Math.tan(latRad) + 1.0 / Math.cos(latRad)) / Math.PI) / 2.0 * n).toInt().coerceIn(0, n - 1)
+    return "https://tile.openstreetmap.org/$zoom/$x/$y.png"
 }
 
 @Composable
@@ -1237,7 +1767,7 @@ private fun FeedTvGuideRail(
                     .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(channel.emoji, fontSize = 22.sp)
+                FeedChannelIcon(channel.iconResId, channel.emoji, 34.dp, 22.sp)
                 Spacer(Modifier.width(10.dp))
                 Text(channel.number.toString(), color = guideGreen, fontSize = 18.sp, fontWeight = FontWeight.Black)
                 Spacer(Modifier.width(10.dp))
@@ -1321,7 +1851,7 @@ private fun FeedTvGuideRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(modifier = Modifier.width(96.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(channel.emoji, fontSize = 26.sp)
+            FeedChannelIcon(channel.iconResId, channel.emoji, 42.dp, 26.sp)
             Spacer(Modifier.width(10.dp))
             Text(
                 text = channel.number.toString(),
@@ -1443,7 +1973,7 @@ private fun GuidePipVideoPane(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(channel.emoji, fontSize = 13.sp)
+                    FeedChannelIcon(channel.iconResId, channel.emoji, 22.dp, 13.sp)
                     Text(
                         "CH ${channel.number}",
                         color = guideGreen,
@@ -1478,6 +2008,8 @@ private const val AD_FREQUENCY = 6
 private const val FEED_NATIVE_AD_UNIT_ID = "ca-app-pub-3940256099942544/2247696110"
 private const val ENABLE_FEED_VIDEO_AUTOPLAY = true
 private const val FEED_VIDEO_FIRST_FRAME_TIMEOUT_MS = 6_500L
+private const val FEED_IMAGE_CREDITS_DELAY_MS = 6_300L
+private const val FEED_IMAGE_MAX_VISIBLE_MS = 10_000L
 
 private data class PoplurAdCreative(
     val id: String,
@@ -1571,17 +2103,26 @@ private fun PoplurAdCreative.toPost(slotId: String): Post = Post(
 )
 
 
-private data class FeedChannel(val number: Int, val emoji: String, val category: String)
+private data class FeedChannel(
+    val number: Int,
+    val emoji: String,
+    val category: String,
+    val iconResId: Int? = null,
+    val sourceLanguageCode: String = "en",
+    val videoUrl: String? = null
+)
 
 private val FEED_CHANNELS = listOf(
-    FeedChannel(101, "🍔", "Food"),
-    FeedChannel(102, "🎮", "Gaming"),
-    FeedChannel(103, "🎵", "Music"),
-    FeedChannel(104, "🏙️", "City"),
-    FeedChannel(105, "💄", "Style"),
-    FeedChannel(106, "⚽", "Sports"),
-    FeedChannel(107, "🎬", "Film"),
-    FeedChannel(108, "🛍️", "Shopping")
+    FeedChannel(101, "🍔", "Food", R.drawable.poplur_channel_101_food),
+    FeedChannel(103, "💄", "Beauty", R.drawable.poplur_channel_103_beauty),
+    FeedChannel(104, "⚽", "Sports", R.drawable.poplur_channel_104_sports),
+    FeedChannel(105, "📸", "Modelling", R.drawable.poplur_channel_105_modelling),
+    FeedChannel(106, "👗", "Fashion", R.drawable.poplur_channel_106_fashion),
+    FeedChannel(107, "🎵", "Music", R.drawable.poplur_channel_107_music),
+    FeedChannel(108, "💻", "Tech", R.drawable.poplur_channel_108_tech),
+    FeedChannel(109, "📰", "News", R.drawable.poplur_channel_109_news),
+    FeedChannel(110, "🇫🇷", "French", R.drawable.poplur_channel_110_french, sourceLanguageCode = "fr", videoUrl = languageChannelVideoUrl("French")),
+    FeedChannel(111, "🇪🇸", "Spanish", R.drawable.poplur_channel_111_spanish, sourceLanguageCode = "es", videoUrl = languageChannelVideoUrl("Spanish"))
 )
 
 private sealed interface FeedSlot {
@@ -1589,7 +2130,8 @@ private sealed interface FeedSlot {
         val post: Post,
         val channelNumber: Int,
         val channelEmoji: String,
-        val channelCategory: String
+        val channelCategory: String,
+        val channelIconResId: Int?
     ) : FeedSlot
     data class AdSlot(val id: String, val creative: PoplurAdCreative) : FeedSlot
 }
@@ -1610,20 +2152,88 @@ private fun resolveFeedSlot(index: Int): FeedSlot {
     val adsBefore = (normalized + 1) / AD_FREQUENCY
     val postIndex = normalized - adsBefore
     val ch = FEED_CHANNELS[Math.floorMod(postIndex, FEED_CHANNELS.size)]
+    val langVideoUrls = languageChannelVideoUrls(ch.category)
+    val effectiveSourceCode = if (langVideoUrls.isNotEmpty())
+        languageChannelSourceCode(ch.category, postIndex)
+    else
+        ch.sourceLanguageCode
+    val effectiveVideoUrl = if (langVideoUrls.isNotEmpty())
+        langVideoUrls[Math.floorMod(postIndex, langVideoUrls.size)]
+    else
+        ch.videoUrl
+    val basePost = DemoPostStore.getPostForIndex(postIndex)
+    val post = basePost.copy(
+        id = if (effectiveVideoUrl == null) basePost.id else "${basePost.id}_${effectiveSourceCode}_channel",
+        displayName = languageChannelDisplayName(ch.category) ?: basePost.displayName,
+        caption = languageChannelProgram(ch.category) ?: basePost.caption,
+        sourceLanguageCode = effectiveSourceCode,
+        videoUrl = effectiveVideoUrl ?: basePost.videoUrl
+    )
     return FeedSlot.PostSlot(
-        post = DemoPostStore.getPostForIndex(postIndex),
+        post = post,
         channelNumber = ch.number,
         channelEmoji = ch.emoji,
-        channelCategory = ch.category
+        channelCategory = ch.category,
+        channelIconResId = ch.iconResId
     )
 }
+
+private fun languageChannelVideoUrl(category: String): String? =
+    when (category.lowercase()) {
+        "french"  -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
+        "spanish" -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+        else -> null
+    }
+
+// Per-post video pool for language channels: alternates between native-language and English URLs.
+// All use speaking videos so closed-caption recognition has audible speech to process.
+private fun languageChannelVideoUrls(category: String): List<String> =
+    when (category.lowercase()) {
+        "french" -> listOf(
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",       // with dialogue (EN — translate in FR channel)
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",   // narrated EN
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFuns.mp4",       // narrated EN
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"   // narrated EN
+        )
+        "spanish" -> listOf(
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",    // narrated EN
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",       // with dialogue
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4", // narrated EN
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4" // narrated EN
+        )
+        else -> emptyList()
+    }
+
+// Even indices = native channel language; odd indices = English (needs auto-caption).
+private fun languageChannelSourceCode(category: String, postIndex: Int): String =
+    when (category.lowercase()) {
+        "french" -> if (postIndex % 2 == 0) "fr" else "en"
+        "spanish" -> if (postIndex % 2 == 0) "es" else "en"
+        else -> "en"
+    }
+
+private fun languageChannelDisplayName(category: String): String? =
+    when (category.lowercase()) {
+        "french" -> "Poplur Français"
+        "spanish" -> "Poplur Español"
+        else -> null
+    }
+
+private fun languageChannelProgram(category: String): String? =
+    when (category.lowercase()) {
+        "french" -> "French-language videos with AI captions"
+        "spanish" -> "Spanish-language videos with AI captions"
+        else -> null
+    }
 
 @Composable
 private fun FeedAdContent(
     slot: FeedSlot.AdSlot,
     isVisible: Boolean,
     useExternalVideoSurface: Boolean,
-    onActivePlayerChanged: (ExoPlayer?) -> Unit
+    onActivePlayerChanged: (ExoPlayer?) -> Unit,
+    onCreditsVisibilityChanged: (Boolean) -> Unit = {},
+    onAdvanceToNext: () -> Unit = {}
 ) {
     val adPost = remember(slot.id) { slot.creative.toPost(slot.id) }
     Box(
@@ -1635,7 +2245,9 @@ private fun FeedAdContent(
             post = adPost,
             isVisible = isVisible,
             useExternalVideoSurface = useExternalVideoSurface,
-            onActivePlayerChanged = onActivePlayerChanged
+            onActivePlayerChanged = onActivePlayerChanged,
+            onCreditsVisibilityChanged = onCreditsVisibilityChanged,
+            onAdvanceToNext = onAdvanceToNext
         )
         PoplurAdOverlay(creative = slot.creative)
     }
@@ -1868,8 +2480,12 @@ private fun roundedDrawable(color: Int, radius: Float): GradientDrawable =
 fun MediaContent(
     post: Post,
     isVisible: Boolean = true,
+    isMuted: Boolean = false,
     useExternalVideoSurface: Boolean = false,
-    onActivePlayerChanged: (ExoPlayer?) -> Unit = {}
+    onActivePlayerChanged: (ExoPlayer?) -> Unit = {},
+    onFirstFrameRendered: () -> Unit = {},
+    onCreditsVisibilityChanged: (Boolean) -> Unit = {},
+    onAdvanceToNext: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val isInspectionMode = LocalInspectionMode.current
@@ -1880,6 +2496,7 @@ fun MediaContent(
     var posterFailed by remember(post.id) { mutableStateOf(false) }
     var imageUrl by remember(post.id) { mutableStateOf(post.mediaUrl ?: fallbackFeedImageUrl(post.id)) }
     var videoSize by remember(post.id) { mutableStateOf<VideoSize?>(null) }
+    val showingStillImage = isInspectionMode || !ENABLE_FEED_VIDEO_AUTOPLAY || post.videoUrl == null || videoFailed
 
     fun acceptOrReplaceImage(drawable: Drawable, failPostWhenRejected: Boolean) {
         if (drawable.hasLikelyBlackBars()) {
@@ -1895,6 +2512,19 @@ fun MediaContent(
         } else {
             isLoading = false
         }
+    }
+
+    LaunchedEffect(post.id, imageUrl, isVisible, showingStillImage) {
+        if (!isVisible || !showingStillImage) {
+            onCreditsVisibilityChanged(false)
+            return@LaunchedEffect
+        }
+        onCreditsVisibilityChanged(false)
+        delay(FEED_IMAGE_CREDITS_DELAY_MS)
+        onCreditsVisibilityChanged(true)
+        delay(FEED_IMAGE_MAX_VISIBLE_MS - FEED_IMAGE_CREDITS_DELAY_MS)
+        onCreditsVisibilityChanged(false)
+        onAdvanceToNext()
     }
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1932,17 +2562,21 @@ fun MediaContent(
                                     .setUri(post.videoUrl)
                                     .build()
                                 setMediaItem(mediaItem)
-                                repeatMode = Player.REPEAT_MODE_ONE
+                                repeatMode = Player.REPEAT_MODE_OFF
                                 videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
-                                volume = 1f
+                                volume = if (isMuted) 0f else 1f
                                 addListener(object : Player.Listener {
                                     override fun onPlaybackStateChanged(state: Int) {
                                         isLoading = state == Player.STATE_BUFFERING || (state == Player.STATE_READY && !hasRenderedVideo)
+                                        if (state == Player.STATE_ENDED) {
+                                            onAdvanceToNext()
+                                        }
                                     }
 
                                     override fun onRenderedFirstFrame() {
                                         hasRenderedVideo = true
                                         isLoading = false
+                                        onFirstFrameRendered()
                                     }
 
                                     override fun onVideoSizeChanged(size: VideoSize) {
@@ -1964,9 +2598,6 @@ fun MediaContent(
                     LaunchedEffect(exoPlayer, isVisible, post.id) {
                         if (isVisible) {
                             onActivePlayerChanged(exoPlayer)
-                            if (exoPlayer.playbackState == Player.STATE_ENDED) {
-                                exoPlayer.seekTo(0)
-                            }
                             exoPlayer.playWhenReady = true
                             exoPlayer.play()
                         } else {
@@ -1974,6 +2605,10 @@ fun MediaContent(
                             exoPlayer.playWhenReady = false
                             exoPlayer.pause()
                         }
+                    }
+
+                    LaunchedEffect(exoPlayer, isMuted) {
+                        exoPlayer.volume = if (isMuted) 0f else 1f
                     }
 
                     DisposableEffect(exoPlayer) {
@@ -1992,6 +2627,26 @@ fun MediaContent(
                                 isLoading = false
                             }
                         }
+                    }
+
+                    LaunchedEffect(exoPlayer, isVisible, hasRenderedVideo, videoFailed, post.id) {
+                        if (!isVisible || !hasRenderedVideo || videoFailed) {
+                            onCreditsVisibilityChanged(false)
+                            return@LaunchedEffect
+                        }
+                        while (isVisible && hasRenderedVideo && !videoFailed) {
+                            val duration = exoPlayer.duration
+                            val position = exoPlayer.currentPosition
+                            if (duration > 0 && duration != C.TIME_UNSET) {
+                                val remainingMillis = duration - position
+                                val leadMillis = (duration / 4L).coerceIn(2_000L, 4_200L)
+                                onCreditsVisibilityChanged(remainingMillis in 120L..leadMillis)
+                            } else {
+                                onCreditsVisibilityChanged(false)
+                            }
+                            delay(250)
+                        }
+                        onCreditsVisibilityChanged(false)
                     }
 
                     if (!hasRenderedVideo && !posterFailed) {

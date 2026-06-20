@@ -10,6 +10,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -31,6 +32,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,6 +50,7 @@ fun UserInfoOverlay(
     channelNumber: Int,
     channelEmoji: String,
     channelCategory: String,
+    channelIconResId: Int? = null,
     modifier: Modifier = Modifier
 ) {
     var showChannel by remember { mutableStateOf(false) }
@@ -66,10 +70,12 @@ fun UserInfoOverlay(
             Spacer(Modifier.width(10.dp))
 
             AnimatedContent(
-                targetState = channelEmoji,
+                targetState = channelIconResId to channelEmoji,
                 transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(220)) },
                 label = "channel-emoji"
-            ) { emoji -> Text(emoji, fontSize = 32.sp) }
+            ) { (iconResId, emoji) ->
+                ChannelIcon(iconResId = iconResId, fallbackEmoji = emoji, size = 38)
+            }
 
             Spacer(Modifier.width(10.dp))
             Column {
@@ -125,6 +131,20 @@ fun UserInfoOverlay(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ChannelIcon(iconResId: Int?, fallbackEmoji: String, size: Int) {
+    if (iconResId != null) {
+        Image(
+            painter = painterResource(iconResId),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(size.dp)
+        )
+    } else {
+        Text(fallbackEmoji, fontSize = size.sp)
     }
 }
 
