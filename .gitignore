@@ -1,36 +1,15 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
-*.hprof
-app/build/
-**/build/
-*.aab
-*.apk
-mapping.txt
-
-# Android build files
 .gradle/
 build/
 app/build/
-**/build/
-
-# Android release files
 *.apk
 *.aab
 *.ap_
-mapping.txt
-
-# Local machine config
+*.dex
+*.class
 local.properties
+.idea/
+.DS_Store
+.kotlin/
+Secrets.kt
+"* *.so"
+*\ *.so

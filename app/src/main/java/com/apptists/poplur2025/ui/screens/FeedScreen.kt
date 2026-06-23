@@ -2,6 +2,7 @@ package com.apptists.poplur2025.ui.screens
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Typeface
@@ -22,7 +23,13 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas as ComposeCanvas
 import androidx.compose.foundation.Image
@@ -38,13 +45,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.CornerRadius
@@ -55,8 +63,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -65,6 +76,7 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
+import com.apptists.poplur2025.R
 import com.apptists.poplur2025.ads.AdManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -79,19 +91,30 @@ import com.apptists.poplur2025.data.DemoPostStore
 
 import com.apptists.poplur2025.data.Post
 import com.apptists.poplur2025.data.UserProfile
-import com.apptists.poplur2025.ui.components.FeedLaunchCover
 import com.apptists.poplur2025.ui.components.RadiusDisplay
+import com.apptists.poplur2025.ui.components.ShaderNumberText
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.UserInfoOverlay
+import com.apptists.poplur2025.ui.components.poplurRadiusDisplayModifier
 import com.google.android.gms.ads.nativead.MediaView
 import com.google.android.gms.ads.nativead.NativeAd
 import com.google.android.gms.ads.nativead.NativeAdView
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import com.apptists.poplur2025.data.AITranslationCaptionProvider
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
+import com.apptists.poplur2025.data.PoplurLanguage
+import java.util.Locale
+
+private enum class FeedChannelStepDirection {
+    Up,
+    Down
+}
 
 @Composable
 fun FeedScreen(
@@ -99,32 +122,59 @@ fun FeedScreen(
     isVisible: Boolean = true,
     tvGuideRequestToken: Int = 0,
     timelineToggleRequestToken: Int = 0,
+    likeRequestToken: Int = 0,
+    openProfileRequestToken: Int = 0,
+    submittedComment: String = "",
+    commentSubmitToken: Int = 0,
+    preferredLanguage: PoplurLanguage = PoplurLanguage.English,
+    closedCaptionsEnabled: Boolean = true,
     homeChromeInactive: Boolean = false,
     onOpenUser: (UserProfile) -> Unit = {},
     onTvGuideVisibilityChanged: (Boolean) -> Unit = {},
+    onChannelObjectPop: (String) -> Unit = {},
     onUserInteraction: () -> Unit = {},
     onIndexChange: (Int) -> Unit
 ) {
     val context = LocalContext.current
-    val density = LocalDensity.current.density
     val isInspectionMode = LocalInspectionMode.current
-    val currentSlot = remember(currentPostIndex) { resolveFeedSlot(currentPostIndex) }
-    val guideChannels = remember { buildFeedTvGuideChannels() }
+    val liveBroadcastRevision = DemoPostStore.liveBroadcastRevision.intValue
+    val currentSlot = remember(currentPostIndex, liveBroadcastRevision) { resolveFeedSlot(currentPostIndex) }
+    val guideChannels = remember(liveBroadcastRevision) { buildFeedTvGuideChannels() }
     var showTimelineView by remember { mutableStateOf(false) }
     var showTvGuide by remember { mutableStateOf(false) }
-    var showFeedLogo by remember { mutableStateOf(true) }
+    var showFeedEntryLogo by remember { mutableStateOf(false) }
     var confettiTrigger by remember { mutableIntStateOf(0) }
+    var tvTransitionToken by remember { mutableIntStateOf(0) }
+    var tvTransitionChannelNumber by remember { mutableIntStateOf(100) }
+    var tvTransitionChannelCategory by remember { mutableStateOf("") }
+    var tvTransitionChannelIconResId by remember { mutableStateOf<Int?>(null) }
     var selectedGuideChannelId by remember { mutableStateOf("feed") }
     var activeFeedPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
+    var allowFeedVideoPlayback by remember { mutableStateOf(false) }
+    var captionPlaybackSeconds by remember { mutableLongStateOf(0L) }
     var likedPulseToken by remember { mutableIntStateOf(0) }
     var showLikeBurst by remember { mutableStateOf(false) }
     val likedSlotIds = remember { mutableStateListOf<String>() }
-    val feedRotationY by animateFloatAsState(
-        targetValue = if (showTimelineView) 180f else 0f,
-        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
-        label = "feedFlipRotation"
+    var showCommentCredits by remember { mutableStateOf(false) }
+    val userCommentCreditsBySlot = remember { mutableStateMapOf<String, List<FeedCommentCredit>>() }
+    var channelButtonPopDirection by remember { mutableStateOf<FeedChannelStepDirection?>(null) }
+    var channelButtonPopToken by remember { mutableIntStateOf(0) }
+    val showingTimelineSide = showTimelineView
+    val currentChannelForObject by rememberUpdatedState(
+        when (val slot = currentSlot) {
+            is FeedSlot.PostSlot -> slot.channelCategory
+            is FeedSlot.AdSlot -> slot.creative.creativeKind
+        }
     )
-    val showingTimelineSide = feedRotationY > 90f
+
+    LaunchedEffect(activeFeedPlayer, currentSlot.feedSlotId) {
+        captionPlaybackSeconds = 0L
+        val player = activeFeedPlayer ?: return@LaunchedEffect
+        while (true) {
+            captionPlaybackSeconds = (player.currentPosition / 1000L).coerceAtLeast(0L)
+            delay(250)
+        }
+    }
 
     LaunchedEffect(tvGuideRequestToken) {
         if (tvGuideRequestToken > 0) showTvGuide = true
@@ -189,42 +239,134 @@ fun FeedScreen(
         showLikeBurst = true
     }
 
+    fun openCurrentPostProfile() {
+        val slot = currentSlot
+        if (slot is FeedSlot.PostSlot && slot.post.userId.isNotBlank() && slot.post.userId != "ad_partner") {
+            onUserInteraction()
+            playFeedPop()
+            onOpenUser(slot.post.toUserProfile())
+        }
+    }
+
+    fun commentsForCredits(slot: FeedSlot): List<FeedCommentCredit> {
+        return (seedCommentCredits(slot) + userCommentCreditsBySlot[slot.feedSlotId].orEmpty()).takeLast(12)
+    }
+
+    fun triggerChannelButtonPop(direction: FeedChannelStepDirection) {
+        channelButtonPopDirection = direction
+        channelButtonPopToken += 1
+    }
+
+    fun changeChannel(direction: FeedChannelStepDirection) {
+        onUserInteraction()
+        showCommentCredits = false
+        triggerChannelButtonPop(direction)
+        playFeedPop()
+
+        val targetIndex = adjacentChannelFeedIndex(currentPostIndex, direction)
+        when (val targetSlot = resolveFeedSlot(targetIndex)) {
+            is FeedSlot.PostSlot -> {
+                tvTransitionChannelNumber = targetSlot.channelNumber
+                tvTransitionChannelCategory = targetSlot.channelCategory
+                tvTransitionChannelIconResId = targetSlot.channelIconResId
+            }
+            is FeedSlot.AdSlot -> {
+                tvTransitionChannelNumber = 100
+                tvTransitionChannelCategory = targetSlot.creative.creativeKind
+                tvTransitionChannelIconResId = null
+            }
+        }
+        tvTransitionToken += 1
+        onIndexChange(targetIndex)
+    }
+
+    fun advanceToNextPost() {
+        showCommentCredits = false
+        when (val s = currentSlot) {
+            is FeedSlot.PostSlot -> {
+                tvTransitionChannelNumber = s.channelNumber
+                tvTransitionChannelCategory = s.channelCategory
+                tvTransitionChannelIconResId = s.channelIconResId
+            }
+            is FeedSlot.AdSlot -> {
+                tvTransitionChannelNumber = 100
+                tvTransitionChannelCategory = s.creative.creativeKind
+                tvTransitionChannelIconResId = null
+            }
+        }
+        tvTransitionToken += 1
+        onIndexChange(currentPostIndex + 1)
+    }
+
+    LaunchedEffect(likeRequestToken) {
+        if (likeRequestToken > 0) likeCurrentSlot()
+    }
+
+    LaunchedEffect(openProfileRequestToken) {
+        if (openProfileRequestToken > 0) openCurrentPostProfile()
+    }
+
+    LaunchedEffect(commentSubmitToken, submittedComment) {
+        val trimmed = submittedComment.trim()
+        if (commentSubmitToken > 0 && trimmed.isNotEmpty()) {
+            val slotId = currentSlot.feedSlotId
+            userCommentCreditsBySlot[slotId] = userCommentCreditsBySlot[slotId].orEmpty() + FeedCommentCredit(
+                id = "you-$commentSubmitToken",
+                username = "you",
+                text = trimmed
+            )
+        }
+    }
+
+    LaunchedEffect(currentSlot.feedSlotId, showTvGuide, showingTimelineSide) {
+        showCommentCredits = false
+    }
+
     LaunchedEffect(likedPulseToken) {
         if (likedPulseToken <= 0) return@LaunchedEffect
         delay(680)
         showLikeBurst = false
     }
 
+    LaunchedEffect(channelButtonPopToken) {
+        if (channelButtonPopToken <= 0) return@LaunchedEffect
+        delay(220)
+        channelButtonPopDirection = null
+    }
+
+    // Clear player when app is backgrounded; play pop + confetti on re-entry
     LaunchedEffect(isVisible) {
         if (!isVisible) {
             activeFeedPlayer = null
+            allowFeedVideoPlayback = false
             return@LaunchedEffect
         }
-        mediaPlayer?.let { player ->
-            if (!player.isPlaying) {
-                playFeedPop()
-            }
-        }
-        showFeedLogo = true
+        delay(1_400)
+        allowFeedVideoPlayback = true
+        mediaPlayer?.let { player -> if (!player.isPlaying) playFeedPop() }
         confettiTrigger += 1
-        delay(2_500)
-        showFeedLogo = false
+    }
+
+    LaunchedEffect(Unit) {
+        playFeedPop()
+    }
+
+    LaunchedEffect(isVisible) {
+        if (!isVisible) return@LaunchedEffect
+        while (true) {
+            delay(30_000L)
+            playFeedPop()
+            onChannelObjectPop(randomChannelCubeObject(currentChannelForObject))
+            delay(2_000L)
+        }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    cameraDistance = 16f * density
-                    rotationY = if (showingTimelineSide) 90f else feedRotationY
-                    alpha = if (showingTimelineSide) 0f else 1f
-                }
-        ) {
+        if (!showingTimelineSide) {
+            Box(modifier = Modifier.fillMaxSize()) {
         // 1. Background Content (TV Flip Effect)
         AnimatedContent(
             targetState = currentSlot,
@@ -241,15 +383,22 @@ fun FeedScreen(
                         MediaContent(
                             post = slot.post,
                             isVisible = isVisible,
+                            isMuted = false,
+                            allowVideoPlayback = allowFeedVideoPlayback,
                             useExternalVideoSurface = showTvGuide,
-                            onActivePlayerChanged = { player -> activeFeedPlayer = player }
+                            onActivePlayerChanged = { player -> activeFeedPlayer = player },
+                            onCreditsVisibilityChanged = { showCommentCredits = it },
+                            onAdvanceToNext = { advanceToNextPost() }
                         )
                     }
                     is FeedSlot.AdSlot -> FeedAdContent(
                         slot = slot,
                         isVisible = isVisible,
+                        allowVideoPlayback = allowFeedVideoPlayback,
                         useExternalVideoSurface = showTvGuide,
-                        onActivePlayerChanged = { player -> activeFeedPlayer = player }
+                        onActivePlayerChanged = { player -> activeFeedPlayer = player },
+                        onCreditsVisibilityChanged = { showCommentCredits = it },
+                        onAdvanceToNext = { advanceToNextPost() }
                     )
                 }
             }
@@ -263,9 +412,9 @@ fun FeedScreen(
                     (fadeIn() + slideInVertically()).togetherWith(fadeOut() + slideOutVertically())
                 },
                 modifier = Modifier
-                    .statusBarsPadding()
-                    .padding(16.dp)
-                    .align(Alignment.TopStart),
+                    .padding(top = 48.dp, start = 16.dp)
+                    .align(Alignment.TopStart)
+                    .zIndex(86f),
                 label = "UserInfoAnimation"
             ) { slot ->
                 when (slot) {
@@ -274,7 +423,8 @@ fun FeedScreen(
                         location = slot.post.locationName,
                         channelNumber = slot.channelNumber,
                         channelEmoji = slot.channelEmoji,
-                        channelCategory = slot.channelCategory
+                        channelCategory = slot.channelCategory,
+                        channelIconResId = slot.channelIconResId
                     )
                     is FeedSlot.AdSlot -> UserInfoOverlay(
                         displayName = slot.creative.brandName,
@@ -294,7 +444,8 @@ fun FeedScreen(
                 },
                 modifier = Modifier
                     .padding(bottom = 48.dp, start = 20.dp)
-                    .align(Alignment.BottomStart),
+                    .align(Alignment.BottomStart)
+                    .zIndex(86f),
                 label = "TrendingAnimation"
             ) { slot ->
                 when (slot) {
@@ -319,9 +470,7 @@ fun FeedScreen(
                 transitionSpec = {
                     (fadeIn() + slideInHorizontally { it }).togetherWith(fadeOut() + slideOutHorizontally { it })
                 },
-                modifier = Modifier
-                    .padding(bottom = 48.dp, end = 20.dp)
-                    .align(Alignment.BottomEnd),
+                modifier = poplurRadiusDisplayModifier().zIndex(86f),
                 label = "RadiusAnimation"
             ) { slot ->
                 RadiusDisplay(
@@ -334,26 +483,59 @@ fun FeedScreen(
             }
         }
 
+        if (closedCaptionsEnabled && !showingTimelineSide && !showTvGuide && !homeChromeInactive) {
+            val slot = currentSlot
+            if (slot is FeedSlot.PostSlot && slot.post.videoUrl != null) {
+                AICaptionOverlay(
+                    post = slot.post,
+                    channelCategory = slot.channelCategory,
+                    preferredLanguage = preferredLanguage,
+                    playbackSeconds = captionPlaybackSeconds,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 24.dp)
+                        .padding(bottom = 116.dp)
+                        .zIndex(84f)
+                )
+            }
+        }
+
+        if (!showingTimelineSide && !showTvGuide) {
+            FeedChannelStepperOverlay(
+                activeDirection = channelButtonPopDirection,
+                onUp = { changeChannel(FeedChannelStepDirection.Up) },
+                onDown = { changeChannel(FeedChannelStepDirection.Down) },
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 20.dp)
+                    .zIndex(92f)
+            )
+        }
+
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .zIndex(80f)
-                .feedDoubleTapDetector(
-                    onTap = onUserInteraction,
-                    onDoubleTap = { likeCurrentSlot() }
+                .pointerInput(currentSlot.feedSlotId) {
+                    detectTapGestures(onTap = { onUserInteraction() })
+                }
+                .feedSwipeDetector(
+                    currentPostIndex = currentPostIndex,
+                    onIndexChange = onIndexChange,
+                    onInteraction = onUserInteraction,
+                    onVerticalSwipe = { isUp ->
+                        triggerChannelButtonPop(if (isUp) FeedChannelStepDirection.Up else FeedChannelStepDirection.Down)
+                    }
                 )
-                .feedSwipeDetector(currentPostIndex, onIndexChange, onUserInteraction)
         )
+        }
         }
 
         if (showingTimelineSide) {
             PoplurNewspaper(
+                posts = DemoPostStore.posts,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        cameraDistance = 16f * density
-                        rotationY = feedRotationY - 180f
-                    }
                     .zIndex(60f),
                 onDoubleTap = { showTimelineView = false }
             )
@@ -384,23 +566,43 @@ fun FeedScreen(
             )
         }
 
-        if (homeChromeInactive && !showingTimelineSide && !showTvGuide) {
-            FeedLiveCommentsOverlay(
-                slot = currentSlot,
+        if (showCommentCredits && !showingTimelineSide && !showTvGuide) {
+            FeedCommentCreditsOverlay(
+                comments = commentsForCredits(currentSlot),
                 modifier = Modifier
                     .fillMaxSize()
                     .zIndex(88f)
             )
         }
 
-        // Full-screen launch cover — above everything while feed loads
         androidx.compose.animation.AnimatedVisibility(
-            visible = showFeedLogo,
-            enter = androidx.compose.animation.fadeIn(animationSpec = tween(200)),
-            exit = androidx.compose.animation.fadeOut(animationSpec = tween(500)),
-            modifier = Modifier.fillMaxSize().zIndex(90f)
+            visible = showFeedEntryLogo,
+            enter = scaleIn(initialScale = 0.72f, animationSpec = tween(140)) + fadeIn(animationSpec = tween(120)),
+            exit = scaleOut(targetScale = 1.28f, animationSpec = tween(180)) + fadeOut(animationSpec = tween(180)),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .zIndex(90f)
         ) {
-            FeedLaunchCover(onPopSound = { playFeedPop() })
+            FeedEntryLogoPop()
+        }
+
+        if (tvTransitionToken > 0) {
+            key(tvTransitionToken) {
+                val use3D = remember { kotlin.random.Random.nextBoolean() }
+                if (use3D) {
+                    TVStaticTransitionOverlay3D(
+                        channelNumber = tvTransitionChannelNumber,
+                        channelCategory = tvTransitionChannelCategory,
+                        channelIconResId = tvTransitionChannelIconResId
+                    )
+                } else {
+                    TVStaticTransitionOverlay(
+                        channelNumber = tvTransitionChannelNumber,
+                        channelCategory = tvTransitionChannelCategory,
+                        channelIconResId = tvTransitionChannelIconResId
+                    )
+                }
+            }
         }
 
         if (showTvGuide) {
@@ -506,6 +708,488 @@ private fun buildBreakingNewsConfetti(trigger: Int): List<BreakingNewsConfettiPi
     }
 }
 
+@Composable
+private fun FeedEntryLogoPop() {
+    val context = LocalContext.current
+    val logoBitmap = remember {
+        runCatching {
+            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+        }.getOrNull()
+    }
+    val scale = remember { Animatable(0.76f) }
+
+    LaunchedEffect(Unit) {
+        scale.snapTo(0.76f)
+        scale.animateTo(1.26f, animationSpec = tween(120, easing = FastOutSlowInEasing))
+        scale.animateTo(0.94f, animationSpec = tween(90, easing = FastOutSlowInEasing))
+        scale.animateTo(1.0f, animationSpec = tween(80, easing = FastOutSlowInEasing))
+    }
+
+    Box(
+        modifier = Modifier
+            .size(156.dp)
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        if (logoBitmap != null) {
+            Image(
+                bitmap = logoBitmap,
+                contentDescription = "Poplur",
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            ShaderNumberText(
+                text = "POPLUR",
+                color = Color.White,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Black
+            )
+        }
+    }
+}
+
+@Composable
+private fun TVStaticTransitionOverlay(channelNumber: Int, channelCategory: String, channelIconResId: Int? = null) {
+    val context = LocalContext.current
+    val logoBitmap = remember {
+        runCatching {
+            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+        }.getOrNull()
+    }
+    val overlayAlpha = remember { Animatable(1f) }
+    // noiseTime drives per-frame Canvas redraws via state tracking
+    val noiseTime = remember { Animatable(0f) }
+    var logoVisible by remember { mutableStateOf(false) }
+    var channelVisible by remember { mutableStateOf(false) }
+    val logoScale = remember { Animatable(0.05f) }
+    val channelScale = remember { Animatable(0.05f) }
+
+    LaunchedEffect(Unit) {
+        // Noise driver (infinite, cancelled when scope ends)
+        launch { noiseTime.animateTo(9999f, infiniteRepeatable(tween(99999, easing = LinearEasing))) }
+        // Audio
+        launch(kotlinx.coroutines.Dispatchers.IO) { playTVStaticAudio() }
+        // Logo pop at 80ms
+        delay(80)
+        logoVisible = true
+        launch {
+            logoScale.animateTo(1.32f, tween(110, easing = FastOutSlowInEasing))
+            logoScale.animateTo(0.87f, tween(80, easing = FastOutSlowInEasing))
+            logoScale.animateTo(1.08f, tween(60, easing = FastOutSlowInEasing))
+            logoScale.animateTo(1.0f, tween(50, easing = FastOutSlowInEasing))
+        }
+        // Channel text pop at 260ms total
+        delay(180)
+        channelVisible = true
+        launch {
+            channelScale.animateTo(1.28f, tween(100, easing = FastOutSlowInEasing))
+            channelScale.animateTo(0.90f, tween(70, easing = FastOutSlowInEasing))
+            channelScale.animateTo(1.05f, tween(50, easing = FastOutSlowInEasing))
+            channelScale.animateTo(1.0f, tween(40, easing = FastOutSlowInEasing))
+        }
+        // Fade out at 640ms total
+        delay(400)
+        overlayAlpha.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
+    }
+
+    if (overlayAlpha.value <= 0f) return
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(900f)
+            .graphicsLayer { alpha = overlayAlpha.value }
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        // Real animated static noise
+        ComposeCanvas(modifier = Modifier.fillMaxSize()) {
+            @Suppress("UNUSED_VARIABLE") val t = noiseTime.value
+            val lineH = 4.dp.toPx()
+            var y = 0f
+            while (y < size.height) {
+                val v = Random.nextFloat()
+                drawRect(
+                    Color(v, v, v, 0.55f + Random.nextFloat() * 0.45f),
+                    topLeft = Offset(0f, y),
+                    size = Size(size.width, lineH)
+                )
+                // Occasional color burst pixels in a scan band
+                if (Random.nextFloat() > 0.88f) {
+                    repeat(6) {
+                        drawRect(
+                            Color(Random.nextFloat(), Random.nextFloat(), Random.nextFloat(), 0.7f),
+                            topLeft = Offset(Random.nextFloat() * size.width, y + Random.nextFloat() * lineH),
+                            size = Size(lineH * 1.5f, lineH * 1.5f)
+                        )
+                    }
+                }
+                y += lineH
+            }
+            // Glitch bands
+            repeat(4) {
+                if (Random.nextFloat() > 0.72f) {
+                    val bY = Random.nextFloat() * size.height
+                    drawRect(
+                        Color.White.copy(alpha = 0.08f + Random.nextFloat() * 0.38f),
+                        Offset(0f, bY), Size(size.width, 2f + Random.nextFloat() * 18f)
+                    )
+                }
+            }
+        }
+        // Scanline overlay
+        ComposeCanvas(modifier = Modifier.fillMaxSize()) {
+            val gap = 3.dp.toPx()
+            var y = 0f
+            while (y < size.height) {
+                drawRect(Color.Black.copy(alpha = 0.30f), Offset(0f, y), Size(size.width, 1.dp.toPx()))
+                y += gap
+            }
+        }
+        // Channel identity card
+        if (channelIconResId != null) {
+            if (logoVisible) {
+                androidx.compose.foundation.Image(
+                    painter = painterResource(channelIconResId),
+                    contentDescription = "CH $channelNumber $channelCategory",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth(0.80f)
+                        .wrapContentHeight()
+                        .graphicsLayer { scaleX = logoScale.value; scaleY = logoScale.value }
+                )
+            }
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (logoVisible) {
+                    Box(
+                        modifier = Modifier
+                            .size(160.dp)
+                            .graphicsLayer { scaleX = logoScale.value; scaleY = logoScale.value },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (logoBitmap != null) {
+                            androidx.compose.foundation.Image(
+                                bitmap = logoBitmap,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .fillMaxSize(1.40f)
+                                    .graphicsLayer {
+                                        alpha = 0.35f
+                                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
+                                            Color(0xFFFF40C8),
+                                            androidx.compose.ui.graphics.BlendMode.Modulate
+                                        )
+                                    }
+                            )
+                            androidx.compose.foundation.Image(
+                                bitmap = logoBitmap,
+                                contentDescription = "Poplur",
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            ShaderNumberText("POPLUR", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                if (channelVisible) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.graphicsLayer { scaleX = channelScale.value; scaleY = channelScale.value }
+                    ) {
+                        ShaderNumberText(
+                            text = "CH $channelNumber",
+                            color = Color(0xFF4EFF40),
+                            fontSize = 40.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        ShaderNumberText(
+                            text = channelCategory.uppercase(),
+                            color = Color(0xFF4EFF40),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 2.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun playTVStaticAudio() {
+    try {
+        val sampleRate = 22050
+        val durationMs = 680
+        val numSamples = sampleRate * durationMs / 1000
+        val buffer = ByteArray(numSamples * 2)
+        for (i in 0 until numSamples) {
+            val fadeIn = minOf(1f, i / 480f)
+            val fadeOut = minOf(1f, (numSamples - i) / 1100f)
+            val env = minOf(fadeIn, fadeOut)
+            val noise = (Random.nextFloat() * 2 - 1) * 0.78f * env
+            val hum = (kotlin.math.sin(2.0 * Math.PI * 59.94 * i / sampleRate) * 0.07).toFloat()
+            val sample = ((noise + hum) * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            buffer[i * 2] = (sample and 0xFF).toByte()
+            buffer[i * 2 + 1] = ((sample ushr 8) and 0xFF).toByte()
+        }
+        val minBuf = android.media.AudioTrack.getMinBufferSize(
+            sampleRate,
+            android.media.AudioFormat.CHANNEL_OUT_MONO,
+            android.media.AudioFormat.ENCODING_PCM_16BIT
+        )
+        val audioTrack = android.media.AudioTrack(
+            android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build(),
+            android.media.AudioFormat.Builder()
+                .setSampleRate(sampleRate)
+                .setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
+                .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO)
+                .build(),
+            maxOf(buffer.size, minBuf),
+            android.media.AudioTrack.MODE_STATIC,
+            android.media.AudioManager.AUDIO_SESSION_ID_GENERATE
+        )
+        audioTrack.write(buffer, 0, buffer.size)
+        audioTrack.play()
+        Thread.sleep(durationMs.toLong() + 120)
+        audioTrack.stop()
+        audioTrack.release()
+    } catch (_: Exception) {}
+}
+
+// MARK: - 3D perspective TV static transition (graphicsLayer rotationY / rotationX)
+
+@Composable
+private fun TVStaticTransitionOverlay3D(channelNumber: Int, channelCategory: String, channelIconResId: Int? = null) {
+    val context = LocalContext.current
+    val logoBitmap = remember {
+        runCatching {
+            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+        }.getOrNull()
+    }
+
+    val overlayAlpha = remember { Animatable(1f) }
+    val noiseTime    = remember { Animatable(0f) }
+
+    // Logo 3D flip: Y rotation from 90° (edge-on) → bounce to 0° (face-on)
+    var logoVisible by remember { mutableStateOf(false) }
+    val logoRotY  = remember { Animatable(90f) }
+    val logoScale = remember { Animatable(1f) }
+
+    // Text 3D tilt-in: rotationX from -40° (facing up/away) → 0°, plus rise from below
+    var textVisible by remember { mutableStateOf(false) }
+    val textRotX   = remember { Animatable(-40f) }
+    val textTransY = remember { Animatable(80f) }
+    val textScale  = remember { Animatable(1f) }
+
+    LaunchedEffect(Unit) {
+        // Noise driver
+        launch { noiseTime.animateTo(9999f, infiniteRepeatable(tween(99999, easing = LinearEasing))) }
+        // Audio
+        launch(kotlinx.coroutines.Dispatchers.IO) { playTVStaticAudio() }
+
+        // Logo flip at 80ms
+        delay(80)
+        logoVisible = true
+        launch {
+            logoRotY.animateTo(-14f, tween(200, easing = FastOutSlowInEasing))
+            logoRotY.animateTo(7f,   tween(110, easing = FastOutSlowInEasing))
+            logoRotY.animateTo(-3f,  tween(70,  easing = FastOutSlowInEasing))
+            logoRotY.animateTo(0f,   tween(50,  easing = FastOutSlowInEasing))
+        }
+        launch {
+            logoScale.animateTo(1.20f, tween(130, easing = FastOutSlowInEasing))
+            logoScale.animateTo(0.90f, tween(90,  easing = FastOutSlowInEasing))
+            logoScale.animateTo(1.0f,  tween(70,  easing = FastOutSlowInEasing))
+        }
+
+        // Text tilt-in at 270ms total
+        delay(190)
+        textVisible = true
+        launch {
+            textRotX.animateTo(10f,  tween(180, easing = FastOutSlowInEasing))
+            textRotX.animateTo(-5f,  tween(90,  easing = FastOutSlowInEasing))
+            textRotX.animateTo(0f,   tween(60,  easing = FastOutSlowInEasing))
+        }
+        launch {
+            textTransY.animateTo(-14f, tween(180, easing = FastOutSlowInEasing))
+            textTransY.animateTo(8f,   tween(90,  easing = FastOutSlowInEasing))
+            textTransY.animateTo(0f,   tween(60,  easing = FastOutSlowInEasing))
+        }
+        launch {
+            textScale.animateTo(1.22f, tween(120, easing = FastOutSlowInEasing))
+            textScale.animateTo(0.92f, tween(80,  easing = FastOutSlowInEasing))
+            textScale.animateTo(1.0f,  tween(60,  easing = FastOutSlowInEasing))
+        }
+
+        // Fade out at 650ms total
+        delay(410)
+        overlayAlpha.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
+    }
+
+    if (overlayAlpha.value <= 0f) return
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(900f)
+            .graphicsLayer { alpha = overlayAlpha.value }
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        // Animated static noise background (same as 2D)
+        ComposeCanvas(modifier = Modifier.fillMaxSize()) {
+            @Suppress("UNUSED_VARIABLE") val t = noiseTime.value
+            val lineH = 4.dp.toPx()
+            var y = 0f
+            while (y < size.height) {
+                val v = Random.nextFloat()
+                drawRect(Color(v, v, v, 0.55f + Random.nextFloat() * 0.45f), Offset(0f, y), Size(size.width, lineH))
+                if (Random.nextFloat() > 0.88f) {
+                    repeat(6) {
+                        drawRect(
+                            Color(Random.nextFloat(), Random.nextFloat(), Random.nextFloat(), 0.7f),
+                            Offset(Random.nextFloat() * size.width, y + Random.nextFloat() * lineH),
+                            Size(lineH * 1.5f, lineH * 1.5f)
+                        )
+                    }
+                }
+                y += lineH
+            }
+            repeat(4) {
+                if (Random.nextFloat() > 0.72f) {
+                    val bY = Random.nextFloat() * size.height
+                    drawRect(Color.White.copy(alpha = 0.08f + Random.nextFloat() * 0.38f), Offset(0f, bY), Size(size.width, 2f + Random.nextFloat() * 18f))
+                }
+            }
+        }
+        // Scanline overlay
+        ComposeCanvas(modifier = Modifier.fillMaxSize()) {
+            val gap = 3.dp.toPx()
+            var y = 0f
+            while (y < size.height) {
+                drawRect(Color.Black.copy(alpha = 0.30f), Offset(0f, y), Size(size.width, 1.dp.toPx()))
+                y += gap
+            }
+        }
+
+        if (channelIconResId != null) {
+            // 3D flip applied to the whole channel PNG
+            if (logoVisible) {
+                val density = LocalDensity.current.density
+                androidx.compose.foundation.Image(
+                    painter = painterResource(channelIconResId),
+                    contentDescription = "CH $channelNumber $channelCategory",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth(0.80f)
+                        .wrapContentHeight()
+                        .graphicsLayer {
+                            rotationY = logoRotY.value
+                            scaleX = logoScale.value
+                            scaleY = logoScale.value
+                            cameraDistance = 10f * density
+                        }
+                )
+            }
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // 3D logo flip
+                if (logoVisible && logoBitmap != null) {
+                    val density = LocalDensity.current.density
+                    Box(
+                        modifier = Modifier
+                            .size(160.dp)
+                            .graphicsLayer {
+                                rotationY = logoRotY.value
+                                scaleX = logoScale.value
+                                scaleY = logoScale.value
+                                cameraDistance = 10f * density
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.foundation.Image(
+                            bitmap = logoBitmap,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(1.40f).graphicsLayer {
+                                alpha = 0.32f
+                                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
+                                    Color(0xFFFF40C8), androidx.compose.ui.graphics.BlendMode.Modulate
+                                )
+                            }
+                        )
+                        androidx.compose.foundation.Image(
+                            bitmap = logoBitmap,
+                            contentDescription = "Poplur",
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // 3D channel text tilt-in
+                if (textVisible) {
+                    val density = LocalDensity.current.density
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.graphicsLayer {
+                            rotationX = textRotX.value
+                            translationY = textTransY.value * density
+                            scaleX = textScale.value
+                            scaleY = textScale.value
+                            cameraDistance = 10f * density
+                        }
+                    ) {
+                        Text(
+                            text = "CH $channelNumber",
+                            color = Color(0xFF4EFF40),
+                            fontSize = 40.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                        )
+                        Text(
+                            text = channelCategory.uppercase(),
+                            color = Color(0xFF4EFF40),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            letterSpacing = 2.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun randomChannelCubeObject(category: String): String {
+    val normalized = category.lowercase()
+    val options = when {
+        normalized == "food" -> listOf("banana", "cake", "fruit")
+        normalized == "beauty" || normalized == "style" -> listOf("lipstick", "compact", "sparkle")
+        normalized == "sports" || normalized == "fitness" -> listOf("ball", "trophy", "dumbbell")
+        normalized == "modelling" -> listOf("camera", "spotlight", "star")
+        normalized == "fashion" || normalized == "shopping" -> listOf("dress", "shoe", "bag")
+        normalized == "music" -> listOf("microphone", "note", "speaker")
+        normalized == "tech" || normalized == "gaming" -> listOf("laptop", "chip", "controller")
+        normalized == "news" -> listOf("newspaper", "globe", "camera")
+        normalized == "french" -> listOf("eiffel", "croissant", "beret")
+        normalized == "spanish" -> listOf("guitar", "sun", "fan")
+        normalized.contains("3d") || normalized.contains("ad") || normalized.contains("creative") ->
+            listOf("banana", "camera", "globe", "spotlight")
+        else -> listOf("star", "globe", "sparkle")
+    }
+    return options.random()
+}
+
 private fun Modifier.feedDoubleTapDetector(
     onTap: () -> Unit,
     onDoubleTap: () -> Unit
@@ -519,7 +1203,8 @@ private fun Modifier.feedDoubleTapDetector(
 private fun Modifier.feedSwipeDetector(
     currentPostIndex: Int,
     onIndexChange: (Int) -> Unit,
-    onInteraction: () -> Unit
+    onInteraction: () -> Unit,
+    onVerticalSwipe: (isUp: Boolean) -> Unit
 ): Modifier = pointerInput(currentPostIndex) {
     var totalY = 0f
     var triggered = false
@@ -533,7 +1218,9 @@ private fun Modifier.feedSwipeDetector(
             if (!triggered) {
                 totalY += dragAmount
                 if (abs(totalY) > 28f) {
-                    onIndexChange(if (totalY > 0) currentPostIndex - 1 else currentPostIndex + 1)
+                    val isUp = totalY < 0
+                    onVerticalSwipe(isUp)
+                    onIndexChange(if (isUp) currentPostIndex + 1 else currentPostIndex - 1)
                     triggered = true
                     change.consume()
                 }
@@ -542,120 +1229,183 @@ private fun Modifier.feedSwipeDetector(
     )
 }
 
-private data class FeedLiveComment(
+@Composable
+private fun FeedChannelStepperOverlay(
+    activeDirection: FeedChannelStepDirection?,
+    onUp: () -> Unit,
+    onDown: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.width(78.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        FeedChannelImageButton(
+            direction = FeedChannelStepDirection.Up,
+            activeDirection = activeDirection,
+            onClick = onUp
+        )
+
+        Image(
+            painter = painterResource(
+                if (activeDirection != null) R.drawable.feed_channel_ch_pressed
+                else R.drawable.feed_channel_ch_unpressed
+            ),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .width(66.dp)
+                .height(34.dp)
+                .graphicsLayer {
+                    alpha = if (activeDirection != null) 1f else 0.94f
+                }
+        )
+
+        FeedChannelImageButton(
+            direction = FeedChannelStepDirection.Down,
+            activeDirection = activeDirection,
+            onClick = onDown
+        )
+    }
+}
+
+@Composable
+private fun FeedChannelImageButton(
+    direction: FeedChannelStepDirection,
+    activeDirection: FeedChannelStepDirection?,
+    onClick: () -> Unit
+) {
+    val isActive = activeDirection == direction
+    val scale by animateFloatAsState(
+        targetValue = if (isActive) 1.22f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "feed-channel-step-scale"
+    )
+    val glowAlpha by animateFloatAsState(
+        targetValue = if (isActive) 0.62f else 0.26f,
+        animationSpec = tween(150, easing = FastOutSlowInEasing),
+        label = "feed-channel-step-glow"
+    )
+    val imageRes = when (direction) {
+        FeedChannelStepDirection.Up -> if (isActive) {
+            R.drawable.feed_channel_up_pressed
+        } else {
+            R.drawable.feed_channel_up_unpressed
+        }
+        FeedChannelStepDirection.Down -> if (isActive) {
+            R.drawable.feed_channel_down_pressed
+        } else {
+            R.drawable.feed_channel_down_unpressed
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .size(76.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .shadow((6f + glowAlpha * 10f).dp, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(imageRes),
+            contentDescription = if (direction == FeedChannelStepDirection.Up) "Channel up" else "Channel down",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+private data class FeedCommentCredit(
     val id: String,
     val username: String,
     val text: String
 )
 
 @Composable
-private fun FeedLiveCommentsOverlay(
-    slot: FeedSlot,
+private fun FeedCommentCreditsOverlay(
+    comments: List<FeedCommentCredit>,
     modifier: Modifier = Modifier
 ) {
-    val slotId = slot.feedSlotId
-    val seededComments = remember(slotId) { seedLiveComments(slot) }
-    var userComments by remember(slotId) { mutableStateOf<List<FeedLiveComment>>(emptyList()) }
-    var draft by remember(slotId) { mutableStateOf("") }
-    val visibleComments = remember(seededComments, userComments) {
-        (seededComments + userComments).takeLast(5)
+    val progress = remember(comments) { Animatable(0f) }
+
+    LaunchedEffect(comments) {
+        progress.snapTo(0f)
+        progress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 7_600, easing = LinearEasing)
+        )
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
+        val screenHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
+        val startY = screenHeightPx + 120f
+        val endY = -screenHeightPx * 0.40f
+        val yOffset = startY + (endY - startY) * progress.value
+
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 0.28f),
+                            Color.Black.copy(alpha = 0.62f)
+                        )
+                    )
+                )
+        )
+
         Column(
             modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 12.dp, end = 12.dp, bottom = 18.dp)
-                .widthIn(max = 380.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .align(Alignment.BottomCenter)
+                .offset { androidx.compose.ui.unit.IntOffset(0, yOffset.roundToInt()) }
+                .padding(horizontal = 28.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(13.dp)
         ) {
-            visibleComments.forEach { comment ->
-                Row(
-                    verticalAlignment = Alignment.Top,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    modifier = Modifier.animateContentSize()
+            ShaderNumberText(
+                text = "COMMENTS",
+                color = Color(0xFFFFD91A),
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.1.sp
+            )
+            comments.forEach { comment ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .background(Color.White.copy(alpha = 0.22f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = comment.username.firstOrNull()?.uppercase() ?: "?",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-                    Text(
-                        text = "${comment.username}  ${comment.text}",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        lineHeight = 17.sp,
-                        modifier = Modifier
-                            .shadow(4.dp)
-                            .background(Color.Black.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 2.dp, vertical = 1.dp)
+                    ShaderNumberText(
+                        text = comment.username.uppercase(),
+                        color = Color.White.copy(alpha = 0.74f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                }
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { draft = it },
-                    placeholder = {
-                        Text("Comment", color = Color.White.copy(alpha = 0.58f), fontWeight = FontWeight.Bold)
-                    },
-                    singleLine = true,
-                    textStyle = LocalTextStyle.current.copy(
+                    ShaderNumberText(
+                        text = comment.text,
                         color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    ),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        cursorColor = Color.White,
-                        focusedBorderColor = Color.White.copy(alpha = 0.58f),
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.38f),
-                        focusedContainerColor = Color.Black.copy(alpha = 0.34f),
-                        unfocusedContainerColor = Color.Black.copy(alpha = 0.34f)
-                    ),
-                    shape = RoundedCornerShape(28.dp),
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(
-                    onClick = {
-                        val trimmed = draft.trim()
-                        if (trimmed.isNotEmpty()) {
-                            userComments = userComments + FeedLiveComment(
-                                id = "user-${System.nanoTime()}",
-                                username = "you",
-                                text = trimmed
-                            )
-                            draft = ""
-                        }
-                    },
-                    enabled = draft.trim().isNotEmpty(),
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(Color.Black.copy(alpha = 0.34f), CircleShape)
-                        .border(1.dp, Color.White.copy(alpha = 0.34f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send comment",
-                        tint = if (draft.trim().isEmpty()) Color.White.copy(alpha = 0.36f) else Color.White
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black,
+                        lineHeight = 25.sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -669,16 +1419,72 @@ private val FeedSlot.feedSlotId: String
         is FeedSlot.AdSlot -> id
     }
 
-private fun seedLiveComments(slot: FeedSlot): List<FeedLiveComment> {
+private fun Post.toUserProfile(): UserProfile =
+    UserProfile(
+        id = userId,
+        username = username,
+        displayName = displayName.ifBlank { username.ifBlank { userId } },
+        bio = caption.ifBlank { locationName },
+        radius = radius,
+        posts = userPostsCount
+    )
+
+@Composable
+private fun AICaptionOverlay(
+    post: Post,
+    channelCategory: String,
+    preferredLanguage: PoplurLanguage,
+    playbackSeconds: Long,
+    modifier: Modifier = Modifier
+) {
+    val caption = remember(post.id, channelCategory, preferredLanguage, playbackSeconds) {
+        AITranslationCaptionProvider.captionFor(
+            post = post,
+            channelCategory = channelCategory,
+            preferredLanguage = preferredLanguage,
+            playbackSeconds = playbackSeconds
+        )
+    }
+
+    Column(
+        modifier = modifier
+            .widthIn(max = 460.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.Black.copy(alpha = 0.68f))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        ShaderNumberText(
+            text = caption.badge,
+            color = Color(0xFF4DFF58),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        ShaderNumberText(
+            text = caption.text,
+            color = Color.White,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            lineHeight = 18.sp,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private fun seedCommentCredits(slot: FeedSlot): List<FeedCommentCredit> {
     val displayName = when (slot) {
         is FeedSlot.PostSlot -> slot.post.displayName.ifBlank { slot.post.username }
         is FeedSlot.AdSlot -> slot.creative.brandName
     }.ifBlank { "this" }
     val samples = listOf(
-        FeedLiveComment("live-1", "vi.xi.mmvi", "this is live right now"),
-        FeedLiveComment("live-2", "leurdavoir", "keep the camera there"),
-        FeedLiveComment("live-3", "monsekee", "the radius is going crazy"),
-        FeedLiveComment("live-4", "poplur", "watching $displayName")
+        FeedCommentCredit("credit-1", "vi.xi.mmvi", "this is live right now"),
+        FeedCommentCredit("credit-2", "leurdavoir", "keep the camera there"),
+        FeedCommentCredit("credit-3", "monsekee", "the radius is going crazy"),
+        FeedCommentCredit("credit-4", "poplur", "watching $displayName")
     )
     val offset = Math.floorMod(slot.feedSlotId.hashCode(), samples.size)
     return samples.drop(offset) + samples.take(offset)
@@ -690,46 +1496,93 @@ private data class FeedTvGuideChannel(
     val number: Int,
     val emoji: String,
     val category: String,
+    val iconResId: Int? = null,
     val profile: UserProfile,
+    val displayNames: List<String> = emptyList(),
     val program: String,
     val videoUrl: String? = null
 )
 
 private fun buildFeedTvGuideChannels(): List<FeedTvGuideChannel> {
-    val categories = listOf(
-        "🍔" to "Food",
-        "🎮" to "Gaming",
-        "🎵" to "Music",
-        "🏙️" to "City",
-        "💄" to "Style",
-        "⚽" to "Sports",
-        "🎬" to "Film",
-        "🛍️" to "Shopping"
-    )
     val uniquePosts = DemoPostStore.posts
         .filter { it.userId.isNotBlank() && it.userId != "ad_partner" }
         .distinctBy { it.userId }
-        .take(categories.size)
+        .take(FEED_CHANNELS.size * 6) // extra for multi-name cycling
 
-    return uniquePosts.mapIndexed { index, post ->
-        val (emoji, category) = categories[index % categories.size]
+    val fallbackNames = listOf(
+        "Mia", "Jay", "Alex Johnson", "Samira Khan", "Diego Morales",
+        "Mina Park", "Noah Lee", "Ava Chen", "Kai Brooks", "Leo Vance",
+        "Priya Sen", "Carlos R", "Yuki T", "Fatima Al"
+    )
+    val channelCount = FEED_CHANNELS.size
+
+    return FEED_CHANNELS.mapIndexed { index, channel ->
+        val fallbackPost = uniquePosts.getOrNull(index) ?: DemoPostStore.getPostForIndex(index)
+        val category = channel.category
+        val post = if (category.equals("Live", ignoreCase = true)) {
+            DemoPostStore.visibleLivePostsForViewer(fallbackPost, limit = 1).firstOrNull()
+                ?: DemoPostStore.livePosts.firstOrNull()
+                ?: fallbackPost
+        } else {
+            fallbackPost
+        }
+
+        val primaryName = if (category.equals("Live", ignoreCase = true)) {
+            post.displayName.ifBlank { "Poplur Live" }
+        } else {
+            languageChannelDisplayName(category) ?: post.displayName
+        }
+
+        // Collect up to 5 names via round-robin through remaining posts
+        val names = mutableListOf(primaryName)
+        var round = 1
+        while (names.size < 5) {
+            val postIndex = index + round * channelCount
+            val extraPost = uniquePosts.getOrNull(postIndex)
+            val name = extraPost?.displayName?.ifBlank { null }
+                ?: fallbackNames[(index + round * 3) % fallbackNames.size]
+            if (!names.contains(name)) names.add(name)
+            round++
+            if (round > 6) break
+        }
+
         FeedTvGuideChannel(
-            id = "channel_${post.userId.ifBlank { index.toString() }}",
+            id = if (category.equals("Live", ignoreCase = true)) "channel_live" else "channel_${post.userId.ifBlank { index.toString() }}",
             index = index,
-            number = 101 + index,
-            emoji = emoji,
+            number = channel.number,
+            emoji = channel.emoji,
             category = category,
+            iconResId = channel.iconResId,
             profile = UserProfile(
                 id = post.userId,
                 username = post.username,
-                displayName = post.displayName,
+                displayName = primaryName,
                 bio = post.caption,
                 radius = post.radius,
                 posts = post.userPostsCount
             ),
-            program = post.locationName.ifBlank { post.caption },
-            videoUrl = post.videoUrl
+            displayNames = names,
+            program = if (category.equals("Live", ignoreCase = true)) {
+                "Radius live now"
+            } else {
+                languageChannelProgram(category) ?: post.locationName.ifBlank { post.caption }
+            },
+            videoUrl = if (category.equals("Live", ignoreCase = true)) null else languageChannelVideoUrl(category) ?: channel.videoUrl ?: post.videoUrl
         )
+    }
+}
+
+@Composable
+private fun FeedChannelIcon(iconResId: Int?, fallbackEmoji: String, size: Dp, fallbackFontSize: TextUnit) {
+    if (iconResId != null) {
+        Image(
+            painter = painterResource(iconResId),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(size)
+        )
+    } else {
+        Text(fallbackEmoji, fontSize = fallbackFontSize)
     }
 }
 
@@ -740,27 +1593,32 @@ private fun buildFeedTvGuideChannels(): List<FeedTvGuideChannel> {
 private data class NpMapEvent(
     val city: String, val flag: String,
     val headline: String, val detail: String,
-    val userCount: Int, val timeAgo: String
+    val userCount: Int, val timeAgo: String,
+    val lat: Double = 0.0, val lon: Double = 0.0
 )
 
 private data class NpTrending(
     val city: String, val flag: String,
     val headline: String, val detail: String,
-    val growthPercent: Int, val activeUsers: Int, val timeAgo: String
+    val growthPercent: Int, val activeUsers: Int, val timeAgo: String,
+    val lat: Double = 0.0, val lon: Double = 0.0
 )
 
 private data class NpDominance(
     val username: String,
     val city: String, val flag: String,
     val headline: String, val detail: String,
-    val radiusText: String, val score: Int, val timeAgo: String
+    val radiusText: String, val score: Int, val timeAgo: String,
+    val lat: Double = 0.0, val lon: Double = 0.0
 )
 
 private data class NpUserPost(
     val username: String,
     val city: String, val flag: String,
     val headline: String, val detail: String,
-    val likes: Int, val comments: Int, val timeAgo: String
+    val likes: Int, val comments: Int, val timeAgo: String,
+    val lat: Double = 0.0, val lon: Double = 0.0,
+    val mediaUrl: String? = null
 )
 
 private sealed class NpArticle {
@@ -772,10 +1630,11 @@ private sealed class NpArticle {
 
 @Composable
 private fun PoplurNewspaper(
+    posts: List<Post> = DemoPostStore.posts,
     modifier: Modifier = Modifier,
     onDoubleTap: () -> Unit
 ) {
-    val articles = remember { NewspaperContentGen.generate(24) }
+    val articles = remember(posts) { NewspaperContentGen.generate(24, posts) }
     val today = remember {
         java.text.SimpleDateFormat("MMMM d, yyyy", java.util.Locale.US).format(java.util.Date())
     }
@@ -805,10 +1664,10 @@ private fun NewspaperMasthead(date: String) {
             .padding(top = 20.dp, bottom = 2.dp)
     ) {
         Row(verticalAlignment = Alignment.Bottom) {
-            Text("POPLUR", color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.Black)
-            Text(" DAILY", color = Color(0xFFFFD91A), fontSize = 38.sp, fontWeight = FontWeight.ExtraLight)
+            ShaderNumberText("POPLUR", color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.Black)
+            ShaderNumberText(" DAILY", color = Color(0xFFFFD91A), fontSize = 38.sp, fontWeight = FontWeight.ExtraLight)
             Spacer(Modifier.weight(1f))
-            Text(date, color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp)
+            ShaderNumberText(date, color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp, fontWeight = FontWeight.Normal)
         }
         Spacer(Modifier.height(8.dp))
         HorizontalDivider(color = Color.White.copy(alpha = 0.85f), thickness = 2.dp)
@@ -816,6 +1675,208 @@ private fun NewspaperMasthead(date: String) {
         HorizontalDivider(color = Color.White.copy(alpha = 0.18f), thickness = 1.dp)
         Spacer(Modifier.height(6.dp))
     }
+}
+
+private enum class NpVisualKind { MapEvent, Trending, Dominance, UserPost }
+
+private data class NpVisualPoint(val x: Float, val y: Float, val radius: Float, val alpha: Float)
+
+@Composable
+private fun NewspaperArticleVisual(
+    kind: NpVisualKind,
+    city: String,
+    flag: String,
+    headline: String,
+    accent: Color,
+    lat: Double,
+    lon: Double,
+    username: String?,
+    mediaUrl: String?,
+    modifier: Modifier = Modifier
+) {
+    val seed = remember(kind, headline, city, username) {
+        stableNewsVisualSeed("${kind.name}-$headline-$city-${username.orEmpty()}")
+    }
+    val points = remember(seed) {
+        val random = Random(seed)
+        List(18) {
+            NpVisualPoint(
+                x = random.nextFloat(),
+                y = random.nextFloat(),
+                radius = 0.025f + random.nextFloat() * 0.11f,
+                alpha = 0.10f + random.nextFloat() * 0.22f
+            )
+        }
+    }
+    val mapZoom = if (kind == NpVisualKind.Dominance) 11 else 12
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF111118))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
+    ) {
+        if (kind == NpVisualKind.UserPost && mediaUrl != null) {
+            AsyncImage(
+                model = mediaUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize()
+            )
+        } else {
+            AsyncImage(
+                model = osmTileUrl(lat, lon, mapZoom),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize()
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.06f), Color.Black.copy(alpha = 0.78f))
+                    )
+                )
+        )
+
+        ComposeCanvas(Modifier.matchParentSize()) {
+            val w = size.width
+            val h = size.height
+            val base = minOf(w, h)
+
+            repeat(5) { i ->
+                val phase = ((seed shr (i * 5)) and 63) / 63f
+                drawLine(
+                    color = Color.White.copy(alpha = 0.07f),
+                    start = Offset(w * (0.08f + phase * 0.82f), -18f),
+                    end = Offset(w * (0.08f + phase * 0.82f) + (i - 2) * 36f, h + 28f),
+                    strokeWidth = 1.3.dp.toPx()
+                )
+            }
+
+            when (kind) {
+                NpVisualKind.Dominance -> {
+                    val center = Offset(w * 0.58f, h * 0.46f)
+                    repeat(4) { i ->
+                        drawCircle(
+                            color = accent.copy(alpha = 0.78f - i * 0.12f),
+                            radius = base * (0.18f + i * 0.16f),
+                            center = center,
+                            style = Stroke(width = if (i == 0) 4.dp.toPx() else 2.dp.toPx())
+                        )
+                    }
+                    repeat(9) { i ->
+                        val angle = (i / 9f) * Math.PI.toFloat() * 2f + (seed % 29) / 29f
+                        val radius = base * (0.24f + ((seed shr i) and 7) / 60f)
+                        val point = Offset(
+                            x = center.x + cos(angle) * radius,
+                            y = center.y + sin(angle) * radius
+                        )
+                        drawLine(accent.copy(alpha = 0.34f), center, point, strokeWidth = 1.dp.toPx())
+                        drawCircle(Color.White.copy(alpha = 0.75f), radius = 3.dp.toPx(), center = point)
+                    }
+                }
+                NpVisualKind.Trending -> {
+                    val cols = 7
+                    val rows = 4
+                    val cellW = w / cols
+                    val cellH = h / rows
+                    repeat(rows) { row ->
+                        repeat(cols) { col ->
+                            val mix = ((row * cols + col) * 37 + seed % 97) / 100f
+                            drawRoundRect(
+                                color = accent.copy(alpha = 0.05f + (mix % 1f) * 0.18f),
+                                topLeft = Offset(col * cellW + 4.dp.toPx(), row * cellH + 4.dp.toPx()),
+                                size = Size(cellW - 8.dp.toPx(), cellH - 8.dp.toPx()),
+                                cornerRadius = CornerRadius(8.dp.toPx(), 8.dp.toPx())
+                            )
+                        }
+                    }
+                    var previous: Offset? = null
+                    repeat(8) { i ->
+                        val point = Offset(
+                            x = (i / 7f) * w,
+                            y = h * (0.78f - i * 0.07f + (((seed shr i) and 3) * 0.018f))
+                        )
+                        previous?.let { drawLine(accent.copy(alpha = 0.92f), it, point, strokeWidth = 4.dp.toPx()) }
+                        previous = point
+                    }
+                }
+                NpVisualKind.MapEvent -> {
+                    points.forEach {
+                        val center = Offset(it.x * w, it.y * h)
+                        val radius = it.radius * base
+                        drawCircle(accent.copy(alpha = it.alpha), radius = radius, center = center)
+                        drawCircle(
+                            Color.White.copy(alpha = 0.13f),
+                            radius = radius,
+                            center = center,
+                            style = Stroke(width = 1.dp.toPx())
+                        )
+                    }
+                }
+                NpVisualKind.UserPost -> {
+                    val center = Offset(w * 0.5f, h * 0.5f)
+                    points.forEachIndexed { index, _ ->
+                        val angle = (index / points.size.toFloat()) * Math.PI.toFloat() * 2f + (seed % 31) / 31f
+                        val radius = base * (0.13f + (index % 5) * 0.042f)
+                        val point = Offset(center.x + cos(angle) * radius, center.y + sin(angle) * radius)
+                        drawLine(accent.copy(alpha = 0.18f), center, point, strokeWidth = 1.dp.toPx())
+                        drawCircle(Color.White.copy(alpha = 0.7f), radius = 2.2.dp.toPx(), center = point)
+                    }
+                    drawRoundRect(
+                        color = accent.copy(alpha = 0.68f),
+                        topLeft = Offset(center.x - base * 0.24f, center.y - base * 0.24f),
+                        size = Size(base * 0.48f, base * 0.48f),
+                        cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx()),
+                        style = Stroke(width = 2.5.dp.toPx())
+                    )
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(13.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    when (kind) {
+                        NpVisualKind.Dominance -> "LIVE MAP CAPTURE"
+                        NpVisualKind.UserPost -> "AI STORY IMAGE"
+                        else -> "AI GENERATED"
+                    },
+                    color = if (kind == NpVisualKind.Dominance) Color.White else Color.Black,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier
+                        .background(accent, RoundedCornerShape(50))
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                )
+                Spacer(Modifier.width(7.dp))
+                Text("$flag $city", color = Color.White.copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (kind == NpVisualKind.Dominance && username != null) "@$username territory lock" else headline,
+                color = Color.White,
+                fontSize = if (kind == NpVisualKind.Dominance) 16.sp else 14.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+private fun stableNewsVisualSeed(text: String): Int {
+    var result = 5381
+    text.forEach { char -> result = result * 33 + char.code }
+    return result and Int.MAX_VALUE
 }
 
 @Composable
@@ -830,6 +1891,12 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
     val detail: String
     val stat1: String
     val stat2: String
+    val visualKind: NpVisualKind
+    val visualAccent: Color
+    val visualLat: Double
+    val visualLon: Double
+    val visualUsername: String?
+    val visualMediaUrl: String?
     var extraRow: (@Composable () -> Unit)? = null
 
     when (article) {
@@ -839,6 +1906,12 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
             headline = article.d.headline; detail = article.d.detail
             stat1 = "👥 ${npCount(article.d.userCount)} users nearby"
             stat2 = "📍 Live tracking"
+            visualKind = NpVisualKind.MapEvent
+            visualAccent = chipBg
+            visualLat = article.d.lat
+            visualLon = article.d.lon
+            visualUsername = null
+            visualMediaUrl = null
         }
         is NpArticle.Trending -> {
             chipBg = Color(0xFF2EE880); chipFg = Color.Black; chipLabel = "TRENDING"
@@ -846,6 +1919,12 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
             headline = article.d.headline; detail = article.d.detail
             stat1 = "📈 +${article.d.growthPercent}% engagement"
             stat2 = "🟢 ${npCount(article.d.activeUsers)} active"
+            visualKind = NpVisualKind.Trending
+            visualAccent = chipBg
+            visualLat = article.d.lat
+            visualLon = article.d.lon
+            visualUsername = null
+            visualMediaUrl = null
         }
         is NpArticle.Dominance -> {
             chipBg = Color(0xFFD91818); chipFg = Color.White; chipLabel = "DOMINANCE"
@@ -853,6 +1932,12 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
             headline = article.d.headline; detail = article.d.detail
             stat1 = "🎯 ${article.d.radiusText} radius"
             stat2 = "⭐ ${npCount(article.d.score)} score"
+            visualKind = NpVisualKind.Dominance
+            visualAccent = chipBg
+            visualLat = article.d.lat
+            visualLon = article.d.lon
+            visualUsername = article.d.username
+            visualMediaUrl = null
             extraRow = {
                 Row(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
@@ -860,7 +1945,7 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
                 ) {
                     Text("👑", fontSize = 24.sp)
                     Spacer(Modifier.width(6.dp))
-                    Text(
+                    ShaderNumberText(
                         "@${article.d.username}",
                         color = Color(0xFFFFD91A),
                         fontSize = 20.sp,
@@ -876,8 +1961,14 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
             headline = article.d.headline; detail = article.d.detail
             stat1 = "❤️ ${npCount(article.d.likes)} likes"
             stat2 = "💬 ${article.d.comments} comments"
+            visualKind = NpVisualKind.UserPost
+            visualAccent = chipBg
+            visualLat = article.d.lat
+            visualLon = article.d.lon
+            visualUsername = article.d.username
+            visualMediaUrl = article.d.mediaUrl
             extraRow = {
-                Text(
+                ShaderNumberText(
                     "@${article.d.username}",
                     color = Color.White.copy(alpha = 0.65f),
                     fontSize = 17.sp,
@@ -910,16 +2001,16 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
                     .padding(horizontal = 10.dp, vertical = 4.dp)
             )
             Spacer(Modifier.width(8.dp))
-            Text("$flag $city", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, maxLines = 1)
+            ShaderNumberText("$flag $city", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Normal, maxLines = 1)
             Spacer(Modifier.weight(1f))
-            Text(timeAgo, color = Color.White.copy(alpha = 0.32f), fontSize = 11.sp)
+            ShaderNumberText(timeAgo, color = Color.White.copy(alpha = 0.32f), fontSize = 11.sp, fontWeight = FontWeight.Normal)
         }
 
         // Optional extra row (crown+username, or @username)
         extraRow?.invoke()
 
         // Headline
-        Text(
+        ShaderNumberText(
             headline,
             color = Color.White,
             fontSize = 26.sp,
@@ -935,11 +2026,28 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
             modifier = Modifier.padding(horizontal = 20.dp)
         )
 
+        NewspaperArticleVisual(
+            kind = visualKind,
+            city = city,
+            flag = flag,
+            headline = headline,
+            accent = visualAccent,
+            lat = visualLat,
+            lon = visualLon,
+            username = visualUsername,
+            mediaUrl = visualMediaUrl,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(176.dp)
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        )
+
         // Detail body
-        Text(
+        ShaderNumberText(
             detail,
             color = Color.White.copy(alpha = 0.65f),
             fontSize = 15.sp,
+            fontWeight = FontWeight.Normal,
             lineHeight = 21.sp,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
         )
@@ -949,8 +2057,8 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
             modifier = Modifier.padding(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(stat1, color = Color.White.copy(alpha = 0.38f), fontSize = 12.sp, maxLines = 1)
-            Text(stat2, color = Color.White.copy(alpha = 0.38f), fontSize = 12.sp, maxLines = 1)
+            ShaderNumberText(stat1, color = Color.White.copy(alpha = 0.38f), fontSize = 12.sp, fontWeight = FontWeight.Normal, maxLines = 1)
+            ShaderNumberText(stat2, color = Color.White.copy(alpha = 0.38f), fontSize = 12.sp, fontWeight = FontWeight.Normal, maxLines = 1)
         }
     }
 }
@@ -963,14 +2071,29 @@ private fun npCount(n: Int): String = when {
 
 private object NewspaperContentGen {
 
+    private data class CityEntry(val name: String, val flag: String, val lat: Double, val lon: Double)
+
     private val cities = listOf(
-        "Tokyo" to "🇯🇵", "London" to "🇬🇧", "New York" to "🇺🇸",
-        "Paris" to "🇫🇷", "Sydney" to "🇦🇺", "Toronto" to "🇨🇦",
-        "Dubai" to "🇦🇪", "Singapore" to "🇸🇬", "Berlin" to "🇩🇪",
-        "Barcelona" to "🇪🇸", "Seoul" to "🇰🇷", "São Paulo" to "🇧🇷",
-        "Mumbai" to "🇮🇳", "Bangkok" to "🇹🇭", "Istanbul" to "🇹🇷",
-        "Lagos" to "🇳🇬", "Cairo" to "🇪🇬", "Mexico City" to "🇲🇽",
-        "Jakarta" to "🇮🇩", "Chicago" to "🇺🇸"
+        CityEntry("Tokyo",       "🇯🇵",  35.6762,  139.6503),
+        CityEntry("London",      "🇬🇧",  51.5074,   -0.1278),
+        CityEntry("New York",    "🇺🇸",  40.7128,  -74.0060),
+        CityEntry("Paris",       "🇫🇷",  48.8566,    2.3522),
+        CityEntry("Sydney",      "🇦🇺", -33.8688,  151.2093),
+        CityEntry("Toronto",     "🇨🇦",  43.6532,  -79.3832),
+        CityEntry("Dubai",       "🇦🇪",  25.2048,   55.2708),
+        CityEntry("Singapore",   "🇸🇬",   1.3521,  103.8198),
+        CityEntry("Berlin",      "🇩🇪",  52.5200,   13.4050),
+        CityEntry("Barcelona",   "🇪🇸",  41.3851,    2.1734),
+        CityEntry("Seoul",       "🇰🇷",  37.5665,  126.9780),
+        CityEntry("São Paulo",   "🇧🇷", -23.5505,  -46.6333),
+        CityEntry("Mumbai",      "🇮🇳",  19.0760,   72.8777),
+        CityEntry("Bangkok",     "🇹🇭",  13.7563,  100.5018),
+        CityEntry("Istanbul",    "🇹🇷",  41.0082,   28.9784),
+        CityEntry("Lagos",       "🇳🇬",   6.5244,    3.3792),
+        CityEntry("Cairo",       "🇪🇬",  30.0444,   31.2357),
+        CityEntry("Mexico City", "🇲🇽",  19.4326,  -99.1332),
+        CityEntry("Jakarta",     "🇮🇩",  -6.2088,  106.8456),
+        CityEntry("Chicago",     "🇺🇸",  41.8781,  -87.6298)
     )
 
     private val mapHeadlines = listOf(
@@ -1046,30 +2169,57 @@ private object NewspaperContentGen {
     private val fakeComms   = listOf(12, 34, 88, 210, 7, 400, 55)
     private val fakeHandles = listOf("MavericK", "SkylineJ", "UrbanLens", "NovaBeat")
 
-    fun generate(count: Int): List<NpArticle> = (0 until count).map { gi ->
-        val (cityName, cityFlag) = cities[(gi * 7 + gi * 3) % cities.size]
+    fun generate(count: Int, posts: List<Post> = emptyList()): List<NpArticle> = (0 until count).map { gi ->
+        val city = cities[(gi * 7 + gi * 3) % cities.size]
         val timeAgo = times[gi % times.size] + " ago"
+        val jitter = { (-0.08..0.08).random() }
         when (gi % 20) {
             in 0..5 -> {
                 val (h, d) = mapHeadlines[gi % mapHeadlines.size]
-                NpArticle.MapEvent(NpMapEvent(cityName, cityFlag, h, d, userCounts[gi % userCounts.size], timeAgo))
+                NpArticle.MapEvent(NpMapEvent(city.name, city.flag, h, d, userCounts[gi % userCounts.size], timeAgo,
+                    city.lat + jitter(), city.lon + jitter()))
             }
             in 6..10 -> {
                 val t = trendHeadlines[gi % trendHeadlines.size]
-                NpArticle.Trending(NpTrending(cityName, cityFlag, t.headline, t.detail, t.growth, t.active, timeAgo))
+                NpArticle.Trending(NpTrending(city.name, city.flag, t.headline, t.detail, t.growth, t.active, timeAgo,
+                    city.lat + jitter(), city.lon + jitter()))
             }
             in 11..15 -> {
                 val (h, d) = domHeadlines[gi % domHeadlines.size]
-                NpArticle.Dominance(NpDominance(domNames[gi % domNames.size], cityName, cityFlag, h, d,
-                    radii[gi % radii.size], scores[gi % scores.size], timeAgo))
+                NpArticle.Dominance(NpDominance(domNames[gi % domNames.size], city.name, city.flag, h, d,
+                    radii[gi % radii.size], scores[gi % scores.size], timeAgo,
+                    city.lat + jitter(), city.lon + jitter()))
             }
             else -> {
                 val (h, d) = postHeadlines[gi % postHeadlines.size]
-                NpArticle.UserPost(NpUserPost(fakeHandles[gi % fakeHandles.size], cityName, cityFlag, h, d,
-                    fakeLikes[gi % fakeLikes.size], fakeComms[gi % fakeComms.size], timeAgo))
+                val post = posts.getOrNull(gi % max(1, posts.size))
+                NpArticle.UserPost(NpUserPost(
+                    username = post?.displayName?.ifBlank { post.username } ?: fakeHandles[gi % fakeHandles.size],
+                    city = post?.locationName?.substringBefore(",")?.ifBlank { city.name } ?: city.name,
+                    flag = city.flag,
+                    headline = h,
+                    detail = d,
+                    likes = post?.likes ?: fakeLikes[gi % fakeLikes.size],
+                    comments = post?.comments ?: fakeComms[gi % fakeComms.size],
+                    timeAgo = timeAgo,
+                    lat = post?.latitude ?: (city.lat + jitter()),
+                    lon = post?.longitude ?: (city.lon + jitter()),
+                    mediaUrl = post?.mediaUrl
+                ))
             }
         }
     }
+}
+
+private fun ClosedFloatingPointRange<Double>.random(): Double =
+    start + Math.random() * (endInclusive - start)
+
+private fun osmTileUrl(lat: Double, lon: Double, zoom: Int = 12): String {
+    val n = 1 shl zoom
+    val x = ((lon + 180.0) / 360.0 * n).toInt().coerceIn(0, n - 1)
+    val latRad = Math.toRadians(lat)
+    val y = ((1.0 - Math.log(Math.tan(latRad) + 1.0 / Math.cos(latRad)) / Math.PI) / 2.0 * n).toInt().coerceIn(0, n - 1)
+    return "https://tile.openstreetmap.org/$zoom/$x/$y.png"
 }
 
 @Composable
@@ -1080,10 +2230,12 @@ private fun FeedTvGuideOverlay(
     activeFeedPlayer: ExoPlayer?,
     onChannelSelected: (FeedTvGuideChannel) -> Unit
 ) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("poplur_settings", Context.MODE_PRIVATE) }
+    var useFlipAnimation by remember { mutableStateOf(prefs.getBoolean("tv_guide_flip_animation", true)) }
+
     val guideGreen = Color(0xFF4EFF40)
     var isTabletMenuOpen by remember { mutableStateOf(true) }
-    // Tracks which channel the PiP is previewing — starts on the current feed channel.
-    // Single-tap a row updates this; double-tap navigates to the feed.
     var previewedChannelId by remember(currentChannelId) { mutableStateOf(currentChannelId) }
     val previewedChannel = channels.firstOrNull { it.id == previewedChannelId } ?: channels.firstOrNull()
 
@@ -1096,14 +2248,8 @@ private fun FeedTvGuideOverlay(
             .navigationBarsPadding()
     ) {
         val isTablet = maxWidth >= 700.dp
-        val pipWidth = if (isTablet) 200.dp else 148.dp
-        val pipHeight = pipWidth * (16f / 9f)
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.08f))
-        ) {
+        Column(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.08f))) {
             FeedTvGuideHeader(
                 isTablet = isTablet,
                 isRailOpen = isTabletMenuOpen,
@@ -1122,62 +2268,105 @@ private fun FeedTvGuideOverlay(
                             modifier = Modifier.width(220.dp)
                         )
                     }
-                    // List with floating PiP overlay
-                    Box(modifier = Modifier.weight(1f)) {
-                        FeedTvGuideList(
-                            channels = channels,
-                            previewedChannelId = previewedChannelId,
-                            guideGreen = guideGreen,
-                            onChannelPreviewed = { previewedChannelId = it.id },
-                            onChannelSelected = onChannelSelected,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                        previewedChannel?.let { ch ->
-                            GuidePipVideoPane(
-                                channel = ch,
-                                currentPostName = if (ch.id == currentChannelId) currentPostName else "",
-                                activeFeedPlayer = activeFeedPlayer,
-                                guideGreen = guideGreen,
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(top = 8.dp, end = 12.dp)
-                                    .shadow(elevation = 10.dp, shape = RoundedCornerShape(10.dp))
-                                    .width(pipWidth)
-                                    .height(pipHeight)
-                                    .clip(RoundedCornerShape(10.dp))
-                            )
-                        }
-                    }
-                }
-            } else {
-                // Phone: list with floating PiP corner overlay
-                Box(modifier = Modifier.fillMaxSize()) {
-                    FeedTvGuideList(
+                    FeedTvGuideContent(
                         channels = channels,
                         previewedChannelId = previewedChannelId,
+                        currentChannelId = currentChannelId,
+                        currentPostName = currentPostName,
+                        activeFeedPlayer = activeFeedPlayer,
                         guideGreen = guideGreen,
+                        useFlipAnimation = useFlipAnimation,
                         onChannelPreviewed = { previewedChannelId = it.id },
                         onChannelSelected = onChannelSelected,
-                        modifier = Modifier.fillMaxSize()
+                        previewedChannel = previewedChannel,
+                        modifier = Modifier.weight(1f)
                     )
-                    previewedChannel?.let { ch ->
-                        GuidePipVideoPane(
-                            channel = ch,
-                            currentPostName = if (ch.id == currentChannelId) currentPostName else "",
-                            activeFeedPlayer = activeFeedPlayer,
-                            guideGreen = guideGreen,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = 8.dp, end = 12.dp)
-                                .shadow(elevation = 10.dp, shape = RoundedCornerShape(10.dp))
-                                .width(pipWidth)
-                                .height(pipHeight)
-                                .clip(RoundedCornerShape(10.dp))
-                        )
-                    }
                 }
+            } else {
+                FeedTvGuideContent(
+                    channels = channels,
+                    previewedChannelId = previewedChannelId,
+                    currentChannelId = currentChannelId,
+                    currentPostName = currentPostName,
+                    activeFeedPlayer = activeFeedPlayer,
+                    guideGreen = guideGreen,
+                    useFlipAnimation = useFlipAnimation,
+                    onChannelPreviewed = { previewedChannelId = it.id },
+                    onChannelSelected = onChannelSelected,
+                    previewedChannel = previewedChannel,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun FeedTvGuideContent(
+    channels: List<FeedTvGuideChannel>,
+    previewedChannelId: String,
+    currentChannelId: String,
+    currentPostName: String,
+    activeFeedPlayer: ExoPlayer?,
+    guideGreen: Color,
+    useFlipAnimation: Boolean,
+    onChannelPreviewed: (FeedTvGuideChannel) -> Unit,
+    onChannelSelected: (FeedTvGuideChannel) -> Unit,
+    previewedChannel: FeedTvGuideChannel?,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.background(Color.Black.copy(alpha = 0.36f))) {
+        // PiP in its own band — never overlaps the channel rows
+        previewedChannel?.let { ch ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.62f))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                GuidePipVideoPane(
+                    channel = ch,
+                    currentPostName = if (ch.id == currentChannelId) currentPostName else "",
+                    activeFeedPlayer = activeFeedPlayer,
+                    guideGreen = guideGreen,
+                    modifier = Modifier
+                        .width(62.dp)
+                        .height(110.dp)
+                        .shadow(elevation = 8.dp, shape = RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(8.dp))
+                )
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FeedChannelIcon(ch.iconResId, ch.emoji, 22.dp, 14.sp)
+                        Text("CH ${ch.number}", color = guideGreen, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                    }
+                    Text(ch.category.uppercase(), color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp)
+                    Text(ch.program, color = Color.White.copy(alpha = 0.42f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(
+                    text = "LIVE",
+                    color = Color.Black,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(guideGreen)
+                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                )
+            }
+            Divider(color = guideGreen.copy(alpha = 0.22f), thickness = 1.dp)
+        }
+        FeedTvGuideList(
+            channels = channels,
+            previewedChannelId = previewedChannelId,
+            guideGreen = guideGreen,
+            useFlipAnimation = useFlipAnimation,
+            onChannelPreviewed = onChannelPreviewed,
+            onChannelSelected = onChannelSelected,
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 
@@ -1237,7 +2426,7 @@ private fun FeedTvGuideRail(
                     .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(channel.emoji, fontSize = 22.sp)
+                FeedChannelIcon(channel.iconResId, channel.emoji, 34.dp, 22.sp)
                 Spacer(Modifier.width(10.dp))
                 Text(channel.number.toString(), color = guideGreen, fontSize = 18.sp, fontWeight = FontWeight.Black)
                 Spacer(Modifier.width(10.dp))
@@ -1259,21 +2448,20 @@ private fun FeedTvGuideList(
     channels: List<FeedTvGuideChannel>,
     previewedChannelId: String,
     guideGreen: Color,
+    useFlipAnimation: Boolean,
     onChannelPreviewed: (FeedTvGuideChannel) -> Unit,
     onChannelSelected: (FeedTvGuideChannel) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier.background(Color.Black.copy(alpha = 0.36f))
-    ) {
+    Column(modifier = modifier) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color.White.copy(alpha = 0.07f))
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            Text("CH", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(96.dp))
-            Text("CATEGORY", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(134.dp))
+            Text("CH", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(80.dp))
+            Text("CATEGORY", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(90.dp))
             Text("ON NOW", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
         }
         LazyColumn(
@@ -1285,6 +2473,7 @@ private fun FeedTvGuideList(
                     channel = channel,
                     isPreviewed = channel.id == previewedChannelId,
                     guideGreen = guideGreen,
+                    useFlipAnimation = useFlipAnimation,
                     onChannelPreviewed = { onChannelPreviewed(channel) },
                     onChannelSelected = { onChannelSelected(channel) }
                 )
@@ -1298,9 +2487,23 @@ private fun FeedTvGuideRow(
     channel: FeedTvGuideChannel,
     isPreviewed: Boolean,
     guideGreen: Color,
+    useFlipAnimation: Boolean,
     onChannelPreviewed: () -> Unit,
     onChannelSelected: () -> Unit
 ) {
+    val names = if (channel.displayNames.isNotEmpty()) channel.displayNames else listOf(channel.profile.displayName)
+    var nameIndex by remember(channel.id) { mutableStateOf(0) }
+
+    // Stagger cycle start by channel number to avoid all rows flipping at once
+    LaunchedEffect(channel.id) {
+        if (names.size <= 1) return@LaunchedEffect
+        kotlinx.coroutines.delay((channel.number % 5) * 500L)
+        while (true) {
+            kotlinx.coroutines.delay(2500)
+            nameIndex = (nameIndex + 1) % names.size
+        }
+    }
+
     val rowColor = when {
         isPreviewed -> Color(0xFF172917)
         channel.number % 2 == 0 -> Color(0xFF121316)
@@ -1320,15 +2523,10 @@ private fun FeedTvGuideRow(
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(modifier = Modifier.width(96.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(channel.emoji, fontSize = 26.sp)
+        Row(modifier = Modifier.width(80.dp), verticalAlignment = Alignment.CenterVertically) {
+            FeedChannelIcon(channel.iconResId, channel.emoji, 42.dp, 26.sp)
             Spacer(Modifier.width(10.dp))
-            Text(
-                text = channel.number.toString(),
-                color = guideGreen,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Black
-            )
+            Text(text = channel.number.toString(), color = guideGreen, fontSize = 28.sp, fontWeight = FontWeight.Black)
         }
         Text(
             text = channel.category.uppercase(),
@@ -1337,17 +2535,35 @@ private fun FeedTvGuideRow(
             fontWeight = FontWeight.Black,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(134.dp)
+            modifier = Modifier.width(90.dp)
         )
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = channel.profile.displayName,
-                color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            val enterTransition = if (useFlipAnimation)
+                slideInVertically { it } + fadeIn()
+            else
+                slideInHorizontally { it } + fadeIn()
+            val exitTransition = if (useFlipAnimation)
+                slideOutVertically { -it } + fadeOut()
+            else
+                slideOutHorizontally { -it } + fadeOut()
+
+            AnimatedContent(
+                targetState = names[nameIndex],
+                transitionSpec = {
+                    (enterTransition).togetherWith(exitTransition)
+                        .using(SizeTransform(clip = false))
+                },
+                label = "username-${channel.id}"
+            ) { name ->
+                Text(
+                    text = name,
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Text(
                 text = channel.program,
                 color = Color.White.copy(alpha = 0.58f),
@@ -1443,7 +2659,7 @@ private fun GuidePipVideoPane(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(channel.emoji, fontSize = 13.sp)
+                    FeedChannelIcon(channel.iconResId, channel.emoji, 22.dp, 13.sp)
                     Text(
                         "CH ${channel.number}",
                         color = guideGreen,
@@ -1478,6 +2694,8 @@ private const val AD_FREQUENCY = 6
 private const val FEED_NATIVE_AD_UNIT_ID = "ca-app-pub-3940256099942544/2247696110"
 private const val ENABLE_FEED_VIDEO_AUTOPLAY = true
 private const val FEED_VIDEO_FIRST_FRAME_TIMEOUT_MS = 6_500L
+private const val FEED_IMAGE_CREDITS_DELAY_MS = 6_300L
+private const val FEED_IMAGE_MAX_VISIBLE_MS = 10_000L
 
 private data class PoplurAdCreative(
     val id: String,
@@ -1571,17 +2789,27 @@ private fun PoplurAdCreative.toPost(slotId: String): Post = Post(
 )
 
 
-private data class FeedChannel(val number: Int, val emoji: String, val category: String)
+private data class FeedChannel(
+    val number: Int,
+    val emoji: String,
+    val category: String,
+    val iconResId: Int? = null,
+    val sourceLanguageCode: String = "en",
+    val videoUrl: String? = null
+)
 
 private val FEED_CHANNELS = listOf(
-    FeedChannel(101, "🍔", "Food"),
-    FeedChannel(102, "🎮", "Gaming"),
-    FeedChannel(103, "🎵", "Music"),
-    FeedChannel(104, "🏙️", "City"),
-    FeedChannel(105, "💄", "Style"),
-    FeedChannel(106, "⚽", "Sports"),
-    FeedChannel(107, "🎬", "Film"),
-    FeedChannel(108, "🛍️", "Shopping")
+    FeedChannel(101, "🍔", "Food", R.drawable.poplur_channel_101_food),
+    FeedChannel(102, "🔴", "Live", R.drawable.poplur_channel_101_food),
+    FeedChannel(103, "💄", "Beauty", R.drawable.poplur_channel_103_beauty),
+    FeedChannel(104, "⚽", "Sports", R.drawable.poplur_channel_104_sports),
+    FeedChannel(105, "📸", "Modelling", R.drawable.poplur_channel_105_modelling),
+    FeedChannel(106, "👗", "Fashion", R.drawable.poplur_channel_106_fashion),
+    FeedChannel(107, "🎵", "Music", R.drawable.poplur_channel_107_music),
+    FeedChannel(108, "💻", "Tech", R.drawable.poplur_channel_108_tech),
+    FeedChannel(109, "📰", "News", R.drawable.poplur_channel_109_news),
+    FeedChannel(110, "🇫🇷", "French", R.drawable.poplur_channel_110_french, sourceLanguageCode = "fr", videoUrl = languageChannelVideoUrl("French")),
+    FeedChannel(111, "🇪🇸", "Spanish", R.drawable.poplur_channel_111_spanish, sourceLanguageCode = "es", videoUrl = languageChannelVideoUrl("Spanish"))
 )
 
 private sealed interface FeedSlot {
@@ -1589,9 +2817,34 @@ private sealed interface FeedSlot {
         val post: Post,
         val channelNumber: Int,
         val channelEmoji: String,
-        val channelCategory: String
+        val channelCategory: String,
+        val channelIconResId: Int?
     ) : FeedSlot
     data class AdSlot(val id: String, val creative: PoplurAdCreative) : FeedSlot
+}
+
+private fun adjacentChannelFeedIndex(currentIndex: Int, direction: FeedChannelStepDirection): Int {
+    val currentSlot = resolveFeedSlot(currentIndex)
+    val currentChannelIndex = when (currentSlot) {
+        is FeedSlot.PostSlot -> FEED_CHANNELS.indexOfFirst { it.number == currentSlot.channelNumber }
+        is FeedSlot.AdSlot -> -1
+    }.takeIf { it >= 0 } ?: 0
+    val targetChannel = FEED_CHANNELS[
+        Math.floorMod(
+            currentChannelIndex + if (direction == FeedChannelStepDirection.Up) 1 else -1,
+            FEED_CHANNELS.size
+        )
+    ]
+    val step = if (direction == FeedChannelStepDirection.Up) 1 else -1
+    var candidate = currentIndex + step
+    repeat(AD_FREQUENCY * FEED_CHANNELS.size * 3) {
+        val slot = resolveFeedSlot(candidate)
+        if (slot is FeedSlot.PostSlot && slot.channelNumber == targetChannel.number) {
+            return candidate
+        }
+        candidate += step
+    }
+    return currentIndex + step
 }
 
 private fun resolveFeedSlot(index: Int): FeedSlot {
@@ -1610,32 +2863,131 @@ private fun resolveFeedSlot(index: Int): FeedSlot {
     val adsBefore = (normalized + 1) / AD_FREQUENCY
     val postIndex = normalized - adsBefore
     val ch = FEED_CHANNELS[Math.floorMod(postIndex, FEED_CHANNELS.size)]
+    val basePost = DemoPostStore.getPostForIndex(postIndex)
+    if (ch.category.equals("Live", ignoreCase = true)) {
+        val visibleLivePosts = DemoPostStore.visibleLivePostsForViewer(basePost, limit = 8)
+        val livePost = if (visibleLivePosts.isNotEmpty()) {
+            visibleLivePosts[Math.floorMod(postIndex / FEED_CHANNELS.size, visibleLivePosts.size)]
+        } else {
+            DemoPostStore.livePosts.firstOrNull() ?: basePost.copy(
+                id = "live_placeholder_$postIndex",
+                displayName = "Poplur Live",
+                caption = "No live broadcasts in this radius",
+                channelId = "live",
+                isLiveStream = true,
+                liveStartedAtMillis = System.currentTimeMillis(),
+                liveRadiusMeters = basePost.radius.coerceAtLeast(5_000)
+            )
+        }
+        return FeedSlot.PostSlot(
+            post = livePost.copy(
+                channelId = "live",
+                isLiveStream = true,
+                videoUrl = null,
+                mediaUrl = null
+            ),
+            channelNumber = ch.number,
+            channelEmoji = ch.emoji,
+            channelCategory = ch.category,
+            channelIconResId = ch.iconResId
+        )
+    }
+    val langVideoUrls = languageChannelVideoUrls(ch.category)
+    val effectiveSourceCode = if (langVideoUrls.isNotEmpty())
+        languageChannelSourceCode(ch.category, postIndex)
+    else
+        ch.sourceLanguageCode
+    val effectiveVideoUrl = if (langVideoUrls.isNotEmpty())
+        langVideoUrls[Math.floorMod(postIndex, langVideoUrls.size)]
+    else
+        ch.videoUrl
+    val post = basePost.copy(
+        id = if (effectiveVideoUrl == null) basePost.id else "${basePost.id}_${effectiveSourceCode}_channel",
+        displayName = languageChannelDisplayName(ch.category) ?: basePost.displayName,
+        caption = languageChannelProgram(ch.category) ?: basePost.caption,
+        sourceLanguageCode = effectiveSourceCode,
+        videoUrl = effectiveVideoUrl ?: basePost.videoUrl
+    )
     return FeedSlot.PostSlot(
-        post = DemoPostStore.getPostForIndex(postIndex),
+        post = post,
         channelNumber = ch.number,
         channelEmoji = ch.emoji,
-        channelCategory = ch.category
+        channelCategory = ch.category,
+        channelIconResId = ch.iconResId
     )
 }
+
+private fun languageChannelVideoUrl(category: String): String? =
+    when (category.lowercase()) {
+        "french"  -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
+        "spanish" -> "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+        else -> null
+    }
+
+// Per-post video pool for language channels: alternates between native-language and English URLs.
+// All use speaking videos so closed-caption recognition has audible speech to process.
+private fun languageChannelVideoUrls(category: String): List<String> =
+    when (category.lowercase()) {
+        "french" -> listOf(
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",       // with dialogue (EN — translate in FR channel)
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",   // narrated EN
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFuns.mp4",       // narrated EN
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4"   // narrated EN
+        )
+        "spanish" -> listOf(
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",    // narrated EN
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",       // with dialogue
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4", // narrated EN
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4" // narrated EN
+        )
+        else -> emptyList()
+    }
+
+// Even indices = native channel language; odd indices = English (needs auto-caption).
+private fun languageChannelSourceCode(category: String, postIndex: Int): String =
+    when (category.lowercase()) {
+        "french" -> if (postIndex % 2 == 0) "fr" else "en"
+        "spanish" -> if (postIndex % 2 == 0) "es" else "en"
+        else -> "en"
+    }
+
+private fun languageChannelDisplayName(category: String): String? =
+    when (category.lowercase()) {
+        "french" -> "Poplur Français"
+        "spanish" -> "Poplur Español"
+        else -> null
+    }
+
+private fun languageChannelProgram(category: String): String? =
+    when (category.lowercase()) {
+        "french" -> "French-language videos with AI captions"
+        "spanish" -> "Spanish-language videos with AI captions"
+        else -> null
+    }
 
 @Composable
 private fun FeedAdContent(
     slot: FeedSlot.AdSlot,
     isVisible: Boolean,
+    allowVideoPlayback: Boolean,
     useExternalVideoSurface: Boolean,
-    onActivePlayerChanged: (ExoPlayer?) -> Unit
+    onActivePlayerChanged: (ExoPlayer?) -> Unit,
+    onCreditsVisibilityChanged: (Boolean) -> Unit = {},
+    onAdvanceToNext: () -> Unit = {}
 ) {
     val adPost = remember(slot.id) { slot.creative.toPost(slot.id) }
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
     ) {
         MediaContent(
             post = adPost,
             isVisible = isVisible,
+            allowVideoPlayback = allowVideoPlayback,
             useExternalVideoSurface = useExternalVideoSurface,
-            onActivePlayerChanged = onActivePlayerChanged
+            onActivePlayerChanged = onActivePlayerChanged,
+            onCreditsVisibilityChanged = onCreditsVisibilityChanged,
+            onAdvanceToNext = onAdvanceToNext
         )
         PoplurAdOverlay(creative = slot.creative)
     }
@@ -1713,6 +3065,8 @@ private fun PoplurAdOverlay(creative: PoplurAdCreative) {
 
 private fun createFullScreenNativeAdView(context: Context): NativeAdView {
     val adView = NativeAdView(context)
+    val displayMetrics = context.resources.displayMetrics
+    val cardHeight = displayMetrics.heightPixels
     val media = MediaView(context).apply {
         tag = NativeAdAsset.Media
         setImageScaleType(ImageView.ScaleType.CENTER_CROP)
@@ -1726,16 +3080,29 @@ private fun createFullScreenNativeAdView(context: Context): NativeAdView {
 
     adView.setBackgroundColor(AndroidColor.TRANSPARENT)
 
+    val card = FrameLayout(context).apply {
+        background = roundedDrawable(AndroidColor.BLACK, context.dp(8).toFloat())
+        clipToOutline = true
+    }
+    adView.addView(
+        card,
+        FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            Gravity.CENTER
+        )
+    )
+
     media.setBackgroundColor(AndroidColor.TRANSPARENT)
     media.setImageScaleType(ImageView.ScaleType.CENTER_CROP)
     media.layoutParams = FrameLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
         ViewGroup.LayoutParams.MATCH_PARENT
     )
-    adView.addView(media)
+    card.addView(media)
     adView.mediaView = media
 
-    adView.addView(
+    card.addView(
         View(context).apply {
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
@@ -1744,7 +3111,7 @@ private fun createFullScreenNativeAdView(context: Context): NativeAdView {
         },
         FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
-            (context.resources.displayMetrics.heightPixels * 0.55f).toInt(),
+            (cardHeight * 0.55f).toInt(),
             Gravity.BOTTOM
         )
     )
@@ -1752,9 +3119,9 @@ private fun createFullScreenNativeAdView(context: Context): NativeAdView {
     val content = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.START
-        setPadding(context.dp(28), context.dp(20), context.dp(28), context.dp(148))
+        setPadding(context.dp(18), context.dp(18), context.dp(18), context.dp(20))
     }
-    adView.addView(
+    card.addView(
         content,
         FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1797,15 +3164,15 @@ private fun createFullScreenNativeAdView(context: Context): NativeAdView {
     adView.advertiserView = advertiserText
 
     headlineText.setTextColor(AndroidColor.WHITE)
-    headlineText.textSize = 44f
+    headlineText.textSize = 32f
     headlineText.typeface = Typeface.DEFAULT_BOLD
-    headlineText.maxLines = 3
+    headlineText.maxLines = 2
     headlineText.ellipsize = TextUtils.TruncateAt.END
-    content.addView(headlineText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(22) })
+    content.addView(headlineText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(16) })
     adView.headlineView = headlineText
 
     bodyText.setTextColor(AndroidColor.argb(230, 255, 255, 255))
-    bodyText.textSize = 18f
+    bodyText.textSize = 16f
     bodyText.maxLines = 3
     bodyText.ellipsize = TextUtils.TruncateAt.END
     content.addView(bodyText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(10) })
@@ -1813,10 +3180,10 @@ private fun createFullScreenNativeAdView(context: Context): NativeAdView {
 
     ctaText.gravity = Gravity.CENTER
     ctaText.setTextColor(AndroidColor.BLACK)
-    ctaText.textSize = 18f
+    ctaText.textSize = 16f
     ctaText.typeface = Typeface.DEFAULT_BOLD
-    ctaText.background = roundedDrawable(AndroidColor.WHITE, context.dp(26).toFloat())
-    content.addView(ctaText, LinearLayout.LayoutParams(context.dp(190), context.dp(54)).apply { topMargin = context.dp(24) })
+    ctaText.background = roundedDrawable(AndroidColor.WHITE, context.dp(24).toFloat())
+    content.addView(ctaText, LinearLayout.LayoutParams(context.dp(172), context.dp(48)).apply { topMargin = context.dp(18) })
     adView.callToActionView = ctaText
 
     return adView
@@ -1868,8 +3235,13 @@ private fun roundedDrawable(color: Int, radius: Float): GradientDrawable =
 fun MediaContent(
     post: Post,
     isVisible: Boolean = true,
+    isMuted: Boolean = false,
+    allowVideoPlayback: Boolean = true,
     useExternalVideoSurface: Boolean = false,
-    onActivePlayerChanged: (ExoPlayer?) -> Unit = {}
+    onActivePlayerChanged: (ExoPlayer?) -> Unit = {},
+    onFirstFrameRendered: () -> Unit = {},
+    onCreditsVisibilityChanged: (Boolean) -> Unit = {},
+    onAdvanceToNext: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val isInspectionMode = LocalInspectionMode.current
@@ -1880,6 +3252,17 @@ fun MediaContent(
     var posterFailed by remember(post.id) { mutableStateOf(false) }
     var imageUrl by remember(post.id) { mutableStateOf(post.mediaUrl ?: fallbackFeedImageUrl(post.id)) }
     var videoSize by remember(post.id) { mutableStateOf<VideoSize?>(null) }
+    val showingStillImage = isInspectionMode || !allowVideoPlayback || !ENABLE_FEED_VIDEO_AUTOPLAY || post.videoUrl == null || videoFailed
+
+    if (post.isLiveStream && post.videoUrl == null) {
+        LaunchedEffect(post.id, isVisible) {
+            onActivePlayerChanged(null)
+            onCreditsVisibilityChanged(false)
+            isLoading = false
+        }
+        LiveStreamContent(post = post)
+        return
+    }
 
     fun acceptOrReplaceImage(drawable: Drawable, failPostWhenRejected: Boolean) {
         if (drawable.hasLikelyBlackBars()) {
@@ -1897,6 +3280,19 @@ fun MediaContent(
         }
     }
 
+    LaunchedEffect(post.id, imageUrl, isVisible, showingStillImage) {
+        if (!isVisible || !showingStillImage) {
+            onCreditsVisibilityChanged(false)
+            return@LaunchedEffect
+        }
+        onCreditsVisibilityChanged(false)
+        delay(FEED_IMAGE_CREDITS_DELAY_MS)
+        onCreditsVisibilityChanged(true)
+        delay(FEED_IMAGE_MAX_VISIBLE_MS - FEED_IMAGE_CREDITS_DELAY_MS)
+        onCreditsVisibilityChanged(false)
+        onAdvanceToNext()
+    }
+
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         if (isInspectionMode) {
             // Show poster in inspection mode to avoid black screen
@@ -1908,7 +3304,7 @@ fun MediaContent(
             )
         } else {
             when {
-                ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null && !videoFailed -> {
+                allowVideoPlayback && ENABLE_FEED_VIDEO_AUTOPLAY && post.videoUrl != null && !videoFailed -> {
                     val exoPlayer = remember(post.id, post.videoUrl) {
                         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
                             .setUserAgent("Poplur2025 Android Player")
@@ -1930,19 +3326,28 @@ fun MediaContent(
                             .build().apply {
                                 val mediaItem = MediaItem.Builder()
                                     .setUri(post.videoUrl)
+                                    .setClippingConfiguration(
+                                        MediaItem.ClippingConfiguration.Builder()
+                                            .setStartPositionMs(1_500L)
+                                            .build()
+                                    )
                                     .build()
                                 setMediaItem(mediaItem)
-                                repeatMode = Player.REPEAT_MODE_ONE
+                                repeatMode = Player.REPEAT_MODE_OFF
                                 videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
-                                volume = 1f
+                                volume = if (isMuted) 0f else 1f
                                 addListener(object : Player.Listener {
                                     override fun onPlaybackStateChanged(state: Int) {
                                         isLoading = state == Player.STATE_BUFFERING || (state == Player.STATE_READY && !hasRenderedVideo)
+                                        if (state == Player.STATE_ENDED) {
+                                            onAdvanceToNext()
+                                        }
                                     }
 
                                     override fun onRenderedFirstFrame() {
                                         hasRenderedVideo = true
                                         isLoading = false
+                                        onFirstFrameRendered()
                                     }
 
                                     override fun onVideoSizeChanged(size: VideoSize) {
@@ -1964,9 +3369,6 @@ fun MediaContent(
                     LaunchedEffect(exoPlayer, isVisible, post.id) {
                         if (isVisible) {
                             onActivePlayerChanged(exoPlayer)
-                            if (exoPlayer.playbackState == Player.STATE_ENDED) {
-                                exoPlayer.seekTo(0)
-                            }
                             exoPlayer.playWhenReady = true
                             exoPlayer.play()
                         } else {
@@ -1974,6 +3376,10 @@ fun MediaContent(
                             exoPlayer.playWhenReady = false
                             exoPlayer.pause()
                         }
+                    }
+
+                    LaunchedEffect(exoPlayer, isMuted) {
+                        exoPlayer.volume = if (isMuted) 0f else 1f
                     }
 
                     DisposableEffect(exoPlayer) {
@@ -1992,6 +3398,26 @@ fun MediaContent(
                                 isLoading = false
                             }
                         }
+                    }
+
+                    LaunchedEffect(exoPlayer, isVisible, hasRenderedVideo, videoFailed, post.id) {
+                        if (!isVisible || !hasRenderedVideo || videoFailed) {
+                            onCreditsVisibilityChanged(false)
+                            return@LaunchedEffect
+                        }
+                        while (isVisible && hasRenderedVideo && !videoFailed) {
+                            val duration = exoPlayer.duration
+                            val position = exoPlayer.currentPosition
+                            if (duration > 0 && duration != C.TIME_UNSET) {
+                                val remainingMillis = duration - position
+                                val leadMillis = (duration / 4L).coerceIn(2_000L, 4_200L)
+                                onCreditsVisibilityChanged(remainingMillis in 120L..leadMillis)
+                            } else {
+                                onCreditsVisibilityChanged(false)
+                            }
+                            delay(250)
+                        }
+                        onCreditsVisibilityChanged(false)
                     }
 
                     if (!hasRenderedVideo && !posterFailed) {
@@ -2091,11 +3517,119 @@ fun MediaContent(
             }
         }
 
-        if (isLoading && !hasError) {
-            CircularProgressIndicator(color = Color.White.copy(alpha = 0.5f))
+    }
+}
+
+@Composable
+private fun LiveStreamContent(post: Post) {
+    val pulse = rememberInfiniteTransition(label = "live-pulse")
+    val scale by pulse.animateFloat(
+        initialValue = 0.86f,
+        targetValue = 1.18f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1250, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "live-pulse-scale"
+    )
+    val radiusText = remember(post.id, post.liveRadiusMeters, post.radius) {
+        formatLiveRadius(post.liveRadiusMeters ?: post.radius)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF010407),
+                        Color(0xFF170207),
+                        Color(0xFF021714)
+                    )
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        repeat(3) { index ->
+            Box(
+                modifier = Modifier
+                    .size((130 + index * 58).dp)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        alpha = 0.62f - index * 0.12f
+                    }
+                    .border(
+                        width = 2.dp,
+                        color = Color.Red.copy(alpha = 0.28f - index * 0.05f),
+                        shape = CircleShape
+                    )
+            )
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(horizontal = 26.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.Black.copy(alpha = 0.42f))
+                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(11.dp)
+                        .clip(CircleShape)
+                        .background(Color.Red)
+                )
+                Text(
+                    "LIVE",
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+
+            Text(
+                text = post.displayName.ifBlank { post.locationName.ifBlank { "Poplur Live" } },
+                color = Color.White,
+                fontSize = 38.sp,
+                fontWeight = FontWeight.Black,
+                lineHeight = 40.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = post.locationName.ifBlank { "Live channel" },
+                color = Color.White.copy(alpha = 0.82f),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "${post.likes.coerceAtLeast(1)} watching - $radiusText radius",
+                color = Color(0xFF4DFF58),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Black,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.Black.copy(alpha = 0.36f))
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
         }
     }
 }
+
+private fun formatLiveRadius(radiusMeters: Int): String =
+    when {
+        radiusMeters >= 1_000_000 -> String.format(Locale.US, "%.1fM m", radiusMeters / 1_000_000f)
+        radiusMeters >= 1_000 -> String.format(Locale.US, "%.0fk m", radiusMeters / 1_000f)
+        else -> "$radiusMeters m"
+    }
 
 private fun fallbackFeedImageUrl(seed: String): String {
     val names = arrayOf("10", "28", "37", "58", "82", "96", "102", "119", "128", "164", "175", "184")

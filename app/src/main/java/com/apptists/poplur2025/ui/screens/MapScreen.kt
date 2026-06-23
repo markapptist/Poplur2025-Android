@@ -20,8 +20,6 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
@@ -45,16 +43,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -64,8 +65,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
@@ -122,6 +125,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.ByteBuffer
+import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.util.Locale
@@ -129,6 +133,7 @@ import kotlin.math.abs
 import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -136,13 +141,19 @@ import kotlin.math.sqrt
 @Composable
 fun MapScreen(
     isVisible: Boolean = true,
-    mapViewModel: MapViewModel = viewModel()
+    mapViewModel: MapViewModel = viewModel(),
+    isSelectingPostLocation: Boolean = false,
+    onCaptureLocationConfirmed: (Point) -> Unit = {},
+    onMapFirstPostLocationSelected: (Point) -> Unit = {}
 ) {
     MapScreenContent(
         isVisible = isVisible,
         centerOnUserTrigger = mapViewModel.centerOnUserTrigger,
         postCoordinateTrigger = mapViewModel.postCoordinateTrigger,
-        openHoldMenuTrigger = mapViewModel.openHoldMenuTrigger
+        openHoldMenuTrigger = mapViewModel.openHoldMenuTrigger,
+        isSelectingPostLocation = isSelectingPostLocation,
+        onCaptureLocationConfirmed = onCaptureLocationConfirmed,
+        onMapFirstPostLocationSelected = onMapFirstPostLocationSelected
     )
 }
 
@@ -152,13 +163,20 @@ fun MapScreenContent(
     isVisible: Boolean = true,
     centerOnUserTrigger: Flow<Unit> = emptyFlow(),
     postCoordinateTrigger: Flow<Point> = emptyFlow(),
-    openHoldMenuTrigger: Flow<Unit> = emptyFlow()
+    openHoldMenuTrigger: Flow<Unit> = emptyFlow(),
+    isSelectingPostLocation: Boolean = false,
+    onCaptureLocationConfirmed: (Point) -> Unit = {},
+    onMapFirstPostLocationSelected: (Point) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val isPreview = LocalInspectionMode.current
+    // Avoid checking permissions in preview to prevent render exceptions
     var hasLocationPermission by remember {
         mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (isPreview) false else (
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            )
         )
     }
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -168,15 +186,18 @@ fun MapScreenContent(
             grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true
     }
     // Start on the full globe, then fly into the user's location.
-    val globeView = Point.fromLngLat(-98.0, 18.0)
-    val fallbackLocation = Point.fromLngLat(-73.985130, 40.758896)
+    // Wrapped in remember to avoid redundant creation and potential preview issues.
+    val globeView = remember { Point.fromLngLat(-98.0, 18.0) }
+    val fallbackLocation = remember { Point.fromLngLat(-73.985130, 40.758896) }
     var selectedCoordinate by remember { mutableStateOf<Point?>(null) }
     var activeCityName by remember { mutableStateOf("Your Location") }
     var userCityName by remember { mutableStateOf<String?>(null) }
     var userCountryCode by remember { mutableStateOf<String?>(null) }
     var activeRadius by remember { mutableIntStateOf(DEFAULT_RADIUS_KM) }
     var activeWeatherPoint by remember { mutableStateOf<Point?>(fallbackLocation) }
-    var activeWeather by remember { mutableStateOf(WeatherBadge.Loading) }
+    var activeWeather by remember {
+        mutableStateOf(if (isPreview) WeatherBadge("☀️", "Clear", "72°F") else WeatherBadge.Loading)
+    }
     var activeAiInsight by remember { mutableStateOf<AiTourInsight?>(null) }
     var activeTourFocusStop by remember { mutableStateOf<TourStop?>(null) }
     var activeLiveTourMoment by remember { mutableStateOf<LiveTourMoment?>(null) }
@@ -185,27 +206,35 @@ fun MapScreenContent(
     var idleGeneration by remember { mutableIntStateOf(0) }
     var showLocationSearch by remember { mutableStateOf(false) }
     var showIndoorMap by remember { mutableStateOf(false) }
+    var indoorVenues by remember { mutableStateOf<List<MappedinVenue>>(emptyList()) }
+    var selectedVenueUrl by remember { mutableStateOf<String?>(null) }
+    var mapViewportSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     var locationSearchQuery by remember { mutableStateOf("") }
     var selectedRadioTopics by remember {
         mutableStateOf(RadioTourTopic.values().filter { it.defaultEnabled }.toSet())
     }
-    val isPreview = LocalInspectionMode.current
-    val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { }
+    // Avoid initializing heavy or incompatible objects in preview
     val mapView = remember { if (isPreview) null else MapView(context) }
-    val locationProvider = remember { LocationProvider(context) }
+    val locationProvider = remember { if (isPreview) null else LocationProvider(context) }
     val popTone = remember { if (isPreview) null else RealPopTonePlayer() }
     val postFeatures = remember {
-        DemoPostStore.posts.mapNotNull { post ->
-            val lat = post.latitude
-            val lng = post.longitude
-            if (lat != null && lng != null) Feature.fromGeometry(Point.fromLngLat(lng, lat)) else null
+        if (isPreview) emptyList<Feature>() else {
+            DemoPostStore.posts.mapNotNull { post ->
+                val lat = post.latitude
+                val lng = post.longitude
+                if (lat != null && lng != null) Feature.fromGeometry(Point.fromLngLat(lng, lat)) else null
+            }
         }
     }
     val landmarkFeatures = remember {
-        FeatureCollection.fromFeatures(TourStops.map { Feature.fromGeometry(it.coordinate) })
+        if (isPreview) FeatureCollection.fromFeatures(emptyList<Feature>()) else {
+            FeatureCollection.fromFeatures(TourStops.map { Feature.fromGeometry(it.coordinate) })
+        }
     }
     var mapReady by remember { mutableStateOf(false) }
-    var hasZoomedToLocation by remember { mutableStateOf(false) }
+    var hasZoomedToLocation by rememberSaveable { mutableStateOf(false) }
+    var lastZoomedLat by rememberSaveable { mutableDoubleStateOf(Double.NaN) }
+    var lastZoomedLng by rememberSaveable { mutableDoubleStateOf(Double.NaN) }
     var zoomSliderValue by remember { mutableFloatStateOf(16.9f) }
     val userTourStop = remember(userLocation, userCityName, userCountryCode) {
         userLocation?.let { location ->
@@ -278,18 +307,21 @@ fun MapScreenContent(
         label = "tourTitlePulse"
     )
     val locationSearchStops = remember(locationSearchQuery, userTourStop) {
-        val query = locationSearchQuery.trim().lowercase(Locale.US)
-        val stops = buildList {
-            userTourStop?.let { add(it) }
-            addAll(TourStops)
-        }
-        if (query.isEmpty()) {
-            stops.take(10)
-        } else {
-            stops.filter { stop ->
-                stop.cityName.lowercase(Locale.US).contains(query) ||
-                    stop.storefront.lowercase(Locale.US).contains(query)
-            }.take(10)
+        // Skip heavy search list building in preview
+        if (isPreview) emptyList<TourStop>() else {
+            val query = locationSearchQuery.trim().lowercase(Locale.US)
+            val stops = buildList {
+                userTourStop?.let { add(it) }
+                addAll(TourStops)
+            }
+            if (query.isEmpty()) {
+                stops.take(10)
+            } else {
+                stops.filter { stop ->
+                    stop.cityName.lowercase(Locale.US).contains(query) ||
+                        stop.storefront.lowercase(Locale.US).contains(query)
+                }.take(10)
+            }
         }
     }
     val openSearchStop: (TourStop) -> Unit = { stop ->
@@ -344,17 +376,12 @@ fun MapScreenContent(
     }
     var mapRadioDisplayLine by remember { mutableStateOf("Tap Radio to hear what is happening on the map.") }
     var mapRadioReady by remember { mutableStateOf(isPreview) }
-    val mapRadioMainHandler = remember { Handler(Looper.getMainLooper()) }
     val mapRadioTts = remember(isPreview) {
-        if (isPreview) {
-            null
-        } else {
-            TextToSpeech(context) { status ->
-                mapRadioMainHandler.post {
-                    mapRadioReady = status == TextToSpeech.SUCCESS
-                }
-            }
-        }
+        if (isPreview) null else RealPoplurRadioSpeaker(
+            context,
+            onReady = { mapRadioReady = it },
+            onLiveChange = { mapRadioLive = it }
+        )
     }
     val toggleMapRadio: () -> Unit = {
         if (mapRadioLive) {
@@ -363,61 +390,12 @@ fun MapScreenContent(
         } else if (mapRadioReady) {
             mapRadioDisplayLine = mapRadioScript
             mapRadioLive = true
-            mapRadioTts?.speak(
-                mapRadioScript,
-                TextToSpeech.QUEUE_FLUSH,
-                null,
-                MAP_RADIO_UTTERANCE_ID
-            )
-        }
-    }
-
-    LaunchedEffect(mapRadioReady, mapRadioTts) {
-        if (mapRadioReady) {
-            val langResult = mapRadioTts?.setLanguage(Locale.US) ?: TextToSpeech.LANG_NOT_SUPPORTED
-            if (langResult == TextToSpeech.LANG_MISSING_DATA || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                mapRadioTts?.setLanguage(Locale.getDefault())
-            }
-            mapRadioTts?.voices
-                ?.filter { it.locale.language == Locale.US.language && !it.isNetworkConnectionRequired }
-                ?.maxByOrNull { it.quality }
-                ?.let { mapRadioTts?.voice = it }
-            mapRadioTts?.setSpeechRate(0.88f)
-            mapRadioTts?.setPitch(1.01f)
-            val ttsAudioAttrs = android.media.AudioAttributes.Builder()
-                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
-                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                .build()
-            mapRadioTts?.setAudioAttributes(ttsAudioAttrs)
+            mapRadioTts?.speak(mapRadioScript)
         }
     }
 
     DisposableEffect(mapRadioTts) {
-        mapRadioTts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {
-                if (utteranceId == MAP_RADIO_UTTERANCE_ID) {
-                    mapRadioMainHandler.post { mapRadioLive = true }
-                }
-            }
-
-            override fun onDone(utteranceId: String?) {
-                if (utteranceId == MAP_RADIO_UTTERANCE_ID) {
-                    mapRadioMainHandler.post { mapRadioLive = false }
-                }
-            }
-
-            @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) {
-                if (utteranceId == MAP_RADIO_UTTERANCE_ID) {
-                    mapRadioMainHandler.post { mapRadioLive = false }
-                }
-            }
-        })
-
-        onDispose {
-            mapRadioTts?.stop()
-            mapRadioTts?.shutdown()
-        }
+        onDispose { mapRadioTts?.shutdown() }
     }
 
     LaunchedEffect(isVisible) {
@@ -440,6 +418,7 @@ fun MapScreenContent(
     }
 
     LaunchedEffect(isVisible) {
+        if (isPreview) return@LaunchedEffect
         if (isVisible && !hasLocationPermission) {
             locationPermissionLauncher.launch(
                 arrayOf(
@@ -508,6 +487,7 @@ fun MapScreenContent(
     }
 
     LaunchedEffect(activeWeatherPoint) {
+        if (isPreview) return@LaunchedEffect
         val point = activeWeatherPoint
         if (point == null) {
             activeWeather = WeatherBadge("🌎", "World")
@@ -520,8 +500,12 @@ fun MapScreenContent(
     }
 
     LaunchedEffect(hasLocationPermission) {
+        if (isPreview) {
+            userLocation = fallbackLocation
+            return@LaunchedEffect
+        }
         if (hasLocationPermission) {
-            locationProvider.lastLocation { lat, lng ->
+            locationProvider?.lastLocation { lat, lng ->
                 val finalLat = lat ?: fallbackLocation.latitude()
                 val finalLng = lng ?: fallbackLocation.longitude()
                 userLocation = Point.fromLngLat(finalLng, finalLat)
@@ -532,6 +516,7 @@ fun MapScreenContent(
     }
 
     LaunchedEffect(userLocation) {
+        if (isPreview) return@LaunchedEffect
         val location = userLocation ?: return@LaunchedEffect
         withContext(Dispatchers.IO) {
             runCatching {
@@ -651,8 +636,21 @@ fun MapScreenContent(
     // Radius pulse removed as per request
 
     LaunchedEffect(isVisible, mapReady, userLocation) {
-        val location = userLocation
-        if (isVisible && mapReady && location != null && !hasZoomedToLocation) {
+        val location = userLocation ?: return@LaunchedEffect
+        if (!isVisible || !mapReady) return@LaunchedEffect
+
+        // Only zoom+pop when first arriving or after moving >5km from the last zoom point
+        val movedFarEnough = if (!lastZoomedLat.isNaN() && !lastZoomedLng.isNaN()) {
+            val results = FloatArray(1)
+            android.location.Location.distanceBetween(
+                lastZoomedLat, lastZoomedLng,
+                location.latitude(), location.longitude(),
+                results
+            )
+            results[0] > 5_000f
+        } else true
+
+        if (!hasZoomedToLocation || movedFarEnough) {
             activeCityName = "Your Location"
             activeTourFocusStop = null
             activeLiveTourMoment = null
@@ -706,6 +704,8 @@ fun MapScreenContent(
                 popTone?.play(110 + index * 10)
                 confettiTrigger++
             }
+            lastZoomedLat = location.latitude()
+            lastZoomedLng = location.longitude()
             hasZoomedToLocation = true
         }
     }
@@ -760,12 +760,7 @@ fun MapScreenContent(
                     }
                     if (mapRadioReady) {
                         mapRadioLive = true
-                        mapRadioTts?.speak(
-                            focusScript,
-                            TextToSpeech.QUEUE_FLUSH,
-                            null,
-                            MAP_RADIO_UTTERANCE_ID
-                        )
+                        mapRadioTts?.speak(focusScript)
                     }
                     mapView?.mapboxMap?.flyTo(
                         CameraOptions.Builder()
@@ -793,7 +788,21 @@ fun MapScreenContent(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    LaunchedEffect(isVisible, mapReady, zoomSliderValue, idleGeneration) {
+        if (!isVisible || !mapReady || zoomSliderValue <= 17f) {
+            indoorVenues = emptyList()
+            return@LaunchedEffect
+        }
+        val center = mapView?.mapboxMap?.cameraState?.center ?: userLocation ?: fallbackLocation
+        indoorVenues = MappedinVenueSearch.nearbyVenues(center.latitude(), center.longitude())
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .onSizeChanged { mapViewportSize = it }
+    ) {
         if (!isPreview) {
             AndroidView(
                 factory = {
@@ -962,6 +971,18 @@ fun MapScreenContent(
                 .padding(bottom = 210.dp, start = 20.dp)
                 .zIndex(3f)
         )
+        MappedinVenueButtonsOverlay(
+            venues = indoorVenues,
+            mapView = mapView,
+            viewportSize = mapViewportSize,
+            onOpenVenue = { venue ->
+                selectedVenueUrl = venue.mapUrl
+                showIndoorMap = true
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(3.5f)
+        )
         MapRadioBroadcastCard(
             isLive = mapRadioLive,
             script = if (mapRadioLive) mapRadioDisplayLine else mapRadioScript,
@@ -980,9 +1001,20 @@ fun MapScreenContent(
         selectedCoordinate?.let { point ->
             Surface(Modifier.align(Alignment.BottomCenter).padding(bottom = 158.dp, start = 20.dp, end = 20.dp).zIndex(2f), color = Color.Black.copy(alpha = .72f), shape = MaterialTheme.shapes.large) {
                 Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Post here", color = Color.White, fontWeight = FontWeight.Black)
+                    Text(if (isSelectingPostLocation) "Confirm location" else "Post here", color = Color.White, fontWeight = FontWeight.Black)
                     Text("${"%.5f".format(point.latitude())}, ${"%.5f".format(point.longitude())}", color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
-                    Button(onClick = { mediaPicker.launch("image/*") }, modifier = Modifier.padding(top = 8.dp)) { Text("Choose media") }
+                    Button(
+                        onClick = {
+                            if (isSelectingPostLocation) {
+                                onCaptureLocationConfirmed(point)
+                            } else {
+                                onMapFirstPostLocationSelected(point)
+                            }
+                        },
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        Text(if (isSelectingPostLocation) "Use This Location" else "Take Photo or Video")
+                    }
                 }
             }
         }
@@ -994,9 +1026,12 @@ fun MapScreenContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(32.dp)
         ) {
-            if (zoomSliderValue > 17f) {
+            if (indoorVenues.isNotEmpty()) {
                 Surface(
-                    onClick = { showIndoorMap = true },
+                    onClick = {
+                        selectedVenueUrl = indoorVenues.first().mapUrl
+                        showIndoorMap = true
+                    },
                     shape = RoundedCornerShape(20.dp),
                     color = Color.Black.copy(alpha = 0.62f),
                     contentColor = Color.White
@@ -1011,7 +1046,7 @@ fun MapScreenContent(
                             contentDescription = null,
                             modifier = Modifier.size(14.dp)
                         )
-                        Text("Indoor", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("3D Inside", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -1022,7 +1057,14 @@ fun MapScreenContent(
         }
 
         if (showIndoorMap) {
-            IndoorMapSheet(onDismiss = { showIndoorMap = false })
+            IndoorMapSheet(
+                userLocation = userLocation,
+                presetVenueUrl = selectedVenueUrl,
+                onDismiss = {
+                    showIndoorMap = false
+                    selectedVenueUrl = null
+                }
+            )
         }
 
         if (showLocationSearch) {
@@ -1117,7 +1159,82 @@ private fun MapSearchButton(
 }
 
 @Composable
-private fun IndoorMapSheet(onDismiss: () -> Unit) {
+private fun MappedinVenueButtonsOverlay(
+    venues: List<MappedinVenue>,
+    mapView: MapView?,
+    viewportSize: androidx.compose.ui.unit.IntSize,
+    onOpenVenue: (MappedinVenue) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (venues.isEmpty() || mapView == null || viewportSize.width <= 0 || viewportSize.height <= 0) return
+
+    val density = LocalDensity.current
+    val buttonWidthPx = with(density) { 72.dp.toPx() }
+    val buttonHeightPx = with(density) { 54.dp.toPx() }
+
+    Box(modifier = modifier) {
+        venues.take(8).forEach { venue ->
+            val screen = mapView.mapboxMap.pixelForCoordinate(venue.coordinate)
+            val x = screen.x.toFloat()
+            val y = screen.y.toFloat()
+            if (x !in -buttonWidthPx..(viewportSize.width + buttonWidthPx) ||
+                y !in -buttonHeightPx..(viewportSize.height + buttonHeightPx)
+            ) {
+                return@forEach
+            }
+
+            Surface(
+                onClick = { onOpenVenue(venue) },
+                shape = RoundedCornerShape(15.dp),
+                color = Color(0xFF3D5AFE),
+                contentColor = Color.White,
+                shadowElevation = 8.dp,
+                modifier = Modifier.offset {
+                    IntOffset(
+                        x = (x - buttonWidthPx / 2f).roundToInt(),
+                        y = (y - buttonHeightPx - 8f).roundToInt()
+                    )
+                }
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Apartment,
+                        contentDescription = "Look inside ${venue.name}",
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text("3D", fontSize = 13.sp, fontWeight = FontWeight.Black, lineHeight = 14.sp)
+                    Text("Inside", fontSize = 9.sp, fontWeight = FontWeight.Bold, lineHeight = 10.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IndoorMapSheet(
+    userLocation: Point?,
+    presetVenueUrl: String?,
+    onDismiss: () -> Unit
+) {
+    var venueUrl by remember { mutableStateOf<String?>(null) }
+    var isSearching by remember { mutableStateOf(true) }
+
+    LaunchedEffect(userLocation, presetVenueUrl) {
+        venueUrl = if (presetVenueUrl != null) {
+            presetVenueUrl
+        } else if (userLocation != null) {
+            MappedinVenueSearch.nearestVenue(userLocation.latitude(), userLocation.longitude())?.let {
+                "https://app.mappedin.com/map/$it"
+            }
+        } else {
+            "https://app.mappedin.com/map/${MappedinVenueSearch.DEMO_SLUG}"
+        }
+        isSearching = false
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1144,22 +1261,144 @@ private fun IndoorMapSheet(onDismiss: () -> Unit) {
                     TextButton(onClick = onDismiss) { Text("Done") }
                 }
                 HorizontalDivider()
-                AndroidView(
-                    factory = { ctx ->
-                        android.webkit.WebView(ctx).apply {
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.useWideViewPort = true
-                            settings.loadWithOverviewMode = true
-                            webViewClient = android.webkit.WebViewClient()
-                            loadUrl("https://app.mappedin.com/map/mappedin-demo-mall")
+                when {
+                    isSearching -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                CircularProgressIndicator()
+                                Text("Searching for nearby venues…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                    }
+                    venueUrl != null -> {
+                        AndroidView(
+                            factory = { ctx ->
+                                android.webkit.WebView(ctx).apply {
+                                    settings.javaScriptEnabled = true
+                                    settings.domStorageEnabled = true
+                                    settings.useWideViewPort = true
+                                    settings.loadWithOverviewMode = true
+                                    webViewClient = android.webkit.WebViewClient()
+                                    loadUrl(venueUrl!!)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    else -> {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(52.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    "No indoor map available\nfor this location",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+private data class MappedinVenue(
+    val slug: String,
+    val name: String,
+    val coordinate: Point
+) {
+    val mapUrl: String = "https://app.mappedin.com/map/$slug"
+}
+
+private object MappedinVenueSearch {
+    // Sign up at developer.mappedin.com and replace these with your own credentials.
+    private const val CLIENT_ID = "5eab30aa91b055001a68e996"
+    private const val CLIENT_SECRET = "RJyRXKcryCMy4erZqqCbuB1NpgM2G7NMEAD75cFhotP"
+    const val DEMO_SLUG = "mappedin-demo-mall"
+
+    suspend fun nearestVenue(lat: Double, lng: Double): String? = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = "https://api.mappedin.com/1/venue?venue=nearby&lat=$lat&lng=$lng"
+            val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                val token = java.util.Base64.getEncoder()
+                    .encodeToString("$CLIENT_ID:$CLIENT_SECRET".toByteArray())
+                setRequestProperty("Authorization", "Basic $token")
+                connectTimeout = 6000
+                readTimeout = 6000
+                requestMethod = "GET"
+            }
+            if (conn.responseCode == 200) {
+                val body = conn.inputStream.bufferedReader().readText()
+                conn.disconnect()
+                val arr = JSONObject(body).optJSONArray("data") ?: return@withContext null
+                val slug = arr.optJSONObject(0)?.optString("slug", "") ?: ""
+                slug.ifBlank { null }
+            } else {
+                conn.disconnect()
+                null
+            }
+        } catch (_: Exception) { null }
+    }
+
+    suspend fun nearbyVenues(lat: Double, lng: Double): List<MappedinVenue> = withContext(Dispatchers.IO) {
+        try {
+            val endpoint = "https://api.mappedin.com/1/venue?venue=nearby&lat=$lat&lng=$lng"
+            val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                val token = java.util.Base64.getEncoder()
+                    .encodeToString("$CLIENT_ID:$CLIENT_SECRET".toByteArray())
+                setRequestProperty("Authorization", "Basic $token")
+                connectTimeout = 6000
+                readTimeout = 6000
+                requestMethod = "GET"
+            }
+            if (conn.responseCode != 200) {
+                conn.disconnect()
+                return@withContext emptyList()
+            }
+
+            val body = conn.inputStream.bufferedReader().readText()
+            conn.disconnect()
+            val arr = JSONObject(body).optJSONArray("data") ?: return@withContext emptyList()
+            buildList {
+                for (index in 0 until arr.length()) {
+                    val venue = arr.optJSONObject(index) ?: continue
+                    val slug = venue.optString("slug", "").takeIf { it.isNotBlank() } ?: continue
+                    val name = venue.optString("name", slug)
+                    val location = venue.optJSONObject("location")
+                    val venueLat = location?.optFiniteDouble("lat")
+                        ?: venue.optFiniteDouble("lat")
+                        ?: lat
+                    val venueLng = location?.optFiniteDouble("lon", "lng")
+                        ?: venue.optFiniteDouble("lon", "lng")
+                        ?: lng
+                    add(
+                        MappedinVenue(
+                            slug = slug,
+                            name = name,
+                            coordinate = Point.fromLngLat(venueLng, venueLat)
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+}
+
+private fun JSONObject.optFiniteDouble(vararg keys: String): Double? {
+    keys.forEach { key ->
+        if (!has(key)) return@forEach
+        val value = optDouble(key, Double.NaN)
+        if (value.isFinite()) return value
+    }
+    return null
 }
 
 @Composable
@@ -1434,6 +1673,12 @@ private class MapWeatherTouchContainer(
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        // First allow child views (like the trendPopView for interaction) to handle the touch.
+        // We use super.dispatchTouchEvent which respects the Z-order of children in the FrameLayout.
+        if (super.dispatchTouchEvent(event)) {
+            return true
+        }
+        // Fall back to the MapView if no overlay consumed the event.
         return mapView.dispatchTouchEvent(event)
     }
 }
@@ -2372,7 +2617,9 @@ private fun countryFlagEmoji(countryCode: String): String {
     }.joinToString("")
 }
 
-private val TourStops = listOf(
+    // Use lazy initialization for TourStops to avoid class loading errors in preview
+private val TourStops by lazy {
+    listOf(
     TourStop("Paris", "fr", Point.fromLngLat(2.2945, 48.8584), 28.0, 105),
     TourStop("New York", "us", Point.fromLngLat(-73.9857, 40.7484), -24.0, 132),
     TourStop("Los Angeles", "us", Point.fromLngLat(-118.3267, 34.1016), 22.0, 150),
@@ -2413,7 +2660,7 @@ private val TourStops = listOf(
     TourStop("Marrakech", "ma", Point.fromLngLat(-7.9811, 31.6295), 22.0, 85),
     TourStop("Accra", "gh", Point.fromLngLat(-0.1869, 5.6037), -28.0, 95),
     TourStop("Sydney", "au", Point.fromLngLat(151.2153, -33.8568), -28.0, 110)
-)
+) }
 
 private data class CityMusicTrack(
     val assetUri: String,
@@ -3905,5 +4152,86 @@ private class ProceduralRainPlayer {
                 setLoopPoints(0, samples.size, -1)
                 setVolume(0.16f)
             }
+    }
+}
+
+private interface PoplurRadioSpeaker {
+    fun speak(text: String)
+    fun stop()
+    fun shutdown()
+}
+
+private class RealPoplurRadioSpeaker(
+    context: Context,
+    private val onReady: (Boolean) -> Unit,
+    private val onLiveChange: (Boolean) -> Unit
+) : PoplurRadioSpeaker {
+    private val handler = Handler(Looper.getMainLooper())
+    private var tts: android.speech.tts.TextToSpeech? = null
+
+    init {
+        try {
+            tts = android.speech.tts.TextToSpeech(context) { status ->
+                val success = status == android.speech.tts.TextToSpeech.SUCCESS
+                handler.post { onReady(success) }
+                if (success) {
+                    setup()
+                }
+            }
+        } catch (e: Throwable) {
+            onReady(false)
+        }
+    }
+
+    private fun setup() {
+        val tts = this.tts ?: return
+        tts.setLanguage(Locale.US).let { langResult ->
+            if (langResult == android.speech.tts.TextToSpeech.LANG_MISSING_DATA || langResult == android.speech.tts.TextToSpeech.LANG_NOT_SUPPORTED) {
+                tts.setLanguage(Locale.getDefault())
+            }
+        }
+        tts.voices
+            ?.filter { it.locale.language == Locale.US.language && !it.isNetworkConnectionRequired }
+            ?.maxByOrNull { it.quality }
+            ?.let { tts.voice = it }
+        tts.setSpeechRate(0.88f)
+        tts.setPitch(1.01f)
+        val ttsAudioAttrs = android.media.AudioAttributes.Builder()
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+            .build()
+        tts.setAudioAttributes(ttsAudioAttrs)
+
+        tts.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {
+                if (utteranceId == MAP_RADIO_UTTERANCE_ID) {
+                    handler.post { onLiveChange(true) }
+                }
+            }
+            override fun onDone(utteranceId: String?) {
+                if (utteranceId == MAP_RADIO_UTTERANCE_ID) {
+                    handler.post { onLiveChange(false) }
+                }
+            }
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) {
+                if (utteranceId == MAP_RADIO_UTTERANCE_ID) {
+                    handler.post { onLiveChange(false) }
+                }
+            }
+        })
+    }
+
+    override fun speak(text: String) {
+        tts?.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, MAP_RADIO_UTTERANCE_ID)
+    }
+
+    override fun stop() {
+        tts?.stop()
+        onLiveChange(false)
+    }
+
+    override fun shutdown() {
+        tts?.shutdown()
     }
 }

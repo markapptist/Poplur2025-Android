@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import kotlin.math.max
@@ -38,11 +39,13 @@ fun ShaderNumberText(
     modifier: Modifier = Modifier,
     lineHeight: TextUnit = TextUnit.Unspecified,
     intensity: Float = 1f,
-    glowColor: Color = Color(0xFFFF8A1C),
+    glowColor: Color = DefaultPoplurGlowColor,
     autoSize: Boolean = false,
     maxLines: Int = Int.MAX_VALUE,
     softWrap: Boolean = true,
     overflow: TextOverflow = TextOverflow.Clip,
+    letterSpacing: TextUnit = TextUnit.Unspecified,
+    textAlign: TextAlign? = null,
     @Suppress("UNUSED_PARAMETER") forceShader: Boolean = false
 ) {
     val transition = rememberInfiniteTransition(label = "poplur-number-shader")
@@ -56,11 +59,20 @@ fun ShaderNumberText(
         label = "poplur-number-shader-time"
     )
 
-    val palette = remember(color) { poplurGlowPalette(color) }
+    val effectiveGlowColor = remember(color, glowColor) {
+        if (glowColor == DefaultPoplurGlowColor) poplurIlluminationColor(color) else glowColor
+    }
+    val highlightColor = remember(color) { poplurHighlightColor(color) }
     val scan = ((time * 42f) % 220f) - 110f
-    val brush = remember(palette, scan) {
+    val shimmerBrush = remember(highlightColor, scan, intensity) {
         Brush.linearGradient(
-            colors = listOf(color, palette.first, palette.second, color),
+            colors = listOf(
+                color.copy(alpha = 0f),
+                highlightColor.copy(alpha = 0.16f * intensity),
+                Color.White.copy(alpha = 0.42f * intensity),
+                highlightColor.copy(alpha = 0.16f * intensity),
+                color.copy(alpha = 0f)
+            ),
             start = Offset(scan, 0f),
             end = Offset(scan + 220f, 90f)
         )
@@ -70,11 +82,9 @@ fun ShaderNumberText(
     val maxL = if (autoSize) 1 else maxLines
     val wrap = if (autoSize) false else softWrap
     val ovf = if (autoSize) TextOverflow.Visible else overflow
-    val orange = Color(1.0f, 0.55f, 0.12f)
-    val cyan = Color(0.18f, 0.78f, 1.0f)
 
     Box(modifier = modifier) {
-        // Outer orange bloom halo (wide diffuse)
+        // Diffuse illumination halo.
         Text(
             text = text,
             maxLines = maxL,
@@ -85,70 +95,51 @@ fun ShaderNumberText(
                 fontSize = fontSize,
                 fontWeight = fontWeight,
                 lineHeight = lineHeight,
+                letterSpacing = letterSpacing,
+                textAlign = textAlign ?: TextAlign.Start,
                 shadow = Shadow(
-                    color = orange.copy(alpha = 0.55f * intensity),
+                    color = effectiveGlowColor.copy(alpha = 0.35f * intensity),
                     offset = Offset.Zero,
-                    blurRadius = 30f
+                    blurRadius = 18f
                 )
             )
         )
-        // Outer cyan halo (chromatic aberration ring)
+        // Main readable text
         Text(
             text = text,
             maxLines = maxL,
             softWrap = wrap,
             overflow = ovf,
             style = TextStyle(
-                color = Color.Transparent,
+                color = color,
                 fontSize = fontSize,
                 fontWeight = fontWeight,
                 lineHeight = lineHeight,
+                letterSpacing = letterSpacing,
+                textAlign = textAlign ?: TextAlign.Start,
                 shadow = Shadow(
-                    color = cyan.copy(alpha = 0.28f * intensity),
-                    offset = Offset.Zero,
-                    blurRadius = 40f
-                )
-            )
-        )
-        // Inner orange core glow (tight hot centre)
-        Text(
-            text = text,
-            maxLines = maxL,
-            softWrap = wrap,
-            overflow = ovf,
-            style = TextStyle(
-                color = orange.copy(alpha = 0.15f * intensity),
-                fontSize = fontSize,
-                fontWeight = fontWeight,
-                lineHeight = lineHeight,
-                shadow = Shadow(
-                    color = orange.copy(alpha = 0.75f * intensity),
-                    offset = Offset.Zero,
-                    blurRadius = 8f
-                )
-            )
-        )
-        // Main text — animated shimmer gradient fill
-        Text(
-            text = text,
-            maxLines = maxL,
-            softWrap = wrap,
-            overflow = ovf,
-            onTextLayout = onLayout,
-            style = TextStyle(
-                brush = brush,
-                fontSize = fontSize,
-                fontWeight = fontWeight,
-                lineHeight = lineHeight,
-                shadow = Shadow(
-                    color = glowColor.copy(alpha = 0.20f * intensity),
-                    offset = Offset.Zero,
-                    blurRadius = 5f
+                    color = Color.Black.copy(alpha = 0.45f * intensity),
+                    offset = Offset(1f, 1f),
+                    blurRadius = 4f
                 )
             )
         )
     }
 }
+
+private val DefaultPoplurGlowColor = Color(0xFFFF8A1C)
+
+private fun poplurIlluminationColor(color: Color): Color {
+    val lum = color.red * 0.2126f + color.green * 0.7152f + color.blue * 0.0722f
+    return if (lum > 0.72f) Color.White else color
+}
+
+private fun poplurHighlightColor(color: Color): Color = Color(
+    red = color.red + (1f - color.red) * 0.72f,
+    green = color.green + (1f - color.green) * 0.72f,
+    blue = color.blue + (1f - color.blue) * 0.72f,
+    alpha = color.alpha
+)
 
 private fun poplurGlowPalette(color: Color): Pair<Color, Color> {
     val r = color.red

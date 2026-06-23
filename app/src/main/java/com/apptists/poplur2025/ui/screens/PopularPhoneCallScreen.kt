@@ -2,7 +2,13 @@ package com.apptists.poplur2025.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.os.BatteryManager
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
@@ -15,9 +21,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -35,7 +43,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -79,19 +89,22 @@ import androidx.compose.ui.unit.sp
 import com.apptists.poplur2025.R
 import com.apptists.poplur2025.call.CallSessionManager
 import com.apptists.poplur2025.data.UserProfile
+import com.apptists.poplur2025.ui.components.CubeMenuLayout
 import com.apptists.poplur2025.ui.components.CubeMenuWheelController
-import com.apptists.poplur2025.ui.components.CubeMenuWheelItem
 import com.apptists.poplur2025.ui.components.CubeMenuWheelOverlay
 import com.apptists.poplur2025.ui.components.ShaderNumberText
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.graphics.BitmapFactory
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.zIndex
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -108,6 +121,20 @@ fun PopularPhoneCallScreen(
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val colorWheelScope = rememberCoroutineScope()
+    val settingsPrefs = remember(context) {
+        context.applicationContext.getSharedPreferences("poplur_settings", Context.MODE_PRIVATE)
+    }
+    val phoneXLMode = remember(settingsPrefs) {
+        settingsPrefs.getBoolean(PHONE_XL_MODE_PREF_KEY, true)
+    }
+    val cubeMenuLayout = remember(settingsPrefs) {
+        runCatching {
+            CubeMenuLayout.valueOf(
+                settingsPrefs.getString("cube_menu_layout", CubeMenuLayout.Horizontal.name)
+                    ?: CubeMenuLayout.Horizontal.name
+            )
+        }.getOrDefault(CubeMenuLayout.Horizontal)
+    }
     var isBooting by remember { mutableStateOf(true) }
     val toneGenerator = remember {
         try {
@@ -134,7 +161,6 @@ fun PopularPhoneCallScreen(
             if (match != null) selectedColorway = match
         }
     }
-    var isPhoneButtonActive by remember { mutableStateOf(true) }
     var dialedNumber by remember { mutableStateOf("") }
     var snakeGame by remember { mutableStateOf(SnakeGameState.initial()) }
     var isSnakeActive by remember { mutableStateOf(false) }
@@ -163,7 +189,7 @@ fun PopularPhoneCallScreen(
         label = "phone-call-alpha"
     )
     val screenAlpha by animateFloatAsState(
-        targetValue = if (isScreenLit && !isBooting) 1f else 0f,
+        targetValue = if (isBooting || isScreenLit) 1f else 0f,
         animationSpec = tween(durationMillis = 360),
         label = "phone-screen-alpha"
     )
@@ -176,14 +202,24 @@ fun PopularPhoneCallScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(selectedColorway) {
+        isBooting = true
+        isScreenLit = true
+        isSnakeActive = false
+        isDialerActive = false
+        menuScreen = PhoneMenuScreen.Main
+        selectedMenuIndex = 0
+        menuMessage = null
         playPhoneBootSound(context)
+        launch(Dispatchers.IO) { triggerBootupVibration(context) }
+        launch(Dispatchers.IO) { triggerBootupTorchFlash(context) }
         repeat(12) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             delay(80L)
         }
         delay(1200)
         isBooting = false
+        isScreenLit = true
     }
 
     val ringtone = remember(context) {
@@ -244,24 +280,13 @@ fun PopularPhoneCallScreen(
         menuMessage = message
     }
 
-    fun colorWheelItems(): List<CubeMenuWheelItem> {
-        return PHONE_COLORWAYS.map { colorway ->
-            CubeMenuWheelItem(
-                label = colorway.label,
-                icon = Icons.Filled.Circle,
-                accent = colorway.swatch
-            ) {
-                selectedColorway = colorway
-                onColorwaySelected(colorway.swatch)
-                flashMenuDetail(colorway.label.uppercase())
-            }
-        }
-    }
-
-    fun togglePhoneButtonActive() {
-        isPhoneButtonActive = !isPhoneButtonActive
+    fun selectAdjacentColorway(direction: Int) {
+        val currentIndex = PHONE_COLORWAYS.indexOf(selectedColorway).takeIf { it >= 0 } ?: 0
+        val nextIndex = (currentIndex + direction + PHONE_COLORWAYS.size) % PHONE_COLORWAYS.size
+        val nextColorway = PHONE_COLORWAYS[nextIndex]
+        selectedColorway = nextColorway
+        onColorwaySelected(nextColorway.swatch)
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        flashMenuDetail(if (isPhoneButtonActive) "BUTTON ACTIVE" else "BUTTON LOCKED")
     }
 
     fun triggerButtonGlow(control: String) {
@@ -288,13 +313,18 @@ fun PopularPhoneCallScreen(
                     "Contacts" -> PhoneMenuScreen.Contacts
                     "Texts" -> PhoneMenuScreen.Texts
                     "Games" -> PhoneMenuScreen.Games
+                    "Settings" -> PhoneMenuScreen.Settings
+                    "Exit" -> {
+                        onHangUp()
+                        return
+                    }
                     else -> PhoneMenuScreen.Settings
                 }
                 selectedMenuIndex = 0
             }
-            PhoneMenuScreen.Calls -> when (item.label) {
-                "Call user" -> placeCurrentProfileCall()
-                "Dial number" -> {
+            PhoneMenuScreen.Calls -> when {
+                item.label.startsWith("Call ") -> placeCurrentProfileCall()
+                item.label == "Dial number" -> {
                     dialedNumber = ""
                     isDialerActive = true
                     menuMessage = null
@@ -333,6 +363,15 @@ fun PopularPhoneCallScreen(
                     menuMessage = null
                 }
             }
+            "1", "3", "4", "6", "7", "9", "0" -> {
+                if (menuScreen == PhoneMenuScreen.Main) {
+                    val shortcut = digit.toIntOrNull()?.minus(1) ?: return
+                    if (shortcut in items.indices) {
+                        selectedMenuIndex = shortcut
+                        activateMenuItem(shortcut)
+                    }
+                }
+            }
         }
     }
 
@@ -349,10 +388,17 @@ fun PopularPhoneCallScreen(
                 .clipToBounds(),
             contentAlignment = Alignment.Center
         ) {
-            val phoneAspect = PHONE_IMAGE_WIDTH / PHONE_IMAGE_HEIGHT
-            val widthFromHeight = maxHeight * phoneAspect
-            val phoneWidth = maxOf(maxWidth, widthFromHeight)
-            val phoneHeight = phoneWidth / phoneAspect
+            val phoneFrame = fittedPhoneFrame(maxWidth, maxHeight, phoneXLMode)
+            val phoneWidth = phoneFrame.width
+            val phoneHeight = phoneFrame.height
+            // Phone box offset within this BoxWithConstraints (Center alignment)
+            val phoneOffsetX = (maxWidth - phoneWidth) / 2f
+            val phoneOffsetY = (maxHeight - phoneHeight) / 2f
+            // LCD overlay position in screen coordinates (avoids Compose offset quirk with oversized child)
+            val lcdX = phoneOffsetX + phoneWidth * PHONE_SCREEN_LEFT_FRACTION
+            val lcdY = phoneOffsetY + phoneHeight * PHONE_SCREEN_TOP_FRACTION
+            val lcdW = phoneWidth * PHONE_SCREEN_WIDTH_FRACTION
+            val lcdH = phoneHeight * PHONE_SCREEN_HEIGHT_FRACTION
             val callStatusText = when (val s = callState) {
                 is CallSessionManager.CallState.Outgoing ->
                     "CALLING\n${s.calleeName.uppercase()}"
@@ -368,7 +414,7 @@ fun PopularPhoneCallScreen(
                     }
                 else -> null
             }
-            val showPhoneMenu = !isSnakeActive && !isDialerActive && callStatusText == null
+            val showPhoneMenu = !isBooting && !isSnakeActive && !isDialerActive && callStatusText == null
 
             LaunchedEffect(selectedColorway, showPhoneMenu, isScreenLit) {
                 if (!showPhoneMenu || !isScreenLit || isBooting) {
@@ -392,7 +438,22 @@ fun PopularPhoneCallScreen(
             }
 
             Box(
-                modifier = Modifier.size(phoneWidth, phoneHeight),
+                modifier = Modifier
+                    .size(phoneWidth, phoneHeight)
+                    .pointerInput(selectedColorway) {
+                        var dragTotal = 0f
+                        detectHorizontalDragGestures(
+                            onDragStart = { dragTotal = 0f },
+                            onHorizontalDrag = { _, dragAmount ->
+                                dragTotal += dragAmount
+                            },
+                            onDragEnd = {
+                                if (abs(dragTotal) > 80f) {
+                                    selectAdjacentColorway(if (dragTotal < 0f) 1 else -1)
+                                }
+                            }
+                        )
+                    },
                 contentAlignment = Alignment.TopStart
             ) {
                 Image(
@@ -455,46 +516,6 @@ fun PopularPhoneCallScreen(
                         drawPhoneScreenFill(alpha = screenAlpha)
                     }
                 }
-                if (isBooting) {
-                    val screenModifier = Modifier
-                        .alpha(screenAlpha)
-                        .offset(
-                            x = phoneWidth * PHONE_SCREEN_LEFT_FRACTION,
-                            y = phoneHeight * PHONE_SCREEN_TOP_FRACTION
-                        )
-                        .size(
-                            width = phoneWidth * PHONE_SCREEN_WIDTH_FRACTION,
-                            height = phoneHeight * PHONE_SCREEN_HEIGHT_FRACTION
-                        )
-                        .clipToBounds()
-                    PhoneBootupOverlay(modifier = screenModifier)
-                } else if (!isSnakeActive) {
-                    val screenModifier = Modifier
-                        .alpha(screenAlpha)
-                        .offset(
-                            x = phoneWidth * PHONE_SCREEN_LEFT_FRACTION,
-                            y = phoneHeight * PHONE_SCREEN_TOP_FRACTION
-                        )
-                        .size(
-                            width = phoneWidth * PHONE_SCREEN_WIDTH_FRACTION,
-                            height = phoneHeight * PHONE_SCREEN_HEIGHT_FRACTION
-                        )
-                        .clipToBounds()
-                    if (showPhoneMenu) {
-                        PhoneMenuDisplay(
-                            title = phoneMenuTitle(menuScreen),
-                            items = currentMenuItems(),
-                            selectedIndex = selectedMenuIndex,
-                            message = menuMessage,
-                            modifier = screenModifier
-                        )
-                    } else {
-                        PhoneScreenText(
-                            dialedNumber = callStatusText ?: dialedNumber.ifBlank { "DIAL NUMBER" },
-                            modifier = screenModifier
-                        )
-                    }
-                }
                 if (showPhoneMenu && !isBooting && isScreenLit) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         drawPhoneSignalFrame(signalSheetBitmap, idleSignalFrameIndex)
@@ -505,11 +526,19 @@ fun PopularPhoneCallScreen(
                     modifier = Modifier.fillMaxSize(),
                     onTopButtonTap = {
                         triggerButtonGlow("call")
-                        if (!isBooting) togglePhoneButtonActive()
+                        if (!isBooting) {
+                            if (!isScreenLit) {
+                                isScreenLit = true
+                            } else if (showPhoneMenu) {
+                                activateMenuItem()
+                            } else {
+                                onMiddleButtonClick()
+                            }
+                        }
                     },
                     onTopButtonHoldStart = {
                         triggerButtonGlow("call")
-                        if (!isBooting) colorWheelController.beginHold(colorWheelItems())
+                        if (!isBooting) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
                     onTopButtonHoldEnd = { activateSelected ->
                         if (!isBooting) colorWheelController.endHold(activateSelected)
@@ -529,9 +558,7 @@ fun PopularPhoneCallScreen(
                         } catch (e: Exception) {
                             // Ignore if released
                         }
-                        if (!isPhoneButtonActive) {
-                            flashMenuDetail("BUTTON LOCKED")
-                        } else if (isSnakeActive) {
+                        if (isSnakeActive) {
                             when (digit) {
                                 "2" -> snakeGame = snakeGame.turn(GridPoint(0, 1))
                                 "8" -> snakeGame = snakeGame.turn(GridPoint(0, -1))
@@ -552,11 +579,50 @@ fun PopularPhoneCallScreen(
                     }
                 )
             }
+
+            // Screen text/menu overlays positioned in screen coordinates to avoid
+            // Compose offset quirk when child Box is oversized (XL mode, wider than screen).
+            // Using a fillMaxSize sibling means (0,0) = screen top-left, and lcdX/lcdY
+            // are explicit screen positions computed from phoneOffsetX/Y above.
+            if (isScreenLit) {
+                val overlayModifier = Modifier
+                    .alpha(screenAlpha)
+                    .offset(x = lcdX, y = lcdY)
+                    .size(width = lcdW, height = lcdH)
+                    .clipToBounds()
+                Box(modifier = Modifier.fillMaxSize().zIndex(5f)) {
+                    if (isBooting) {
+                        PhoneBootupOverlay(modifier = overlayModifier)
+                    } else if (!isSnakeActive) {
+                        if (showPhoneMenu) {
+                            PhoneMenuDisplay(
+                                title = phoneMenuTitle(menuScreen),
+                                items = currentMenuItems(),
+                                selectedIndex = selectedMenuIndex,
+                                message = menuMessage,
+                                modifier = overlayModifier
+                            )
+                        } else {
+                            PhoneScreenText(
+                                dialedNumber = callStatusText ?: dialedNumber.ifBlank { "DIAL NUMBER" },
+                                modifier = overlayModifier
+                            )
+                        }
+                    }
+                }
+            }
         }
+
+        PhoneColorSwipeArrows(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(30f)
+        )
 
         CubeMenuWheelOverlay(
             controller = colorWheelController,
-            modifier = Modifier.zIndex(40f)
+            modifier = Modifier.zIndex(40f),
+            layout = cubeMenuLayout
         )
     }
 }
@@ -585,6 +651,30 @@ private fun PhoneBootupOverlay(modifier: Modifier = Modifier) {
 }
 
 @Composable
+private fun PhoneColorSwipeArrows(modifier: Modifier = Modifier) {
+    Box(modifier = modifier) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.38f),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 12.dp)
+                .size(52.dp)
+        )
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.38f),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 12.dp)
+                .size(52.dp)
+        )
+    }
+}
+
+@Composable
 private fun PhoneMenuDisplay(
     title: String,
     items: List<PhoneMenuItem>,
@@ -592,77 +682,143 @@ private fun PhoneMenuDisplay(
     message: String?,
     modifier: Modifier = Modifier
 ) {
-    Box(
-        modifier = modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-    ) {
-        Column(Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = modifier.clipToBounds()) {
+        val insetX = maxWidth * 0.04f
+        val insetY = maxHeight * 0.06f
+        val screenWidth = maxWidth - insetX * 2f
+        val screenHeight = maxHeight - insetY * 2f
+        val titleHeight = screenHeight * 0.20f
+        val footerHeight = screenHeight * 0.16f
+        val listHeight = screenHeight - titleHeight - footerHeight
+        val maxVisible = 3
+        val startIndex = (selectedIndex - 1).coerceIn(0, (items.size - maxVisible).coerceAtLeast(0))
+        val visibleItems = items.drop(startIndex).take(maxVisible)
+        val visibleSelectedIndex = selectedIndex - startIndex
+        val rowHeight = listHeight / visibleItems.size.coerceAtLeast(1).toFloat()
+        val ink = PHONE_LCD_INK_COLOR
+
+        Box(
+            modifier = Modifier
+                .offset(x = insetX, y = insetY)
+                .size(width = screenWidth, height = titleHeight)
+                .background(
+                    color = Color(0x4DCCD900),
+                    shape = RoundedCornerShape(screenWidth * 0.025f)
+                )
+                .border(
+                    width = 1.dp,
+                    color = ink.copy(alpha = 0.60f),
+                    shape = RoundedCornerShape(screenWidth * 0.025f)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
             Text(
-                text = title,
-                modifier = Modifier.fillMaxWidth(),
-                color = Color(0xFF1C350D),
+                text = title.uppercase(),
+                color = ink,
                 fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
+                fontSize = (screenHeight.value * 0.14f).sp,
                 fontWeight = FontWeight.Black,
-                lineHeight = 13.sp,
+                lineHeight = (screenHeight.value * 0.15f).sp,
                 letterSpacing = 0.sp,
                 textAlign = TextAlign.Center,
-                maxLines = 1
-            )
-            Spacer(Modifier.height(3.dp))
-            items.forEachIndexed { index, item ->
-                val selected = index == selectedIndex
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(18.dp)
-                        .background(
-                            color = if (selected) Color(0xFF243D13) else Color.Transparent,
-                            shape = RoundedCornerShape(2.dp)
-                        )
-                        .padding(horizontal = 4.dp),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Text(
-                        text = "${index + 1}. ${item.label}",
-                        color = if (selected) Color(0xFFEFF100) else Color(0xFF20330F),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Black,
-                        lineHeight = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = TextStyle(
-                            shadow = Shadow(
-                                color = Color(0xFF36FF2F).copy(alpha = if (selected) 0.8f else 0.25f),
-                                offset = Offset.Zero,
-                                blurRadius = if (selected) 7f else 2f
-                            )
-                        )
-                    )
-                }
-            }
-            Spacer(Modifier.height(3.dp))
-            Text(
-                text = message ?: items.getOrNull(selectedIndex)?.detail.orEmpty(),
-                color = Color(0xFF1C350D),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 8.sp,
-                fontWeight = FontWeight.Bold,
-                lineHeight = 9.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "2/8 NAV   5 OK   * BACK",
-                color = Color(0xFF1A2C0D),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 7.sp,
-                fontWeight = FontWeight.Black,
-                lineHeight = 8.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Clip
             )
+            if (items.size > maxVisible) {
+                Text(
+                    text = "${selectedIndex + 1}/${items.size}",
+                    color = ink.copy(alpha = 0.72f),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = (screenHeight.value * 0.055f).sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = screenWidth * 0.03f),
+                    maxLines = 1
+                )
+            }
         }
+
+        visibleItems.forEachIndexed { visibleIndex, item ->
+            val selected = visibleIndex == visibleSelectedIndex
+            val rowTop = insetY + titleHeight + rowHeight * visibleIndex.toFloat()
+            Box(
+                modifier = Modifier
+                    .offset(x = insetX, y = rowTop)
+                    .size(width = screenWidth, height = rowHeight * 0.95f)
+            ) {
+                if (selected) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = screenWidth * 0.015f, vertical = rowHeight * 0.06f)
+                            .background(
+                                color = ink.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(rowHeight * 0.18f)
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = ink.copy(alpha = 0.85f),
+                                shape = RoundedCornerShape(rowHeight * 0.18f)
+                            )
+                    )
+                }
+                Text(
+                    text = item.glyph,
+                    color = ink,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = (rowHeight.value * 0.46f).sp,
+                    fontWeight = FontWeight.Black,
+                    lineHeight = (rowHeight.value * 0.48f).sp,
+                    modifier = Modifier
+                        .offset(x = screenWidth * 0.10f - rowHeight * 0.35f, y = rowHeight * 0.20f),
+                    maxLines = 1
+                )
+                Text(
+                    text = item.label,
+                    color = ink,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = (rowHeight.value * 0.40f).sp,
+                    fontWeight = if (selected) FontWeight.Black else FontWeight.ExtraBold,
+                    lineHeight = (rowHeight.value * 0.42f).sp,
+                    modifier = Modifier
+                        .offset(x = screenWidth * 0.20f, y = rowHeight * 0.11f)
+                        .width(screenWidth * 0.76f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (item.detail.isNotEmpty()) {
+                    Text(
+                        text = if (selected) message ?: item.detail else item.detail,
+                        color = ink.copy(alpha = if (selected) 0.92f else 0.58f),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = (rowHeight.value * 0.26f).sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = (rowHeight.value * 0.28f).sp,
+                        modifier = Modifier
+                            .offset(x = screenWidth * 0.20f, y = rowHeight * 0.55f)
+                            .width(screenWidth * 0.76f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        Text(
+            text = "2/8 SCROLL  5 OK  * BACK",
+            color = ink.copy(alpha = 0.78f),
+            fontFamily = FontFamily.Monospace,
+            fontSize = (screenHeight.value * 0.058f).sp,
+            fontWeight = FontWeight.Bold,
+            lineHeight = (screenHeight.value * 0.062f).sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .offset(x = insetX, y = insetY + screenHeight - footerHeight * 0.72f)
+                .size(width = screenWidth, height = footerHeight),
+            maxLines = 1,
+            overflow = TextOverflow.Clip
+        )
     }
 }
 
@@ -744,7 +900,7 @@ private fun PhoneScreenText(
     ) {
         Text(
             text = text,
-            color = Color(0xFF36FF2F),
+            color = PHONE_LCD_INK_COLOR,
             fontFamily = FontFamily.Monospace,
             fontSize = fontSize,
             fontWeight = FontWeight.Black,
@@ -761,9 +917,9 @@ private fun PhoneScreenText(
             },
             style = TextStyle(
                 shadow = Shadow(
-                    color = Color(0xFF36FF2F).copy(alpha = 0.9f),
+                    color = PHONE_LCD_INK_COLOR.copy(alpha = 0.26f),
                     offset = Offset.Zero,
-                    blurRadius = 12f
+                    blurRadius = 2f
                 )
             )
         )
@@ -855,7 +1011,7 @@ private fun DrawScope.drawPhoneSignalFrame(spriteSheet: ImageBitmap, frameIndex:
         srcSize = IntSize(sourceWidth, sourceHeight),
         dstOffset = IntOffset(dstLeft.roundToInt(), dstTop.roundToInt()),
         dstSize = IntSize(dstW.roundToInt(), dstH.roundToInt()),
-        blendMode = BlendMode.Darken
+        blendMode = BlendMode.SrcOver
     )
 }
 
@@ -1087,7 +1243,8 @@ private enum class PhoneMenuScreen {
 
 private data class PhoneMenuItem(
     val label: String,
-    val detail: String
+    val detail: String,
+    val glyph: String
 )
 
 private fun phoneMenuTitle(screen: PhoneMenuScreen): String {
@@ -1104,36 +1261,37 @@ private fun phoneMenuTitle(screen: PhoneMenuScreen): String {
 private fun phoneMenuItems(screen: PhoneMenuScreen, userName: String): List<PhoneMenuItem> {
     return when (screen) {
         PhoneMenuScreen.Main -> listOf(
-            PhoneMenuItem("Calls", "Make and manage calls"),
-            PhoneMenuItem("Contacts", "Saved Poplur friends"),
-            PhoneMenuItem("Texts", "Inbox and drafts"),
-            PhoneMenuItem("Games", "Classic phone games"),
-            PhoneMenuItem("Settings", "Ringtone and display")
+            PhoneMenuItem("Calls", "place and manage calls", "01"),
+            PhoneMenuItem("Contacts", "people on Poplur", "02"),
+            PhoneMenuItem("Texts", "inbox and drafts", "03"),
+            PhoneMenuItem("Games", "classic extras", "04"),
+            PhoneMenuItem("Settings", "tones and profile", "05"),
+            PhoneMenuItem("Exit", "close phone", "06")
         )
         PhoneMenuScreen.Calls -> listOf(
-            PhoneMenuItem("Call user", userName),
-            PhoneMenuItem("Recent calls", "No recent calls"),
-            PhoneMenuItem("Dial number", "Enter digits")
+            PhoneMenuItem("Call $userName", "start Poplur call", ">"),
+            PhoneMenuItem("Recent calls", "no missed calls", "R"),
+            PhoneMenuItem("Dial number", "keypad entry", "#")
         )
         PhoneMenuScreen.Contacts -> listOf(
-            PhoneMenuItem(userName, "Primary contact"),
-            PhoneMenuItem("Poplur Support", "Online soon"),
-            PhoneMenuItem("Add contact", "Coming soon")
+            PhoneMenuItem(userName, "Poplur contact", "A"),
+            PhoneMenuItem("Poplur Support", "online", "B"),
+            PhoneMenuItem("Add contact", "coming soon", "+")
         )
         PhoneMenuScreen.Texts -> listOf(
-            PhoneMenuItem("Inbox", "No new messages"),
-            PhoneMenuItem("Write message", "Composer soon"),
-            PhoneMenuItem("Drafts", "No drafts")
+            PhoneMenuItem("Inbox", "3 unread messages", "I"),
+            PhoneMenuItem("Write message", "compose SMS", "W"),
+            PhoneMenuItem("Drafts", "0 saved", "D")
         )
         PhoneMenuScreen.Games -> listOf(
-            PhoneMenuItem("Snake", "2/4/6/8 move"),
-            PhoneMenuItem("Memory", "Coming soon"),
-            PhoneMenuItem("Bounce", "Coming soon")
+            PhoneMenuItem("Snake", "press 5 to play", "S"),
+            PhoneMenuItem("Memory", "locked", "M"),
+            PhoneMenuItem("Bounce", "locked", "B")
         )
         PhoneMenuScreen.Settings -> listOf(
-            PhoneMenuItem("Ring tone", "Pop tone"),
-            PhoneMenuItem("Screen glow", "Maximum"),
-            PhoneMenuItem("About", "Poplur phone")
+            PhoneMenuItem("Ring tone", "classic pop", "T"),
+            PhoneMenuItem("Screen glow", "green", "G"),
+            PhoneMenuItem("About", "Poplur phone", "?")
         )
     }
 }
@@ -1218,6 +1376,35 @@ private fun formatCallDuration(seconds: Int): String {
     return "%d:%02d".format(minutes, remainingSeconds)
 }
 
+private data class PhoneFrameDp(
+    val width: Dp,
+    val height: Dp
+)
+
+private fun fittedPhoneFrame(
+    containerWidth: Dp,
+    containerHeight: Dp,
+    isXLSize: Boolean
+): PhoneFrameDp {
+    val aspect = PHONE_IMAGE_WIDTH / PHONE_IMAGE_HEIGHT
+    val horizontalInset = containerWidth * PHONE_HORIZONTAL_INSET_FRACTION
+    val availableWidth = maxDp(1.dp, containerWidth - horizontalInset * 2f)
+    val availableHeight = maxDp(1.dp, containerHeight)
+    val phoneWidth = if (isXLSize) {
+        maxDp(availableWidth, availableHeight * aspect)
+    } else {
+        val normalHeight = availableHeight * 0.65f
+        val normalWidth = normalHeight * aspect
+        minDp(normalWidth, availableWidth * 0.88f)
+    }
+    val phoneHeight = phoneWidth / aspect
+    return PhoneFrameDp(width = phoneWidth, height = phoneHeight)
+}
+
+private fun maxDp(a: Dp, b: Dp): Dp = if (a > b) a else b
+
+private fun minDp(a: Dp, b: Dp): Dp = if (a < b) a else b
+
 private fun playPhoneBootSound(context: Context) {
     try {
         val afd = context.assets.openFd("popular_phone_bootup.mp3")
@@ -1238,6 +1425,8 @@ private fun playPhoneBootSound(context: Context) {
 
 private const val PHONE_IMAGE_WIDTH = 1024f
 private const val PHONE_IMAGE_HEIGHT = 1536f
+private const val PHONE_HORIZONTAL_INSET_FRACTION = 0.0f
+private const val PHONE_XL_MODE_PREF_KEY = "poplur_phoneXLMode"
 private const val PHONE_SIGNAL_COLUMNS = 4
 private const val PHONE_SIGNAL_ROWS = 4
 private const val PHONE_SIGNAL_FRAME_COUNT = PHONE_SIGNAL_COLUMNS * PHONE_SIGNAL_ROWS
@@ -1251,7 +1440,7 @@ private const val PHONE_SCREEN_WIDTH_FRACTION = 0.520f
 private const val PHONE_SCREEN_HEIGHT_FRACTION = 0.245f
 private const val PHONE_SCREEN_CORNER_RADIUS_FRACTION = 0.040f
 private val PHONE_LCD_COLOR = Color(0xFFEFF100)
-private val PHONE_LCD_INK_COLOR = Color(0xFF0F1800)
+private val PHONE_LCD_INK_COLOR = Color(0xFF082903)
 // Battery indicator: mirrored to top-right of LCD, symmetric with signal at top-left
 private const val PHONE_BATTERY_LEFT_FRACTION = 0.600f
 private const val PHONE_BATTERY_TOP_FRACTION = 0.195f
@@ -1259,3 +1448,44 @@ private const val PHONE_BATTERY_WIDTH_FRACTION = 0.135f
 private const val PHONE_BATTERY_HEIGHT_FRACTION = 0.058f
 private const val SNAKE_COLUMNS = 16
 private const val SNAKE_ROWS = 10
+
+private fun triggerBootupVibration(context: Context) {
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val manager = context.getSystemService(VibratorManager::class.java) ?: return
+            val vibrator = manager.defaultVibrator
+            // Heavy double-thump then medium ticks
+            val timings = longArrayOf(0, 110, 70, 90, 80, 220, 70, 220, 70, 220, 70)
+            val amplitudes = intArrayOf(0, 255, 0, 220, 0, 160, 0, 140, 0, 120, 0)
+            vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
+        } else {
+            @Suppress("DEPRECATION")
+            val vibrator = context.getSystemService(Vibrator::class.java) ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val timings = longArrayOf(0, 110, 70, 90, 80, 220, 70, 220, 70, 220, 70)
+                val amplitudes = intArrayOf(0, 255, 0, 220, 0, 160, 0, 140, 0, 120, 0)
+                vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(longArrayOf(0, 110, 70, 90, 80, 220, 70, 220, 70, 220, 70), -1)
+            }
+        }
+    } catch (_: Exception) {}
+}
+
+private suspend fun triggerBootupTorchFlash(context: Context) {
+    try {
+        val cameraManager = context.getSystemService(CameraManager::class.java) ?: return
+        val cameraId = cameraManager.cameraIdList.firstOrNull { id ->
+            cameraManager.getCameraCharacteristics(id)
+                .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+        } ?: return
+        val pulses = listOf(90L to 130L, 70L to 0L)
+        for ((onMs, offMs) in pulses) {
+            cameraManager.setTorchMode(cameraId, true)
+            delay(onMs)
+            cameraManager.setTorchMode(cameraId, false)
+            if (offMs > 0) delay(offMs)
+        }
+    } catch (_: Exception) {}
+}

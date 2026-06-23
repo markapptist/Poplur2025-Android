@@ -1,3 +1,10 @@
 <resources>
-<style name="Theme.Poplur" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:windowLightStatusBar">true</item><item name="android:fontFamily">sans</item></style>
+    <style name="Theme.Poplur" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
+
+    <style name="Theme.Poplur.Starting" parent="Theme.Poplur">
+        <item name="android:windowBackground">@drawable/launch_screen</item>
+    </style>
 </resources>

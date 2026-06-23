@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.net.Uri
 import android.provider.MediaStore
-import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
@@ -25,12 +24,25 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -44,6 +56,7 @@ import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.FlipCameraAndroid
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Add
@@ -73,12 +86,23 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.apptists.poplur2025.data.DemoPostStore
+import com.apptists.poplur2025.data.LiveBroadcastLocation
+import com.apptists.poplur2025.data.TVStyleAnalyzer
+import com.apptists.poplur2025.data.TVStyleMetadata
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.ShaderNumberText
+import com.apptists.poplur2025.ui.components.poplurCountdownDisplayModifier
+import com.apptists.poplur2025.ui.components.poplurRadiusDisplayModifier
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face as MLFace
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -110,6 +134,8 @@ fun CameraScreen(
     var isLiveVideoActive by remember { mutableStateOf(false) }
     var liveVideoSeconds by remember { mutableIntStateOf(0) }
     var liveViewerCount by remember { mutableIntStateOf(128) }
+    var liveLocationName by remember { mutableStateOf<String?>(null) }
+    var showLiveLocationPicker by remember { mutableStateOf(false) }
     var captureInFlight by remember { mutableStateOf(false) }
     var selectedMedia by remember { mutableStateOf<Uri?>(null) }
     var selectedFilter by remember { mutableStateOf(ArFilter.Beauty) }
@@ -165,6 +191,9 @@ fun CameraScreen(
         if (isLiveVideoActive) {
             isLiveVideoActive = false
             liveVideoSeconds = 0
+            liveViewerCount = 0
+            liveLocationName = null
+            DemoPostStore.stopLocalLiveBroadcast()
             captureOutput = "Live ended"
         }
     }
@@ -289,15 +318,22 @@ fun CameraScreen(
         if (isLiveVideoActive) {
             stopLiveVideo()
         } else {
-            activeRecording?.stop()
-            activeRecording = null
-            recording = false
-            recordingSecondsRemaining = 0
-            liveVideoSeconds = 0
-            liveViewerCount = 128
-            isLiveVideoActive = true
-            captureOutput = "Live video"
+            showLiveLocationPicker = true
+            captureOutput = "Choose live location"
         }
+    }
+    val startLiveVideoAt: (LiveBroadcastLocation) -> Unit = { location ->
+        activeRecording?.stop()
+        activeRecording = null
+        recording = false
+        recordingSecondsRemaining = 0
+        liveVideoSeconds = 0
+        liveViewerCount = 128
+        liveLocationName = location.title
+        DemoPostStore.startLiveBroadcast(location, liveViewerCount)
+        isLiveVideoActive = true
+        showLiveLocationPicker = false
+        captureOutput = "Live from ${location.title}"
     }
 
     LaunchedEffect(Unit) {
@@ -582,10 +618,7 @@ fun CameraScreen(
         if (recording) {
             RecordingTimerBadge(
                 secondsRemaining = recordingSecondsRemaining,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .navigationBarsPadding()
-                    .padding(start = 24.dp, bottom = 88.dp)
+                modifier = poplurCountdownDisplayModifier()
             )
         }
 
@@ -593,10 +626,26 @@ fun CameraScreen(
             LiveVideoBadge(
                 seconds = liveVideoSeconds,
                 viewers = liveViewerCount,
+                locationName = liveLocationName,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
                     .padding(top = 18.dp)
+            )
+        }
+
+        if (showLiveLocationPicker) {
+            LiveLocationPickerSheet(
+                locations = DemoPostStore.liveLocationChoices,
+                onSelect = startLiveVideoAt,
+                onDismiss = {
+                    showLiveLocationPicker = false
+                    captureOutput = null
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 18.dp, vertical = 120.dp)
             )
         }
 
@@ -613,20 +662,17 @@ fun CameraScreen(
             )
         }
 
-        // Bottom Controls Row
+        // Gallery Thumbnail (Bottom Left)
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 48.dp, start = 32.dp, end = 20.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .align(Alignment.BottomStart)
+                .navigationBarsPadding()
+                .padding(start = 32.dp, bottom = 62.dp),
             verticalAlignment = Alignment.Bottom
         ) {
-            // Gallery Thumbnail (Bottom Left)
             if (!recording) {
                 Surface(
                     modifier = Modifier
-                        .padding(bottom = 14.dp)
                         .size(64.dp),
                     color = Color.Black.copy(alpha = .34f),
                     shape = RoundedCornerShape(12.dp),
@@ -637,18 +683,16 @@ fun CameraScreen(
                     }
                 }
             } else {
-                // Empty spacer to keep layout if needed, or just let RadiusDisplay align end
                 Spacer(Modifier.size(64.dp))
             }
-
-            // Radius (Bottom Right)
-            RadiusDisplay(
-                radius = 0,
-                totalRadius = 6371,
-                unit = "km",
-                modifier = Modifier.widthIn(min = 112.dp)
-            )
         }
+
+        RadiusDisplay(
+            radius = 0,
+            totalRadius = 6371,
+            unit = "km",
+            modifier = poplurRadiusDisplayModifier(Modifier.widthIn(min = 112.dp))
+        )
 
 
         selectedMedia?.let {
@@ -747,6 +791,7 @@ private fun RecordingTimerBadge(
 private fun LiveVideoBadge(
     seconds: Int,
     viewers: Int,
+    locationName: String?,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -791,9 +836,146 @@ private fun LiveVideoBadge(
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Black
             )
+            if (!locationName.isNullOrBlank()) {
+                Text(
+                    locationName,
+                    color = Color.White.copy(alpha = 0.76f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 112.dp)
+                )
+            }
         }
     }
 }
+
+@Composable
+private fun LiveLocationPickerSheet(
+    locations: List<LiveBroadcastLocation>,
+    onSelect: (LiveBroadcastLocation) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = Color.Transparent,
+        shape = RoundedCornerShape(24.dp),
+        shadowElevation = 18.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(24.dp))
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xF5080910),
+                            Color(0xF522050B),
+                            Color(0xF505221F)
+                        )
+                    )
+                )
+                .border(
+                    width = 1.5.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFFFF3333).copy(alpha = 0.85f),
+                            Color(0xFF18D8E8).copy(alpha = 0.52f),
+                            Color.White.copy(alpha = 0.18f)
+                        )
+                    ),
+                    shape = RoundedCornerShape(24.dp)
+                )
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color.Red.copy(alpha = 0.22f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = Color(0xFFFF3333),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Go Live",
+                        color = Color.White,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        "Choose where the live radius starts",
+                        color = Color.White.copy(alpha = 0.62f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                }
+            }
+
+            locations.take(6).forEach { location ->
+                Surface(
+                    onClick = { onSelect(location) },
+                    color = Color.White.copy(alpha = 0.08f),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .height(60.dp)
+                            .padding(horizontal = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.LocationOn,
+                            contentDescription = null,
+                            tint = Color(0xFF4DFF58),
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                location.title,
+                                color = Color.White,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Black,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                            Text(
+                                "${location.subtitle} - ${formatLiveRadius(location.radiusMeters)}",
+                                color = Color.White.copy(alpha = 0.58f),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatLiveRadius(radiusMeters: Int): String =
+    when {
+        radiusMeters >= 1_000_000 -> String.format(Locale.US, "%.1fM m", radiusMeters / 1_000_000f)
+        radiusMeters >= 1_000 -> String.format(Locale.US, "%.0fk m", radiusMeters / 1_000f)
+        else -> "$radiusMeters m"
+    }
 
 private fun formatLiveDuration(seconds: Int): String {
     val minutes = seconds / 60
@@ -801,87 +983,572 @@ private fun formatLiveDuration(seconds: Int): String {
     return String.format(Locale.US, "%d:%02d", minutes, remaining)
 }
 
+// MARK: - TV analysis state
+
+private sealed interface TVState {
+    object Idle : TVState
+    object Analyzing : TVState
+    data class Ready(val meta: TVStyleMetadata) : TVState
+    object Failed : TVState
+}
+
 @Composable
 fun CapturedOutputScreen(
     uri: Uri,
     isVideo: Boolean,
     onBack: () -> Unit,
-    onPost: () -> Unit = {}
+    continueLabel: String = "Next",
+    onContinue: () -> Unit = {}
 ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isVideo) {
-                AndroidView(
-                    factory = { context ->
-                        VideoView(context).apply {
-                            setVideoURI(uri)
-                            setOnPreparedListener { player ->
-                                player.isLooping = true
-                                player.setVolume(0.7f, 0.7f)
-                                start()
-                            }
-                        }
-                    },
-                    update = { view ->
-                        view.setVideoURI(uri)
-                        view.start()
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                AsyncImage(
-                    model = uri,
-                    contentDescription = "Captured photo",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                )
-            }
-        }
+        CapturedMediaPreview(uri = uri, isVideo = isVideo)
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = if (isVideo) "VIDEO OUTPUT" else "PHOTO OUTPUT",
-                color = Color.White,
-                fontWeight = FontWeight.Black,
-                fontSize = 14.sp,
-                letterSpacing = 1.sp
-            )
-        }
-
-        // Bottom Actions
+        // Bottom controls
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(horizontal = 24.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Button(
-                onClick = onPost,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(28.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+            // Action row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Post to Feed", fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.clickable { onBack() }
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Retake",
+                        tint = Color.White,
+                        modifier = Modifier.size(44.dp)
+                    )
+                    Text(
+                        "Retake",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.clickable { onContinue() }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = continueLabel,
+                        tint = Color(0xFFFF3838),
+                        modifier = Modifier.size(44.dp)
+                    )
+                    Text(
+                        continueLabel,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
-            
         }
     }
+}
+
+data class PostCaptureChannelOption(
+    val id: String,
+    val number: Int,
+    val emoji: String,
+    val title: String,
+    val subtitle: String
+)
+
+private data class PostCaptureFilterOption(
+    val id: String,
+    val title: String,
+    val colors: List<Color>
+)
+
+private val postCaptureFilters = listOf(
+    PostCaptureFilterOption("original", "Original", listOf(Color.Gray, Color.Black)),
+    PostCaptureFilterOption("pop", "Pop", listOf(Color(0xFFFF4FD8), Color(0xFFFFD91A))),
+    PostCaptureFilterOption("noir", "Noir", listOf(Color.White, Color.Black)),
+    PostCaptureFilterOption("chrome", "Chrome", listOf(Color(0xFF62F7FF), Color(0xFF8F3AEB))),
+    PostCaptureFilterOption("warm", "Warm", listOf(Color(0xFFFF8C1A), Color(0xFFFF3333))),
+    PostCaptureFilterOption("cool", "Cool", listOf(Color(0xFF2078FF), Color(0xFF4DFF58)))
+)
+
+val postCaptureChannels = listOf(
+    PostCaptureChannelOption("food", 101, "🍔", "Food", "Restaurants, recipes, cravings"),
+    PostCaptureChannelOption("gaming", 102, "🎮", "Gaming", "Streams, clips, wins"),
+    PostCaptureChannelOption("music", 103, "🎵", "Music", "Songs, shows, studios"),
+    PostCaptureChannelOption("city", 104, "🏙️", "City", "Local scenes and street moments"),
+    PostCaptureChannelOption("style", 105, "💄", "Style", "Beauty, fashion, looks"),
+    PostCaptureChannelOption("sports", 106, "⚽", "Sports", "Games, training, highlights"),
+    PostCaptureChannelOption("film", 107, "🎬", "Film", "Movies, edits, reviews"),
+    PostCaptureChannelOption("shopping", 108, "🛍️", "Shopping", "Finds, hauls, drops"),
+    PostCaptureChannelOption("french", 109, "🇫🇷", "French", "French-language broadcasts"),
+    PostCaptureChannelOption("spanish", 110, "🇪🇸", "Spanish", "Spanish-language broadcasts")
+)
+
+@Composable
+fun CapturedMediaEditorScreen(
+    uri: Uri,
+    isVideo: Boolean,
+    selectedFilterId: String,
+    trimSeconds: Float,
+    onFilterSelected: (String) -> Unit,
+    onTrimSecondsChanged: (Float) -> Unit,
+    onBack: () -> Unit,
+    onNext: () -> Unit
+) {
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        CapturedMediaPreview(uri = uri, isVideo = isVideo, filterId = selectedFilterId)
+
+        Column(Modifier.statusBarsPadding().padding(18.dp).align(Alignment.TopStart)) {
+            Surface(
+                onClick = onBack,
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.58f),
+                contentColor = Color.White
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(22.dp))
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("Edit capture", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .background(Color.Black.copy(alpha = 0.82f))
+                .padding(top = 18.dp, bottom = 26.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                postCaptureFilters.forEach { filter ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .width(68.dp)
+                            .clickable { onFilterSelected(filter.id) }
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(50.dp)
+                                .background(Brush.linearGradient(filter.colors), CircleShape)
+                                .border(
+                                    width = if (selectedFilterId == filter.id) 3.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (selectedFilterId == filter.id) {
+                                Text("✓", color = Color.White, fontWeight = FontWeight.Black)
+                            }
+                        }
+                        Spacer(Modifier.height(7.dp))
+                        Text(
+                            filter.title,
+                            color = Color.White.copy(alpha = if (selectedFilterId == filter.id) 1f else 0.7f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
+            if (isVideo) {
+                Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Trim", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
+                        Spacer(Modifier.weight(1f))
+                        Text("${trimSeconds.toInt()}s", color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = trimSeconds,
+                        onValueChange = { onTrimSecondsChanged(it.coerceIn(1f, 10f)) },
+                        valueRange = 1f..10f,
+                        steps = 8,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFFFF3838),
+                            activeTrackColor = Color(0xFFFF3838)
+                        )
+                    )
+                }
+            }
+
+            Button(
+                onClick = onNext,
+                shape = RoundedCornerShape(999.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)
+            ) {
+                Text("Pick Channel", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun CapturedChannelScreen(
+    uri: Uri,
+    isVideo: Boolean,
+    filterId: String,
+    trimSeconds: Float?,
+    onBack: () -> Unit,
+    onPosted: (PostCaptureChannelOption, TVStyleMetadata) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var selectedChannel by remember { mutableStateOf(postCaptureChannels.first()) }
+    var tvState by remember { mutableStateOf<TVState>(TVState.Idle) }
+    var isPosting by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        CapturedMediaPreview(uri = uri, isVideo = isVideo, filterId = filterId)
+        if (tvState is TVState.Analyzing) ScanningOverlay()
+        (tvState as? TVState.Ready)?.meta?.let { TVBroadcastOverlay(it) }
+
+        Column(Modifier.statusBarsPadding().padding(18.dp).align(Alignment.TopStart)) {
+            Surface(
+                onClick = onBack,
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.58f),
+                contentColor = Color.White
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(22.dp))
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("Choose channel", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .background(Color.Black.copy(alpha = 0.86f))
+                .padding(top = 16.dp, bottom = 26.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                postCaptureChannels.forEach { channel ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (selectedChannel == channel) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.07f),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable(enabled = !isPosting) { selectedChannel = channel }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(channel.emoji, fontSize = 27.sp, modifier = Modifier.width(42.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("CH ${channel.number}  ${channel.title}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                            Text(channel.subtitle, color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                        }
+                        if (selectedChannel == channel) {
+                            Text("✓", color = Color(0xFF4DFF58), fontWeight = FontWeight.Black)
+                        }
+                    }
+                }
+            }
+
+            Button(
+                enabled = !isPosting,
+                onClick = {
+                    isPosting = true
+                    tvState = TVState.Analyzing
+                    scope.launch {
+                        val meta = runCatching { TVStyleAnalyzer.analyze(context, uri, isVideo) }
+                            .getOrElse { fallbackTVMetadata(selectedChannel) }
+                        tvState = TVState.Ready(meta)
+                        delay(350)
+                        onPosted(selectedChannel, meta)
+                    }
+                },
+                shape = RoundedCornerShape(999.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3838), contentColor = Color.White),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)
+            ) {
+                if (isPosting) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text("AI is making Poplur TV...", fontWeight = FontWeight.Black)
+                } else {
+                    Text("Post to ${selectedChannel.title}", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CapturedMediaPreview(uri: Uri, isVideo: Boolean, filterId: String = "original") {
+    val context = LocalContext.current
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (isVideo) {
+            val player = remember(uri) {
+                ExoPlayer.Builder(context).build().apply {
+                    setMediaItem(MediaItem.fromUri(uri))
+                    repeatMode = Player.REPEAT_MODE_ONE
+                    volume = 0.7f
+                    prepare()
+                    playWhenReady = true
+                }
+            }
+            LaunchedEffect(player) { player.play() }
+            DisposableEffect(player) { onDispose { player.pause(); player.release() } }
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        setShutterBackgroundColor(android.graphics.Color.BLACK)
+                        this.player = player
+                    }
+                },
+                update = { view ->
+                    if (view.player !== player) view.player = player
+                    if (!player.isPlaying) player.play()
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            AsyncImage(
+                model = uri,
+                contentDescription = "Captured photo",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
+        }
+        CaptureFilterOverlay(filterId)
+    }
+}
+
+@Composable
+private fun CaptureFilterOverlay(filterId: String) {
+    val color = when (filterId) {
+        "pop" -> Color(0xFFFF4FD8).copy(alpha = 0.14f)
+        "noir" -> Color.Black.copy(alpha = 0.22f)
+        "chrome" -> Color(0xFF62F7FF).copy(alpha = 0.13f)
+        "warm" -> Color(0xFFFF8C1A).copy(alpha = 0.17f)
+        "cool" -> Color(0xFF2078FF).copy(alpha = 0.17f)
+        else -> Color.Transparent
+    }
+    if (color != Color.Transparent) {
+        Box(Modifier.fillMaxSize().background(color))
+    }
+}
+
+private fun fallbackTVMetadata(channel: PostCaptureChannelOption): TVStyleMetadata =
+    TVStyleMetadata(
+        channel = when (channel.id) {
+            "food" -> "food"
+            "music" -> "music"
+            "city" -> "city"
+            "sports" -> "sports"
+            "style" -> "fashion"
+            "film" -> "entertainment"
+            else -> "entertainment"
+        },
+        tvFormat = "highlight_reel",
+        adConcept = "${channel.title.lowercase(Locale.US)} local broadcast",
+        caption = "LOCAL SIGNAL",
+        tagline = "A fresh Poplur moment is now live from the map.",
+        broadcastName = "POPLUR ${channel.title.uppercase(Locale.US)}"
+    )
+
+// MARK: - TV Broadcast Overlay (composable)
+
+@Composable
+private fun TVBroadcastOverlay(meta: TVStyleMetadata) {
+    var lowerThirdVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(220)
+        lowerThirdVisible = true
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Vignette
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.42f)),
+                    center = Offset(size.width / 2f, size.height / 2f),
+                    radius = size.width * 0.85f
+                )
+            )
+        }
+
+        // Channel bug — top left
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(start = 16.dp, top = 10.dp)
+                .background(Color.Black.copy(alpha = 0.66f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Text(channelEmoji(meta.channel), fontSize = 14.sp)
+            Text(
+                meta.broadcastName.uppercase(),
+                color = Color.White,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.2.sp
+            )
+        }
+
+        // HD badge — top right
+        Text(
+            "HD",
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(end = 16.dp, top = 10.dp)
+                .background(Color.White.copy(alpha = 0.22f), RoundedCornerShape(3.dp))
+                .padding(horizontal = 5.dp, vertical = 3.dp),
+            color = Color.White,
+            fontSize = 8.sp,
+            fontWeight = FontWeight.Black
+        )
+
+        // Lower third — slides up
+        AnimatedVisibility(
+            visible = lowerThirdVisible,
+            enter = slideInVertically { it } + fadeIn(tween(380, easing = FastOutSlowInEasing)),
+            exit  = slideOutVertically { it } + fadeOut(tween(200)),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.80f))
+                        )
+                    )
+                    .padding(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 120.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    meta.caption.uppercase(),
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black,
+                    lineHeight = 24.sp,
+                    maxLines = 2
+                )
+                Text(
+                    meta.tagline,
+                    color = Color.White.copy(alpha = 0.84f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Scanning overlay
+
+@Composable
+private fun ScanningOverlay() {
+    val infiniteTransition = rememberInfiniteTransition(label = "scan")
+    val pulse by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.18f,
+        animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "pulse"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.54f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                for (i in 0..2) {
+                    val diameter = (40 + i * 24).dp
+                    Box(
+                        modifier = Modifier
+                            .size(diameter * pulse)
+                            .background(Color.Transparent, CircleShape)
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            drawCircle(
+                                color = Color.Red.copy(alpha = 0.55f - i * 0.14f),
+                                radius = size.minDimension / 2f,
+                                style = Stroke(width = 1.5.dp.toPx())
+                            )
+                        }
+                    }
+                }
+                Icon(
+                    Icons.Default.Add, // reuse icon slot — we just want a placeholder center mark
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Text(
+                "SCANNING BROADCAST",
+                color = Color.White.copy(alpha = 0.88f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 2.8.sp
+            )
+        }
+    }
+}
+
+// MARK: - Channel emoji helper
+
+private fun channelEmoji(channel: String): String = when (channel) {
+    "food"          -> "🍔"
+    "fitness"       -> "💪"
+    "sports"        -> "⚽"
+    "beauty"        -> "💄"
+    "fashion"       -> "👗"
+    "music"         -> "🎵"
+    "tech"          -> "💻"
+    "news"          -> "📺"
+    "city"          -> "🏙️"
+    "entertainment" -> "🎬"
+    else            -> "📡"
 }
 
 

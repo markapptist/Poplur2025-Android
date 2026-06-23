@@ -21,3 +21,10 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Poplur2025Android"
 include(":app")
+include(":wear")
+
+// Move build output outside iCloud-synced ~/Documents to prevent macOS
+// conflict-copy duplication (the "intermediates 2" / "compileDebugKotlin 2" problem).
+gradle.allprojects {
+    layout.buildDirectory.set(File("/tmp/poplur-android-build/${project.name}"))
+}

@@ -41,6 +41,8 @@ import androidx.fragment.app.FragmentContainerView
 import androidx.compose.ui.tooling.preview.Preview
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.ui.ConfettiAnimationFragment
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 
 @Composable
@@ -67,11 +69,16 @@ internal fun WelcomeAuthScreenContent(
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
-    val logoBitmap = remember {
-        runCatching {
-            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
-        }.getOrNull()
+    var logoBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    
+    LaunchedEffect(Unit) {
+        logoBitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+            }.getOrNull()
+        }
     }
+
     var welcomeAnimationStarted by remember { mutableStateOf(false) }
 
     LaunchedEffect(mode) {
@@ -102,10 +109,8 @@ internal fun WelcomeAuthScreenContent(
             val confettiContainerId = remember { android.view.View.generateViewId() }
             AndroidView(
                 factory = { ctx ->
-                    object : android.widget.FrameLayout(ctx) {
-                        override fun dispatchTouchEvent(ev: android.view.MotionEvent?) = false
-                        override fun onInterceptTouchEvent(ev: android.view.MotionEvent?) = false
-                    }.apply {
+                    android.util.Log.d("WelcomeAuthScreen", "Creating confetti layer wrapper")
+                    android.widget.FrameLayout(ctx).apply {
                         id = confettiContainerId
                         setBackgroundColor(0)
                         background = null

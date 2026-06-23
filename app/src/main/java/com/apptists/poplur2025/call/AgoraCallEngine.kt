@@ -28,6 +28,10 @@ object AgoraCallEngine {
 
     fun initialize(context: Context) {
         if (engine != null) return
+        if (AGORA_APP_ID == "YOUR_AGORA_APP_ID") {
+            android.util.Log.w("AgoraCallEngine", "Agora App ID is not configured. Call features will be disabled.")
+            return
+        }
         try {
             val config = RtcEngineConfig().apply {
                 mContext = context.applicationContext

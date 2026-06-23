@@ -10,6 +10,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import com.apptists.poplur2025.ui.components.ShaderNumberText
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -31,6 +33,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,6 +51,7 @@ fun UserInfoOverlay(
     channelNumber: Int,
     channelEmoji: String,
     channelCategory: String,
+    channelIconResId: Int? = null,
     modifier: Modifier = Modifier
 ) {
     var showChannel by remember { mutableStateOf(false) }
@@ -66,10 +71,12 @@ fun UserInfoOverlay(
             Spacer(Modifier.width(10.dp))
 
             AnimatedContent(
-                targetState = channelEmoji,
+                targetState = channelIconResId to channelEmoji,
                 transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(220)) },
                 label = "channel-emoji"
-            ) { emoji -> Text(emoji, fontSize = 32.sp) }
+            ) { (iconResId, emoji) ->
+                ChannelIcon(iconResId = iconResId, fallbackEmoji = emoji, size = 38)
+            }
 
             Spacer(Modifier.width(10.dp))
             Column {
@@ -83,14 +90,14 @@ fun UserInfoOverlay(
                     label = "channel-name"
                 ) { isChannel ->
                     if (isChannel) {
-                        Text(
+                        ShaderNumberText(
                             text = "CH $channelNumber",
                             color = channelGreen,
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Bold
                         )
                     } else {
-                        Text(
+                        ShaderNumberText(
                             text = displayName,
                             color = Color.White,
                             fontSize = 24.sp,
@@ -109,22 +116,37 @@ fun UserInfoOverlay(
                     label = "channel-sub"
                 ) { isChannel ->
                     if (isChannel) {
-                        Text(
+                        ShaderNumberText(
                             text = channelCategory.uppercase(),
                             color = channelGreen.copy(alpha = 0.82f),
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
                     } else {
-                        Text(
+                        ShaderNumberText(
                             text = location,
                             color = Color.White.copy(alpha = 0.9f),
-                            fontSize = 18.sp
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Normal
                         )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ChannelIcon(iconResId: Int?, fallbackEmoji: String, size: Int) {
+    if (iconResId != null) {
+        Image(
+            painter = painterResource(iconResId),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(size.dp)
+        )
+    } else {
+        Text(fallbackEmoji, fontSize = size.sp)
     }
 }
 
@@ -148,7 +170,7 @@ fun TrendingDisplay(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
+        ShaderNumberText(
             text = "TRENDING",
             color = contentColor.copy(alpha = 0.7f),
             letterSpacing = 1.4.sp,
@@ -164,11 +186,11 @@ fun TrendingDisplay(
                 .padding(vertical = 4.dp)
         )
         HorizontalDivider(
-            color = contentColor, 
-            thickness = 2.dp, 
+            color = contentColor,
+            thickness = 2.dp,
             modifier = Modifier.width(70.dp).padding(vertical = 4.dp)
         )
-        Text(
+        ShaderNumberText(
             text = NumberFormat.getNumberInstance(Locale.US).format(animatedPosts),
             color = contentColor,
             fontSize = 38.sp,
@@ -179,7 +201,7 @@ fun TrendingDisplay(
                 scaleY = countPulse
             }
         )
-        Text(
+        ShaderNumberText(
             text = "posts",
             color = contentColor,
             fontSize = 14.sp,
@@ -189,7 +211,7 @@ fun TrendingDisplay(
 }
 
 @Composable
-fun FeedVolumeBars(
+fun PoplurVolumeBars(
     modifier: Modifier = Modifier,
     volumeFraction: Float
 ) {
@@ -232,6 +254,17 @@ fun FeedVolumeBars(
             )
         }
     }
+}
+
+@Composable
+fun FeedVolumeBars(
+    modifier: Modifier = Modifier,
+    volumeFraction: Float
+) {
+    PoplurVolumeBars(
+        modifier = modifier,
+        volumeFraction = volumeFraction
+    )
 }
 
 @Composable

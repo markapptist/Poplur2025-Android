@@ -34,7 +34,7 @@ class CubeDebugFragment : GdxNavigationFragment() {
     var cornerRadius: Float = 92f
     var rotation: Float = -90f
     var opacity: Float = 1.0f
-    var selectedTexture: String = "Record"
+    var selectedTexture: String = "Camera"
     var onAdapterReady: (CombinedGdxAdapter) -> Unit = {}
 
     override fun onCreateView(
@@ -81,8 +81,8 @@ fun CubeDevelopmentScreen(onBack: () -> Unit = {}) {
     var cornerRadius by remember { mutableStateOf(92f) }
     var rotation by remember { mutableStateOf(-90f) }
     var opacity by remember { mutableStateOf(1.0f) }
-    var selectedTexture by remember { mutableStateOf("Record") }
-    val textures = listOf("Record", "Feed", "Profile", "Map")
+    var selectedTexture by remember { mutableStateOf("Camera") }
+    val textures = listOf("Map", "Camera", "Feed", "Profile")
     
     val containerId = remember { android.view.View.generateViewId() }
     val adapterRef = remember { mutableStateOf<CombinedGdxAdapter?>(null) }
@@ -206,7 +206,7 @@ fun CubeDevelopmentScreen(onBack: () -> Unit = {}) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
                                 imageVector = when(selectedTexture) {
-                                    "Record" -> Icons.Default.AddCircle
+                                    "Camera" -> Icons.Default.PhotoCamera
                                     "Feed" -> Icons.Default.List
                                     "Profile" -> Icons.Default.AccountCircle
                                     else -> Icons.Default.Place

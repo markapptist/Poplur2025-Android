@@ -42,18 +42,22 @@ import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
+import com.apptists.poplur2025.ui.components.poplurCountdownDisplayModifier
+import com.apptists.poplur2025.ui.components.poplurRadiusDisplayModifier
 
 private enum class ProfilePanel {
     Home,
     Notifications,
     Phone,
-    Store
+    Store,
+    Stats
 }
 
 enum class ProfileCubeMenuAction {
     Phone,
     Notifications,
     Store,
+    Stats,
     GoHome
 }
 
@@ -269,6 +273,7 @@ fun ProfileScreenContent(
                 activePanel = ProfilePanel.Notifications
             }
             ProfileCubeMenuAction.Store -> activePanel = ProfilePanel.Store
+            ProfileCubeMenuAction.Stats -> activePanel = ProfilePanel.Stats
             ProfileCubeMenuAction.GoHome -> activePanel = ProfilePanel.Home
             null -> Unit
         }
@@ -280,6 +285,7 @@ fun ProfileScreenContent(
                 ProfilePanel.Notifications -> "Alerts"
                 ProfilePanel.Phone -> "Phone"
                 ProfilePanel.Store -> "Store"
+                ProfilePanel.Stats -> "Stats"
                 ProfilePanel.Home -> null
             }
         )
@@ -312,6 +318,7 @@ fun ProfileScreenContent(
             onPurchase = { purchasedRadius += it },
             onBack = { activePanel = ProfilePanel.Home }
         )
+        ProfilePanel.Stats -> ProfileStatsScreen(profile = currentProfile)
         ProfilePanel.Home -> ProfileHome(
             profile = currentProfile,
             selectedTab = selectedTab,
@@ -390,13 +397,11 @@ private fun ProfileHome(
             postsCount = 0,
             radiusChange = 0,
             contentColor = Color.DarkGray,
-            modifier = Modifier
-                .padding(bottom = 48.dp, start = 20.dp)
-                .align(Alignment.BottomStart)
+            modifier = poplurCountdownDisplayModifier()
         )
         
         RadiusDisplay(
-            modifier = Modifier.padding(bottom = 48.dp, end = 20.dp).align(Alignment.BottomEnd),
+            modifier = poplurRadiusDisplayModifier(),
             radius = 56,
             unit = "mi",
             contentColor = Color.DarkGray

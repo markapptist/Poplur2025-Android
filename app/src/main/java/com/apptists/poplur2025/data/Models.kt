@@ -22,6 +22,7 @@ data class Post(
     val displayName: String = "",
     val userPostsCount: Int = 0,
     val caption: String = "",
+    val sourceLanguageCode: String = "en",
     val mediaUrl: String? = null,
     val videoUrl: String? = null,
     val latitude: Double? = null,
@@ -33,7 +34,23 @@ data class Post(
     val detectedObjects: List<String> = emptyList(),
     val radius: Int = 0,
     val totalRadius: Int = 0,
-    val radiusChange: Int = 0 // positive for up, negative for down
+    val radiusChange: Int = 0, // positive for up, negative for down
+    val channelId: String? = null,
+    val filterId: String? = null,
+    val tvBroadcastName: String? = null,
+    val videoTrimSeconds: Float? = null,
+    val isLiveStream: Boolean = false,
+    val liveStartedAtMillis: Long? = null,
+    val liveRadiusMeters: Int? = null
+)
+
+data class LiveBroadcastLocation(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val latitude: Double,
+    val longitude: Double,
+    val radiusMeters: Int
 )
 
 data class ChatUser(val id: String, val name: String, val avatarUrl: String? = null)
