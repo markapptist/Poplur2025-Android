@@ -1,0 +1,20 @@
+.gradle/
+build/
+app/build/
+wear/build/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+local.properties
+.idea/
+.DS_Store
+# Kotlin compiler cache
+.kotlin/
+# Secrets — never commit
+play-services-key.json
+keystore/
+*.jks
+*.keystore
+google-services-secret.json

@@ -1,0 +1,785 @@
+package com.apptists.poplur2025.ui.screens
+
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.CardGiftcard
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.tooling.preview.Preview
+import coil.compose.AsyncImage
+
+import com.apptists.poplur2025.R
+import com.apptists.poplur2025.auth.AuthViewModel
+import com.apptists.poplur2025.data.DemoPostStore
+import com.apptists.poplur2025.data.UserProfile
+import com.apptists.poplur2025.ui.components.RadiusDisplay
+import com.apptists.poplur2025.ui.components.TrendingDisplay
+import com.apptists.poplur2025.ui.components.poplurCountdownDisplayModifier
+import com.apptists.poplur2025.ui.components.poplurRadiusDisplayModifier
+
+private enum class ProfilePanel {
+    Home,
+    Notifications,
+    Phone,
+    Store,
+    Stats
+}
+
+enum class ProfileCubeMenuAction {
+    Phone,
+    Notifications,
+    Store,
+    Stats,
+    GoHome
+}
+
+data class ProfileCubeMenuCommand(
+    val id: Int,
+    val action: ProfileCubeMenuAction
+)
+
+private data class PoplurCreditCardProduct(
+    val id: String,
+    val name: String,
+    val price: String,
+    val material: String,
+    val delivery: String,
+    val accent: Color,
+    val frameResIds: List<Int>
+)
+
+private val PoplurCreditCardCatalog = listOf(
+    PoplurCreditCardProduct(
+        id = "cosmic-silver",
+        name = "Cosmic Silver",
+        price = "$29",
+        material = "star-polished graphite",
+        delivery = "Ships in 3-5 days",
+        accent = Color(0xFF8F9499),
+        frameResIds = listOf(
+            R.drawable.poplur_card_cosmic_silver_frame_01,
+            R.drawable.poplur_card_cosmic_silver_frame_02,
+            R.drawable.poplur_card_cosmic_silver_frame_03,
+            R.drawable.poplur_card_cosmic_silver_frame_04,
+            R.drawable.poplur_card_cosmic_silver_frame_05,
+            R.drawable.poplur_card_cosmic_silver_frame_06,
+            R.drawable.poplur_card_cosmic_silver_frame_07,
+            R.drawable.poplur_card_cosmic_silver_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "icy-aqua",
+        name = "Icy Aqua",
+        price = "$29",
+        material = "turquoise crystal",
+        delivery = "Ships in 3-5 days",
+        accent = Color(0xFF0DA8A8),
+        frameResIds = listOf(
+            R.drawable.poplur_card_icy_aqua_frame_01,
+            R.drawable.poplur_card_icy_aqua_frame_02,
+            R.drawable.poplur_card_icy_aqua_frame_03,
+            R.drawable.poplur_card_icy_aqua_frame_04,
+            R.drawable.poplur_card_icy_aqua_frame_05,
+            R.drawable.poplur_card_icy_aqua_frame_06,
+            R.drawable.poplur_card_icy_aqua_frame_07,
+            R.drawable.poplur_card_icy_aqua_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "champagne-gold",
+        name = "Champagne Gold",
+        price = "$35",
+        material = "gold glitter resin",
+        delivery = "Ships in 2-4 days",
+        accent = Color(0xFFDB8C1F),
+        frameResIds = listOf(
+            R.drawable.poplur_card_champagne_gold_frame_01,
+            R.drawable.poplur_card_champagne_gold_frame_02,
+            R.drawable.poplur_card_champagne_gold_frame_03,
+            R.drawable.poplur_card_champagne_gold_frame_04,
+            R.drawable.poplur_card_champagne_gold_frame_05,
+            R.drawable.poplur_card_champagne_gold_frame_06,
+            R.drawable.poplur_card_champagne_gold_frame_07,
+            R.drawable.poplur_card_champagne_gold_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "jet-black",
+        name = "Jet Black Onyx",
+        price = "$35",
+        material = "black starfield",
+        delivery = "Ships in 2-4 days",
+        accent = Color(0xFF101113),
+        frameResIds = listOf(
+            R.drawable.poplur_card_jet_black_onyx_frame_01,
+            R.drawable.poplur_card_jet_black_onyx_frame_02,
+            R.drawable.poplur_card_jet_black_onyx_frame_03,
+            R.drawable.poplur_card_jet_black_onyx_frame_04,
+            R.drawable.poplur_card_jet_black_onyx_frame_05,
+            R.drawable.poplur_card_jet_black_onyx_frame_06,
+            R.drawable.poplur_card_jet_black_onyx_frame_07,
+            R.drawable.poplur_card_jet_black_onyx_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "amethyst",
+        name = "Amethyst Purple",
+        price = "$39",
+        material = "faceted crystal",
+        delivery = "Limited finish",
+        accent = Color(0xFF7524C2),
+        frameResIds = listOf(
+            R.drawable.poplur_card_amethyst_purple_frame_01,
+            R.drawable.poplur_card_amethyst_purple_frame_02,
+            R.drawable.poplur_card_amethyst_purple_frame_03,
+            R.drawable.poplur_card_amethyst_purple_frame_04,
+            R.drawable.poplur_card_amethyst_purple_frame_05,
+            R.drawable.poplur_card_amethyst_purple_frame_06,
+            R.drawable.poplur_card_amethyst_purple_frame_07,
+            R.drawable.poplur_card_amethyst_purple_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "ruby",
+        name = "Ruby Red",
+        price = "$39",
+        material = "ruby sparkle",
+        delivery = "Limited finish",
+        accent = Color(0xFFB80514),
+        frameResIds = listOf(
+            R.drawable.poplur_card_ruby_red_frame_01,
+            R.drawable.poplur_card_ruby_red_frame_02,
+            R.drawable.poplur_card_ruby_red_frame_03,
+            R.drawable.poplur_card_ruby_red_frame_04,
+            R.drawable.poplur_card_ruby_red_frame_05,
+            R.drawable.poplur_card_ruby_red_frame_06,
+            R.drawable.poplur_card_ruby_red_frame_07,
+            R.drawable.poplur_card_ruby_red_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "emerald",
+        name = "Emerald Green",
+        price = "$39",
+        material = "emerald glitter",
+        delivery = "Limited finish",
+        accent = Color(0xFF007334),
+        frameResIds = listOf(
+            R.drawable.poplur_card_emerald_green_frame_01,
+            R.drawable.poplur_card_emerald_green_frame_02,
+            R.drawable.poplur_card_emerald_green_frame_03,
+            R.drawable.poplur_card_emerald_green_frame_04,
+            R.drawable.poplur_card_emerald_green_frame_05,
+            R.drawable.poplur_card_emerald_green_frame_06,
+            R.drawable.poplur_card_emerald_green_frame_07,
+            R.drawable.poplur_card_emerald_green_frame_08
+        )
+    ),
+    PoplurCreditCardProduct(
+        id = "sapphire",
+        name = "Sapphire Blue",
+        price = "$39",
+        material = "sapphire crystal",
+        delivery = "Limited finish",
+        accent = Color(0xFF0830B8),
+        frameResIds = listOf(
+            R.drawable.poplur_card_sapphire_blue_frame_01,
+            R.drawable.poplur_card_sapphire_blue_frame_02,
+            R.drawable.poplur_card_sapphire_blue_frame_03,
+            R.drawable.poplur_card_sapphire_blue_frame_04,
+            R.drawable.poplur_card_sapphire_blue_frame_05,
+            R.drawable.poplur_card_sapphire_blue_frame_06,
+            R.drawable.poplur_card_sapphire_blue_frame_07,
+            R.drawable.poplur_card_sapphire_blue_frame_08
+        )
+    )
+)
+
+@Composable
+fun ProfileScreen(
+    profile: UserProfile = UserProfile(),
+    authViewModel: AuthViewModel? = null,
+    onOpenSettings: () -> Unit = {},
+    onOpenMessages: () -> Unit = {},
+    cubeMenuCommand: ProfileCubeMenuCommand? = null,
+    onProfilePanelIconChanged: (String?) -> Unit = {},
+    onPhoneCallVisibilityChanged: (Boolean) -> Unit = {},
+    onColorwaySelected: (Color) -> Unit = {},
+    forcedColorway: Color? = null
+) {
+    ProfileScreenContent(
+        profile = profile,
+        onOpenSettings = onOpenSettings,
+        onOpenMessages = onOpenMessages,
+        cubeMenuCommand = cubeMenuCommand,
+        onProfilePanelIconChanged = onProfilePanelIconChanged,
+        onPhoneCallVisibilityChanged = onPhoneCallVisibilityChanged,
+        onColorwaySelected = onColorwaySelected,
+        forcedColorway = forcedColorway
+    )
+}
+
+@Composable
+fun ProfileScreenContent(
+    profile: UserProfile = UserProfile(),
+    onOpenSettings: () -> Unit = {},
+    onOpenMessages: () -> Unit = {},
+    cubeMenuCommand: ProfileCubeMenuCommand? = null,
+    onProfilePanelIconChanged: (String?) -> Unit = {},
+    onPhoneCallVisibilityChanged: (Boolean) -> Unit = {},
+    onColorwaySelected: (Color) -> Unit = {},
+    forcedColorway: Color? = null
+) {
+    var selectedTab by remember { mutableIntStateOf(0) }
+    var currentProfile by remember { mutableStateOf(profile) }
+    var isEditing by remember { mutableStateOf(false) }
+    var activePanel by remember { mutableStateOf(ProfilePanel.Home) }
+    var hasUncheckedNotifications by remember { mutableStateOf(true) }
+    var purchasedRadius by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(cubeMenuCommand?.id) {
+        when (cubeMenuCommand?.action) {
+            ProfileCubeMenuAction.Phone -> activePanel = ProfilePanel.Phone
+            ProfileCubeMenuAction.Notifications -> {
+                hasUncheckedNotifications = false
+                activePanel = ProfilePanel.Notifications
+            }
+            ProfileCubeMenuAction.Store -> activePanel = ProfilePanel.Store
+            ProfileCubeMenuAction.Stats -> activePanel = ProfilePanel.Stats
+            ProfileCubeMenuAction.GoHome -> activePanel = ProfilePanel.Home
+            null -> Unit
+        }
+    }
+
+    LaunchedEffect(activePanel) {
+        onProfilePanelIconChanged(
+            when (activePanel) {
+                ProfilePanel.Notifications -> "Alerts"
+                ProfilePanel.Phone -> "Phone"
+                ProfilePanel.Store -> "Store"
+                ProfilePanel.Stats -> "Stats"
+                ProfilePanel.Home -> null
+            }
+        )
+    }
+
+    if (isEditing) {
+        EditProfileScreen(
+            profile = currentProfile,
+            onSave = { updated, _ -> 
+                currentProfile = updated
+                isEditing = false 
+            },
+            onDismiss = { isEditing = false }
+        )
+    } else when (activePanel) {
+        ProfilePanel.Notifications -> ProfileNotificationsPanel(
+            onBack = { activePanel = ProfilePanel.Home },
+            onMarkRead = { hasUncheckedNotifications = false }
+        )
+        ProfilePanel.Phone -> PopularPhoneCallScreen(
+            userName = "Poplur Phone",
+            onHangUp = { activePanel = ProfilePanel.Home },
+            onVisibilityChanged = onPhoneCallVisibilityChanged,
+            onMiddleButtonClick = { activePanel = ProfilePanel.Home },
+            onColorwaySelected = onColorwaySelected,
+            forcedColorway = forcedColorway
+        )
+        ProfilePanel.Store -> ProfileStorePanel(
+            purchasedRadius = purchasedRadius,
+            onPurchase = { purchasedRadius += it },
+            onBack = { activePanel = ProfilePanel.Home }
+        )
+        ProfilePanel.Stats -> ProfileStatsScreen(profile = currentProfile)
+        ProfilePanel.Home -> ProfileHome(
+            profile = currentProfile,
+            selectedTab = selectedTab,
+            onTab = { selectedTab = it },
+            onOpenSettings = onOpenSettings,
+            onOpenMessages = onOpenMessages,
+            hasUncheckedNotifications = hasUncheckedNotifications,
+            onOpenNotifications = {
+                hasUncheckedNotifications = false
+                activePanel = ProfilePanel.Notifications
+            },
+            onOpenPhone = { activePanel = ProfilePanel.Phone },
+            onOpenStore = { activePanel = ProfilePanel.Store },
+            onEdit = { isEditing = true }
+        )
+    }
+}
+
+@Composable
+private fun ProfileHome(
+    profile: UserProfile,
+    selectedTab: Int,
+    onTab: (Int) -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenMessages: () -> Unit,
+    hasUncheckedNotifications: Boolean,
+    onOpenNotifications: () -> Unit,
+    onOpenPhone: () -> Unit,
+    onOpenStore: () -> Unit,
+    onEdit: () -> Unit
+) {
+    Box(Modifier.fillMaxSize().background(Color.White)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            AsyncImage(
+                model = profile.avatarUrl,
+                contentDescription = "Avatar",
+                modifier = Modifier.size(96.dp).clip(CircleShape).background(Color.Gray),
+                contentScale = ContentScale.Crop
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    profile.displayName.uppercase(), 
+                    fontSize = 30.sp, 
+                    fontWeight = FontWeight.Black, 
+                    color = Color.Black
+                )
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    Icons.Default.Edit,
+                    contentDescription = "Edit Profile",
+                    tint = Color.Gray,
+                    modifier = Modifier.size(20.dp).clickable { onEdit() }
+                )
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 22.dp), horizontalArrangement = Arrangement.Center) {
+                ProfileTabItem("Media", selectedTab == 0) { onTab(0) }
+                Spacer(Modifier.width(56.dp))
+                ProfileTabItem("Messages", isSelected = false, onClick = onOpenMessages)
+            }
+            Spacer(Modifier.height(18.dp))
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentPadding = PaddingValues(start = 22.dp, end = 22.dp, bottom = 300.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(DemoPostStore.posts) { post -> MediaItem(post.mediaUrl ?: post.videoUrl, post.radius) }
+            }
+        }
+
+        TrendingDisplay(
+            postsCount = 0,
+            radiusChange = 0,
+            contentColor = Color.DarkGray,
+            modifier = poplurCountdownDisplayModifier()
+        )
+        
+        RadiusDisplay(
+            modifier = poplurRadiusDisplayModifier(),
+            radius = 56,
+            unit = "mi",
+            contentColor = Color.DarkGray
+        )
+    }
+}
+
+@Composable
+private fun ProfileHeaderActionIcon(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    showBadge: Boolean = false
+) {
+    IconButton(onClick = onClick, modifier = Modifier.size(44.dp)) {
+        BadgedBox(
+            badge = {
+                if (showBadge) {
+                    Badge(containerColor = Color.Red)
+                }
+            }
+        ) {
+            Icon(
+                icon,
+                contentDescription,
+                tint = Color.DarkGray,
+                modifier = Modifier.size(28.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileNotificationsPanel(
+    onBack: () -> Unit,
+    onMarkRead: () -> Unit
+) {
+    LaunchedEffect(Unit) {
+        onMarkRead()
+    }
+
+    val items = listOf(
+        Triple("Post liked", "Your latest post picked up new likes.", Icons.Default.Email),
+        Triple("Post radius jumped", "One of your posts expanded significantly in the last hour.", Icons.Default.CardGiftcard),
+        Triple("Accumulated radius dipped", "Your total radius is down from the previous check.", Icons.Default.CardGiftcard)
+    )
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .statusBarsPadding()
+            .padding(20.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Notifications", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Color.Black)
+        }
+        Spacer(Modifier.height(18.dp))
+        items.forEachIndexed { index, item ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.Black.copy(alpha = 0.05f))
+                    .padding(16.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                BadgedBox(
+                    badge = {
+                        if (index < 2) Badge(containerColor = Color.Red)
+                    }
+                ) {
+                    Surface(shape = CircleShape, color = Color(0xFFEFF4FF), modifier = Modifier.size(48.dp)) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(item.third, null, tint = Color(0xFF3E63DD), modifier = Modifier.size(22.dp))
+                        }
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
+                Column {
+                    Text(item.first, fontSize = 17.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                    Text(item.second, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.Black.copy(alpha = 0.58f))
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun ProfileStorePanel(
+    purchasedRadius: Int,
+    onPurchase: (Int) -> Unit,
+    onBack: () -> Unit
+) {
+    val packages = listOf(
+        Triple("Starter Radius", 5_000, "$1.99"),
+        Triple("City Boost", 25_000, "$4.99"),
+        Triple("World Push", 100_000, "$9.99")
+    )
+    var selectedCardId by remember { mutableStateOf(PoplurCreditCardCatalog.first().id) }
+    var orderMessage by remember { mutableStateOf<String?>(null) }
+    val selectedCard = PoplurCreditCardCatalog.firstOrNull { it.id == selectedCardId } ?: PoplurCreditCardCatalog.first()
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f)) {
+                Text("Poplur Store", fontSize = 30.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Shop World Service cards, collectible finishes, and radius boosts.",
+                    color = Color.Black.copy(alpha = 0.58f),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Surface(shape = CircleShape, color = Color.Black, modifier = Modifier.size(40.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text("P", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                }
+            }
+        }
+        Spacer(Modifier.height(22.dp))
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color.Black.copy(alpha = 0.045f))
+                .padding(16.dp)
+        ) {
+            AnimatedPoplurCard(
+                product = selectedCard,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(18.dp, RoundedCornerShape(18.dp), clip = false)
+            )
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Text(selectedCard.name, fontSize = 23.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Poplur World Service members card in ${selectedCard.material}.",
+                        color = Color.Black.copy(alpha = 0.62f),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Text(selectedCard.price, fontSize = 24.sp, fontWeight = FontWeight.Black, color = Color.Black)
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StoreBadge("Contactless")
+                StoreBadge("Numbered")
+                StoreBadge(selectedCard.delivery)
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+
+        Text("Choose a finish", fontSize = 18.sp, fontWeight = FontWeight.Black, color = Color.Black)
+        Spacer(Modifier.height(12.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        ) {
+            PoplurCreditCardCatalog.forEach { product ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .width(76.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { selectedCardId = product.id }
+                        .padding(vertical = 4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(product.accent)
+                            .border(
+                                width = if (selectedCardId == product.id) 3.dp else 0.dp,
+                                color = if (selectedCardId == product.id) Color.Black else Color.Transparent,
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selectedCardId == product.id) {
+                            Text("✓", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    Text(product.name.substringBefore(" "), fontSize = 12.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+
+        PoplurCreditCardCatalog.chunked(2).forEach { rowProducts ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                rowProducts.forEach { product ->
+                    PoplurCreditCardProductTile(
+                        product = product,
+                        selected = selectedCardId == product.id,
+                        onClick = { selectedCardId = product.id },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (rowProducts.size == 1) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color.Black.copy(alpha = 0.045f))
+                .padding(16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Order summary", fontSize = 18.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                    Text("1 Poplur card - ${selectedCard.name}", color = Color.Black.copy(alpha = 0.58f), fontWeight = FontWeight.SemiBold)
+                }
+                Text(selectedCard.price, fontSize = 20.sp, fontWeight = FontWeight.Black, color = Color.Black)
+            }
+            Spacer(Modifier.height(12.dp))
+            Divider(color = Color.Black.copy(alpha = 0.12f))
+            Spacer(Modifier.height(12.dp))
+            Row {
+                Text("Estimated shipping", color = Color.Black.copy(alpha = 0.58f), fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.weight(1f))
+                Text("Free", color = Color(0xFF178A3D), fontWeight = FontWeight.Black)
+            }
+            Spacer(Modifier.height(14.dp))
+            Button(
+                onClick = { orderMessage = "${selectedCard.name} card is ready for checkout." },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+            ) {
+                Text("Buy ${selectedCard.name}", fontWeight = FontWeight.Black)
+            }
+            orderMessage?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(it, color = selectedCard.accent, fontWeight = FontWeight.Black)
+            }
+        }
+
+        Spacer(Modifier.height(22.dp))
+        Text("Add radius", fontSize = 20.sp, fontWeight = FontWeight.Black, color = Color.Black)
+        Spacer(Modifier.height(6.dp))
+        Text("Boost your Poplur reach after choosing a card.", color = Color.Black.copy(alpha = 0.58f), fontWeight = FontWeight.SemiBold)
+        if (purchasedRadius > 0) {
+            Spacer(Modifier.height(10.dp))
+            Text("Purchased radius: ${purchasedRadius / 1000} km", color = Color(0xFF178A3D), fontWeight = FontWeight.Black)
+        }
+        Spacer(Modifier.height(14.dp))
+        packages.forEach { item ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.Black.copy(alpha = 0.05f))
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(shape = CircleShape, color = Color(0xFFE9F8EE), modifier = Modifier.size(48.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.AttachMoney, null, tint = Color(0xFF178A3D), modifier = Modifier.size(24.dp))
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(item.first, fontSize = 17.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                    Text("+${item.second / 1000} km", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.Black.copy(alpha = 0.58f))
+                }
+                Button(onClick = { onPurchase(item.second) }) {
+                    Text(item.third, fontWeight = FontWeight.Black)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+@Composable
+private fun AnimatedPoplurCard(
+    product: PoplurCreditCardProduct,
+    modifier: Modifier = Modifier
+) {
+    Image(
+        painter = painterResource(product.frameResIds.first()),
+        contentDescription = product.name,
+        contentScale = ContentScale.FillBounds,
+        modifier = modifier
+            .aspectRatio(482f / 320f)
+            .clip(RoundedCornerShape(18.dp))
+    )
+}
+
+@Composable
+private fun PoplurCreditCardProductTile(
+    product: PoplurCreditCardProduct,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(18.dp)
+    Column(
+        modifier
+            .clip(shape)
+            .background(Color.Black.copy(alpha = if (selected) 0.075f else 0.035f))
+            .border(2.dp, if (selected) product.accent else Color.Transparent, shape)
+            .clickable(onClick = onClick)
+            .padding(12.dp)
+    ) {
+        AnimatedPoplurCard(product = product, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(10.dp))
+        Text(product.name, fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color.Black)
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(product.price, fontSize = 15.sp, fontWeight = FontWeight.Black, color = Color.Black)
+            Spacer(Modifier.weight(1f))
+            Text(if (selected) "✓" else "+", color = if (selected) product.accent else Color.Black.copy(alpha = 0.72f), fontSize = 20.sp, fontWeight = FontWeight.Black)
+        }
+    }
+}
+
+@Composable
+private fun StoreBadge(text: String) {
+    Surface(shape = CircleShape, color = Color.White.copy(alpha = 0.88f)) {
+        Text(
+            text = text,
+            color = Color.Black,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+        )
+    }
+}
+
+@Composable
+fun ProfileTabItem(text: String, isSelected: Boolean, onClick: () -> Unit) {
+    Column(modifier = Modifier.clickable { onClick() }, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text, fontSize = 20.sp, fontWeight = FontWeight.Black, color = if (isSelected) Color.Black else Color(0xFF222222))
+        if (isSelected) Spacer(Modifier.height(4.dp))
+        if (isSelected) Box(Modifier.width(48.dp).height(3.dp).background(Color(0xFF7B61FF), RoundedCornerShape(2.dp)))
+    }
+}
+
+@Composable
+fun MediaItem(url: String? = null, radius: Int = 5000) {
+    Box(Modifier.aspectRatio(1f).clip(RoundedCornerShape(18.dp)).background(Color.DarkGray)) {
+        AsyncImage(model = url, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Surface(modifier = Modifier.padding(8.dp).align(Alignment.BottomStart), color = Color.Black.copy(alpha = 0.5f), shape = RoundedCornerShape(12.dp)) {
+            Text("${radius / 1000} KM", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ProfileScreenPreview() {
+    MaterialTheme {
+        ProfileScreenContent(profile = UserProfile())
+    }
+}

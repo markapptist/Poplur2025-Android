@@ -1,0 +1,53 @@
+# Gradle
+.gradle/
+build/
+*/build/
+
+# Local configuration
+local.properties
+*.iml
+.idea/
+.DS_Store
+
+# Android Studio
+.cxx/
+.externalNativeBuild/
+captures/
+.navigation/
+*.apk
+*.ap_
+*.aab
+
+# Kotlin / Java
+*.class
+*.jar
+*.war
+*.ear
+
+# Java heap dumps / crash dumps
+*.hprof
+java_pid*.hprof
+hs_err_pid*
+replay_pid*
+
+# Logs
+*.log
+
+# Keystore files - do not commit signing keys
+*.jks
+*.keystore
+
+# Generated files
+bin/
+gen/
+out/
+
+# NDK
+obj/
+
+# Google services / secrets
+google-services.json
+secrets.properties
+
+# OS files
+Thumbs.db
