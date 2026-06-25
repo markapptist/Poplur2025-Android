@@ -7,6 +7,9 @@ import android.graphics.Color as AndroidColor
 import android.graphics.drawable.ColorDrawable
 import android.os.BatteryManager
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.animateColorAsState
@@ -21,13 +24,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -48,12 +54,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.fragment.app.FragmentActivity
+import androidx.fragment.app.FragmentManager
+import androidx.fragment.app.FragmentTransaction
+import com.badlogic.gdx.backends.android.AndroidFragmentApplication
 import androidx.compose.material3.Text
 import com.google.android.gms.wearable.DataClient
 import com.google.android.gms.wearable.DataEvent
@@ -61,10 +73,21 @@ import com.google.android.gms.wearable.DataEventBuffer
 import com.google.android.gms.wearable.DataMap
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.Wearable
+import com.apptists.poplur2025.wear.gdx.GlobeGdxFragment
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.graphics.BitmapFactory
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
@@ -73,10 +96,15 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setBackgroundDrawable(ColorDrawable(AndroidColor.BLACK))
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        )
         setContent {
             val context = LocalContext.current
             val store = remember { WatchRadiusStore(context.applicationContext) }
@@ -86,6 +114,10 @@ class MainActivity : ComponentActivity() {
             }
             RadiusWatchScreen(store = store)
         }
+    }
+
+    override fun exit() {
+        finish()
     }
 }
 
@@ -243,75 +275,225 @@ private fun RadiusWatchScreen(store: WatchRadiusStore) {
         }
     }
 
-    BoxWithConstraints(
+    var isShowingStatic by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        isShowingStatic = true
+                        val player = playStaticSound(context)
+                        val released = tryAwaitRelease()
+                        isShowingStatic = false
+                        runCatching { player?.stop() }
+                        player?.release()
+                        if (released) showKm = !showKm
+                    }
+                )
+            }
     ) {
-        val w = maxWidth
-        val h = maxHeight
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .padding(horizontal = 24.dp, vertical = 20.dp)
+        ) {
+            val w = maxWidth
+            val h = maxHeight
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            // ── Header ──────────────────────────────────────────────────
-            LCDHeader(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(h * 0.115f)
-            )
-
-            // ── Globe + data ─────────────────────────────────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(h * 0.635f)
-            ) {
-                // Globe (54%)
-                GlobeTrendView(
-                    trend = store.trend,
-                    globePhase = globePhase,
-                    arrowPhase = arrowPhase,
+            Column(modifier = Modifier.fillMaxSize()) {
+                // ── Header ──────────────────────────────────────────────────
+                LCDHeader(
                     modifier = Modifier
-                        .width(w * 0.54f)
-                        .height(h * 0.635f)
+                        .fillMaxWidth()
+                        .height(h * 0.13f)
                 )
-                // Data column (46%)
-                DataColumn(
+
+                // ── Globe + data ─────────────────────────────────────────────
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(h * 0.60f)
+                ) {
+                    // Globe (54%)
+                    GdxGlobeView(
+                        trend = store.trend,
+                        modifier = Modifier
+                            .width(w * 0.54f)
+                            .fillMaxHeight()
+                    )
+                    // Data column (46%)
+                    DataColumn(
+                        store = store,
+                        showKm = showKm,
+                        modifier = Modifier
+                            .width(w * 0.46f)
+                            .fillMaxHeight()
+                    )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                // ── Tab bar ──────────────────────────────────────────────────
+                Canvas(modifier = Modifier
+                    .fillMaxWidth()
+                    .height(0.5.dp)) {
+                    drawLine(LcdDivider, Offset(0f, 0f), Offset(size.width, 0f))
+                }
+                TabBar(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(h * 0.12f)
+                )
+
+                // ── Stats bar ────────────────────────────────────────────────
+                Canvas(modifier = Modifier
+                    .fillMaxWidth()
+                    .height(0.5.dp)) {
+                    drawLine(LcdDivider, Offset(0f, 0f), Offset(size.width, 0f))
+                }
+                StatsBar(
                     store = store,
-                    showKm = showKm,
                     modifier = Modifier
-                        .width(w * 0.46f)
-                        .height(h * 0.635f)
+                        .fillMaxWidth()
+                        .height(h * 0.11f)
                 )
             }
+        }
 
-            Spacer(modifier = Modifier.weight(1f))
+        if (isShowingStatic) {
+            StaticOverlay(modifier = Modifier.fillMaxSize())
+        }
+    }
+}
 
-            // ── Tab bar ──────────────────────────────────────────────────
-            Canvas(modifier = Modifier
-                .fillMaxWidth()
-                .height(0.5.dp)) {
-                drawLine(LcdDivider, Offset(0f, 0f), Offset(size.width, 0f))
+// ── Static overlay ───────────────────────────────────────────────────────────
+
+@Composable
+private fun StaticOverlay(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val logoBitmap: ImageBitmap? = remember(context) {
+        runCatching {
+            context.assets.open("poplur_logo.png").use {
+                BitmapFactory.decodeStream(it)?.asImageBitmap()
             }
-            TabBar(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(h * 0.115f)
-            )
+        }.getOrNull()
+    }
 
-            // ── Stats bar ────────────────────────────────────────────────
-            Canvas(modifier = Modifier
-                .fillMaxWidth()
-                .height(0.5.dp)) {
-                drawLine(LcdDivider, Offset(0f, 0f), Offset(size.width, 0f))
+    // Increment seed every 50ms to animate the noise (~20fps)
+    var noiseSeed by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(50L)
+            noiseSeed++
+        }
+    }
+
+    // Pulse scale for the logo
+    val pulseTransition = rememberInfiniteTransition(label = "pulse")
+    val pulseScale by pulseTransition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(550, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulseScale"
+    )
+
+    Canvas(modifier = modifier) {
+        // TV static noise — each noiseSeed change redraws this canvas
+        val block = 4f
+        val cols = (size.width / block).toInt() + 1
+        val rows = (size.height / block).toInt() + 1
+        var s = (noiseSeed.toLong() xor 6_364_136_223_846_793_005L) and 0x7FFF_FFFF_FFFF_FFFFL
+        for (row in 0 until rows) {
+            for (col in 0 until cols) {
+                s = (s * 6_364_136_223_846_793_005L + 1_442_695_040_888_963_407L) and 0x7FFF_FFFF_FFFF_FFFFL
+                val v = (s ushr 33).toFloat() / 0x7FFF_FFFFL.toFloat()
+                drawRect(
+                    color = Color(v, v, v, 0.90f),
+                    topLeft = Offset(col * block, row * block),
+                    size = Size(block, block)
+                )
             }
-            StatsBar(
-                store = store,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(h * 0.105f)
+        }
+
+        // Poplur logo — circle-clipped, pulsing
+        val bmp = logoBitmap ?: return@Canvas
+        val logoSize = 68.dp.toPx() * pulseScale
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        val r = logoSize / 2f
+        val circlePath = Path().apply {
+            addOval(Rect(cx - r, cy - r, cx + r, cy + r))
+        }
+        clipPath(circlePath) {
+            drawImage(
+                image = bmp,
+                dstOffset = IntOffset((cx - r).roundToInt(), (cy - r).roundToInt()),
+                dstSize = IntSize(logoSize.roundToInt(), logoSize.roundToInt())
             )
         }
     }
+}
+
+// ── Static sound ─────────────────────────────────────────────────────────────
+
+private fun playStaticSound(context: Context): MediaPlayer? {
+    val sampleRate = 22_050
+    val numSamples = sampleRate * 650 / 1000  // 650ms
+    val rng = java.util.Random()
+    val samples = ShortArray(numSamples) { i ->
+        val fadeIn  = minOf(1.0, i / 440.0)
+        val fadeOut = minOf(1.0, (numSamples - i) / 880.0)
+        val env     = fadeIn * fadeOut
+        (rng.nextGaussian() * 0.62 * env * 32767.0)
+            .toInt().coerceIn(-32768, 32767).toShort()
+    }
+    return try {
+        val file = java.io.File(context.cacheDir, "poplur_static.wav")
+        file.writeBytes(encodeWav(samples, sampleRate))
+        MediaPlayer().apply {
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build()
+            )
+            setDataSource(file.absolutePath)
+            setVolume(0.65f, 0.65f)
+            prepare()   // synchronous; fine for a local cache file
+            start()
+        }
+    } catch (e: Exception) {
+        android.util.Log.e("PoplurWear", "Static sound failed", e)
+        null
+    }
+}
+
+private fun encodeWav(samples: ShortArray, sampleRate: Int): ByteArray {
+    val dataBytes = samples.size * 2
+    return java.nio.ByteBuffer
+        .allocate(44 + dataBytes)
+        .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        .apply {
+            put("RIFF".toByteArray()); putInt(36 + dataBytes)
+            put("WAVE".toByteArray())
+            put("fmt ".toByteArray()); putInt(16)
+            putShort(1)                        // PCM
+            putShort(1)                        // mono
+            putInt(sampleRate)
+            putInt(sampleRate * 2)             // byte rate
+            putShort(2)                        // block align
+            putShort(16)                       // bits per sample
+            put("data".toByteArray()); putInt(dataBytes)
+            for (s in samples) putShort(s)
+        }
+        .array()
 }
 
 // ── Header ───────────────────────────────────────────────────────────────────
@@ -326,18 +508,20 @@ private fun LCDHeader(modifier: Modifier = Modifier) {
             text = "DATA BANK 50",
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 10.sp,
+            fontSize = 9.sp,
             color = LcdOrange,
             maxLines = 1,
+            softWrap = false,
             overflow = TextOverflow.Ellipsis
         )
         Text(
             text = "WATER RESIST",
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Normal,
-            fontSize = 7.sp,
+            fontSize = 6.sp,
             color = LcdBlue,
             maxLines = 1,
+            softWrap = false,
             overflow = TextOverflow.Ellipsis
         )
     }
@@ -373,93 +557,60 @@ private val continentBlobs = listOf(
 )
 
 @Composable
-private fun GlobeTrendView(
+private fun GdxGlobeView(
     trend: RadiusTrend,
-    globePhase: Float,
-    arrowPhase: Float,
     modifier: Modifier = Modifier
 ) {
-    val ocean = Color(0.06f, 0.28f, 0.68f)
-    val land  = Color(0.20f, 0.52f, 0.18f)
-    val ice   = Color(0.88f, 0.93f, 1.00f)
+    val context = LocalContext.current
+    val activity = remember(context) {
+        var ctx = context
+        while (ctx is android.content.ContextWrapper) {
+            if (ctx is FragmentActivity) break
+            ctx = ctx.baseContext
+        }
+        ctx as FragmentActivity
+    }
+    val containerId = remember { View.generateViewId() }
 
+    Box(modifier = modifier) {
+        AndroidView(
+            factory = { context ->
+                FrameLayout(context).apply {
+                    id = containerId
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                }
+            },
+            update = { frameLayout ->
+                val fragmentManager = activity.supportFragmentManager
+                if (fragmentManager.findFragmentById(containerId) == null) {
+                    fragmentManager.beginTransaction()
+                        .replace(containerId, GlobeGdxFragment())
+                        .commitAllowingStateLoss()
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Overlay the trend arrow on top of the GDX view
+        TrendOverlay(
+            trend = trend,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+@Composable
+private fun TrendOverlay(trend: RadiusTrend, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-
-        val globeBottom = h * 0.76f
-        val r = min(w * 0.42f, globeBottom * 0.48f)
         val cx = w * 0.50f
-        val cy = globeBottom - r
-
-        // ── Ocean fill ───────────────────────────────────────────────────
-        drawCircle(color = ocean, radius = r, center = Offset(cx, cy))
-
-        // ── Continents: project each blob onto the visible hemisphere ────
-        val lonOffset = globePhase * 2f * Math.PI.toFloat()
-
-        for (blob in continentBlobs) {
-            val lonC    = blob[0]; val latC    = blob[1]
-            val lonSpan = blob[2]; val latSpan = blob[3]
-            val effectiveLon = lonC + lonOffset
-            // Visibility: cos of longitude angle from center (0 = center, ±π/2 = edge)
-            val cosLon = cos(effectiveLon)
-            if (cosLon < -0.1f) continue  // back hemisphere
-
-            // Project center onto sphere surface
-            val screenX = cx + r * cosLon * cos(latC)
-            val screenY = cy - r * sin(latC)
-
-            // Scale projected ellipse by depth (cosLon) and latitude compression
-            val projW = r * lonSpan * cosLon
-            val projH = r * latSpan
-            if (projW < 1f) continue
-
-            // Shade land darker toward edges (simple depth shading)
-            val brightness = 0.55f + 0.45f * cosLon
-            drawOval(
-                color = land.copy(
-                    red   = land.red   * brightness,
-                    green = land.green * brightness,
-                    blue  = land.blue  * brightness,
-                    alpha = 1f
-                ),
-                topLeft = Offset(screenX - projW, screenY - projH),
-                size    = Size(projW * 2f, projH * 2f)
-            )
-        }
-
-        // ── Ice caps ─────────────────────────────────────────────────────
-        // Arctic cap (top)
-        val iceLatN = 1.22f  // ~70° N
-        val iceYN = cy - r * sin(iceLatN)
-        val iceRN = r * cos(iceLatN)
-        if (iceRN > 1f) drawCircle(color = ice, radius = iceRN, center = Offset(cx, iceYN))
-        // Antarctic cap (bottom)
-        val iceLatS = -1.22f
-        val iceYS = cy - r * sin(iceLatS)
-        val iceRS = r * cos(-iceLatS)
-        if (iceRS > 1f) drawCircle(color = ice, radius = iceRS, center = Offset(cx, iceYS))
-
-        // ── Globe outline ────────────────────────────────────────────────
-        drawCircle(
-            color  = Color.White.copy(alpha = 0.25f),
-            radius = r,
-            center = Offset(cx, cy),
-            style  = Stroke(width = 1.2f)
-        )
-
-        // ── Specular highlight (top-left glint) ──────────────────────────
-        drawCircle(
-            color  = Color.White.copy(alpha = 0.18f),
-            radius = r * 0.38f,
-            center = Offset(cx - r * 0.28f, cy - r * 0.30f)
-        )
-
-        // ── Trend indicator ───────────────────────────────────────────────
-        val arrowCY = globeBottom + (h - globeBottom) * 0.40f
-        val arrowW  = w * 0.28f
-        val arrowH2 = (h - globeBottom) * 0.30f
+        val arrowCY = h * 0.85f
+        val arrowW  = w * 0.35f
+        val arrowH2 = h * 0.10f
         val al = cx - arrowW / 2f
         val ar = cx + arrowW / 2f
 
@@ -525,9 +676,10 @@ private fun DataColumn(
             text = "WORLD TIME",
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Medium,
-            fontSize = 7.sp,
+            fontSize = 6.sp,
             color = LcdBlue,
             maxLines = 1,
+            softWrap = false,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End,
             modifier = Modifier.fillMaxWidth()
@@ -536,9 +688,10 @@ private fun DataColumn(
             text = timeFmt.format(Date()),
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
-            fontSize = 15.sp,
+            fontSize = 14.sp,
             color = LcdGreen,
             maxLines = 1,
+            softWrap = false,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End,
             modifier = Modifier.fillMaxWidth()
@@ -553,8 +706,11 @@ private fun DataColumn(
             text = "RADIUS",
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Medium,
-            fontSize = 7.sp,
+            fontSize = 6.sp,
             color = LcdBlue,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End,
             modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
         )
@@ -564,9 +720,10 @@ private fun DataColumn(
             text = radius,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
-            fontSize = 20.sp,
+            fontSize = 18.sp,
             color = LcdGreen,
             maxLines = 1,
+            softWrap = false,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End,
             modifier = Modifier.fillMaxWidth()
@@ -577,9 +734,10 @@ private fun DataColumn(
             text = "${store.postCount}",
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
             color = LcdGreen.copy(alpha = 0.75f),
             maxLines = 1,
+            softWrap = false,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End,
             modifier = Modifier.fillMaxWidth()
@@ -590,8 +748,11 @@ private fun DataColumn(
             text = denominator,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Medium,
-            fontSize = 9.sp,
+            fontSize = 8.sp,
             color = LcdGreen.copy(alpha = 0.85f),
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End,
             modifier = Modifier.fillMaxWidth()
         )
@@ -601,8 +762,11 @@ private fun DataColumn(
             text = unit,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Normal,
-            fontSize = 7.sp,
+            fontSize = 6.sp,
             color = LcdGreen.copy(alpha = 0.70f),
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End,
             modifier = Modifier.fillMaxWidth()
         )
@@ -619,30 +783,31 @@ private fun TabBar(modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
     ) {
-        TabItem(label = "SCH", weight = 1f)
+        TabItem(label = "SCH", modifier = Modifier.weight(1f))
         Canvas(modifier = Modifier.width(0.5.dp).height(20.dp)) {
             drawLine(LcdDivider, Offset(0f, 0f), Offset(0f, size.height))
         }
-        TabItem(label = "WORLD TIME", weight = 1f)
+        TabItem(label = "WORLD TIME", modifier = Modifier.weight(1f))
         Canvas(modifier = Modifier.width(0.5.dp).height(20.dp)) {
             drawLine(LcdDivider, Offset(0f, 0f), Offset(0f, size.height))
         }
-        TabItem(label = "TEL", weight = 1f)
+        TabItem(label = "TEL", modifier = Modifier.weight(1f))
     }
 }
 
 @Composable
-private fun RowScope.TabItem(label: String, weight: Float) {
+private fun TabItem(label: String, modifier: Modifier = Modifier) {
     Text(
         text = label,
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Medium,
-        fontSize = 7.sp,
+        fontSize = 6.sp,
         color = LcdGreen,
         maxLines = 1,
+        softWrap = false,
         overflow = TextOverflow.Ellipsis,
         textAlign = TextAlign.Center,
-        modifier = Modifier.weight(weight)
+        modifier = modifier
     )
 }
 
@@ -667,9 +832,10 @@ private fun StatChip(label: String, modifier: Modifier = Modifier) {
         text = label,
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Normal,
-        fontSize = 6.sp,
+        fontSize = 5.5.sp,
         color = LcdGreen.copy(alpha = 0.80f),
         maxLines = 1,
+        softWrap = false,
         overflow = TextOverflow.Ellipsis,
         textAlign = TextAlign.Center,
         modifier = modifier
