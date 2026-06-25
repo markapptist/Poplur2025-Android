@@ -96,6 +96,7 @@ import com.apptists.poplur2025.data.FaceAdGenerationService
 import com.apptists.poplur2025.data.LiveBroadcastLocation
 import com.apptists.poplur2025.data.OutputMusicMixer
 import com.apptists.poplur2025.data.TVStyleAnalyzer
+import com.apptists.poplur2025.data.VideoAdGenerationService
 import com.apptists.poplur2025.data.TVStyleMetadata
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.ShaderNumberText
@@ -1558,8 +1559,10 @@ fun DescribeAdScreen(
                                     val adBitmap = FaceAdGenerationService.generateImage(faceBitmap, prompt)
                                     onAdGenerated(adBitmap, null, meta)
                                 }
+                            } else if (isVideo) {
+                                val videoUrl = VideoAdGenerationService.generate(prompt)
+                                onAdGenerated(null, videoUrl, meta)
                             } else {
-                                // No face available — fall back to text-to-image
                                 val bitmap = AdGenerationService.generate(prompt)
                                 onAdGenerated(bitmap, null, meta)
                             }
