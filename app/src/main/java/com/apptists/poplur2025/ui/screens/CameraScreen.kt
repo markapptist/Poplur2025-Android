@@ -73,6 +73,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -85,9 +86,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import android.content.Intent
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import coil.compose.AsyncImage
+import com.apptists.poplur2025.data.AdGenerationService
 import com.apptists.poplur2025.data.DemoPostStore
+import com.apptists.poplur2025.data.FaceAdGenerationService
 import com.apptists.poplur2025.data.LiveBroadcastLocation
+import com.apptists.poplur2025.data.OutputMusicMixer
 import com.apptists.poplur2025.data.TVStyleAnalyzer
 import com.apptists.poplur2025.data.TVStyleMetadata
 import com.apptists.poplur2025.ui.components.RadiusDisplay
@@ -118,7 +125,8 @@ fun CameraScreen(
     filtersTrigger: Int = 0,
     initialShowFilters: Boolean = false,
     onFiltersToggle: (Boolean) -> Unit = {},
-    onMediaCaptured: (Uri, Boolean) -> Unit = { _, _ -> }
+    onMediaCaptured: (Uri, Boolean) -> Unit = { _, _ -> },
+    onObjectDetected: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
@@ -147,9 +155,12 @@ fun CameraScreen(
 
     var captureOutput by remember { mutableStateOf<String?>(null) }
     var detectedFaces by remember { mutableStateOf<List<DetectedFace>>(emptyList()) }
+    var detectedObjectLabels by remember { mutableStateOf<List<com.apptists.poplur2025.data.DetectedObject>>(emptyList()) }
+    var lastDetectedLabelKey by remember { mutableStateOf("") }
     var analysisSize by remember { mutableStateOf(IntSize.Zero) }
     var overlaySize by remember { mutableStateOf(IntSize.Zero) }
     var isAnalyzingFrame by remember { mutableStateOf(false) }
+    val mlDetectionManager = remember { if (isPreview) null else com.apptists.poplur2025.ml.MLDetectionManager() }
     var boundCamera by remember { mutableStateOf<Camera?>(null) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
@@ -517,6 +528,38 @@ fun CameraScreen(
                                                 isAnalyzingFrame = true
                                                 analysisSize = IntSize(imageProxy.width, imageProxy.height)
                                                 val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                                                val rotation = imageProxy.imageInfo.rotationDegrees
+
+                                                // Count pending async tasks so imageProxy is only closed once both finish
+                                                val pending = java.util.concurrent.atomic.AtomicInteger(
+                                                    (if (faceDetector != null) 1 else 0) + (if (mlDetectionManager != null) 1 else 0)
+                                                )
+                                                val doClose: () -> Unit = {
+                                                    if (pending.decrementAndGet() == 0) {
+                                                        isAnalyzingFrame = false
+                                                        imageProxy.close()
+                                                    }
+                                                }
+                                                if (pending.get() == 0) {
+                                                    isAnalyzingFrame = false
+                                                    imageProxy.close()
+                                                    return@setAnalyzer
+                                                }
+
+                                                // ML object detection (best-effort, STREAM_MODE handles dropped frames)
+                                                mlDetectionManager?.analyze(mediaImage, rotation) { objects ->
+                                                    if (objects.isNotEmpty()) {
+                                                        detectedObjectLabels = objects
+                                                        val key = objects.take(3).joinToString(",") { it.label }
+                                                        if (key != lastDetectedLabelKey) {
+                                                            lastDetectedLabelKey = key
+                                                            onObjectDetected()
+                                                        }
+                                                    }
+                                                    doClose()
+                                                }
+
+                                                // Face detection
                                                 faceDetector?.process(inputImage)
                                                     ?.addOnSuccessListener { faces ->
                                                         detectedFaces = faces.map { it.toDetectedFace(useFrontCamera) }
@@ -524,10 +567,7 @@ fun CameraScreen(
                                                     ?.addOnFailureListener {
                                                         detectedFaces = emptyList()
                                                     }
-                                                    ?.addOnCompleteListener {
-                                                        isAnalyzingFrame = false
-                                                        imageProxy.close()
-                                                    }
+                                                    ?.addOnCompleteListener { doClose() }
                                             }
                                         }
                                     val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
@@ -586,6 +626,15 @@ fun CameraScreen(
                 )
             }
         }
+
+        // Top Center: ML object detection overlay
+        MLObjectShaderOverlay(
+            objects = detectedObjectLabels,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 14.dp)
+        )
 
         // Top Left: Flash Control
         IconButton(
@@ -1404,7 +1453,8 @@ fun DescribeAdScreen(
     selectedChannel: PostCaptureChannelOption,
     coordinate: Pair<Double, Double>?,
     onBack: () -> Unit,
-    onAdGenerated: (android.graphics.Bitmap, TVStyleMetadata) -> Unit
+    // bitmap? is null for video-only output; videoUrl? is non-null when AI returns a video
+    onAdGenerated: (android.graphics.Bitmap?, String?, TVStyleMetadata) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1484,8 +1534,35 @@ fun DescribeAdScreen(
                         try {
                             val meta = TVStyleAnalyzer.analyze(context, uri, isVideo)
                             val prompt = buildAdPrompt(meta, selectedChannel, coordinate, whoText.trim(), whatText.trim(), whereText.trim(), whyText.trim())
-                            val bitmap = com.apptists.poplur2025.data.AdGenerationService.generate(prompt)
-                            onAdGenerated(bitmap, meta)
+
+                            // Decode captured frame for face-preserving generation
+                            val faceBitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                if (isVideo) {
+                                    val retriever = MediaMetadataRetriever()
+                                    try {
+                                        retriever.setDataSource(context, uri)
+                                        retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                                    } finally { retriever.release() }
+                                } else {
+                                    context.contentResolver.openInputStream(uri)?.use {
+                                        BitmapFactory.decodeStream(it)
+                                    }
+                                }
+                            }
+
+                            if (faceBitmap != null) {
+                                if (isVideo) {
+                                    val videoUrl = FaceAdGenerationService.generateVideo(faceBitmap, prompt)
+                                    onAdGenerated(null, videoUrl, meta)
+                                } else {
+                                    val adBitmap = FaceAdGenerationService.generateImage(faceBitmap, prompt)
+                                    onAdGenerated(adBitmap, null, meta)
+                                }
+                            } else {
+                                // No face available — fall back to text-to-image
+                                val bitmap = AdGenerationService.generate(prompt)
+                                onAdGenerated(bitmap, null, meta)
+                            }
                         } catch (e: com.apptists.poplur2025.data.TVAnalyzerError.NoAPIKey) {
                             errorMessage = "Claude API key missing."
                         } catch (e: com.apptists.poplur2025.data.TVAnalyzerError.HttpError) {
@@ -1570,26 +1647,62 @@ private fun buildAdPrompt(
 
 @Composable
 fun AdPreviewScreen(
-    adBitmap: android.graphics.Bitmap,
+    adBitmap: android.graphics.Bitmap?,
+    adVideoUrl: String?,
     selectedChannel: PostCaptureChannelOption,
     meta: TVStyleMetadata,
     onBack: () -> Unit,
-    onBroadcast: () -> Unit
+    // Provides the processed output URI and whether it's a video so PoplurRoot can post it.
+    onBroadcast: (outputUri: Uri, isVideo: Boolean) -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var isPosting by remember { mutableStateOf(false) }
+    var selectedFilterId by remember { mutableStateOf("original") }
+    var selectedMusicUri by remember { mutableStateOf<Uri?>(null) }
+    var trimSeconds by remember { mutableFloatStateOf(10f) }
+
+    val musicPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        result.data?.data?.let { selectedMusicUri = it }
+    }
+
+    val isVideoAd = adVideoUrl != null
+
+    // ExoPlayer for video preview
+    val exoPlayer = if (isVideoAd) remember(adVideoUrl) {
+        ExoPlayer.Builder(context).build().apply {
+            adVideoUrl?.let { setMediaItem(MediaItem.fromUri(it)) }
+            prepare(); repeatMode = Player.REPEAT_MODE_ONE; playWhenReady = true
+        }
+    } else null
+    if (exoPlayer != null) {
+        DisposableEffect(exoPlayer) { onDispose { exoPlayer.release() } }
+    }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        androidx.compose.foundation.layout.Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-        ) {
+        // Preview — video or image
+        if (isVideoAd && exoPlayer != null) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = exoPlayer
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        useController = false
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (adBitmap != null) {
             AsyncImage(
                 model = adBitmap,
                 contentDescription = "Generated ad",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop
             )
+            // Live filter overlay (same colour-tint approach as raw capture)
+            CaptureFilterOverlay(selectedFilterId)
         }
         TVBroadcastOverlay(meta)
 
@@ -1613,23 +1726,154 @@ fun AdPreviewScreen(
             Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .background(Color.Black.copy(alpha = 0.82f))
-                .padding(horizontal = 18.dp, vertical = 22.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .background(Color.Black.copy(alpha = 0.88f))
+                .padding(top = 14.dp, bottom = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Button(
-                enabled = !isPosting,
-                onClick = { isPosting = true; onBroadcast() },
-                shape = RoundedCornerShape(999.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3838), contentColor = Color.White),
-                modifier = Modifier.fillMaxWidth()
+            // Filter strip
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (isPosting) {
-                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text("Broadcasting…", fontWeight = FontWeight.Black)
-                } else {
-                    Text("Broadcast Ad to ${selectedChannel.title}", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                postCaptureFilters.forEach { filter ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.width(60.dp).clickable { selectedFilterId = filter.id }
+                    ) {
+                        Box(
+                            Modifier
+                                .size(44.dp)
+                                .background(Brush.linearGradient(filter.colors), CircleShape)
+                                .border(
+                                    width = if (selectedFilterId == filter.id) 3.dp else 0.dp,
+                                    color = Color.White,
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (selectedFilterId == filter.id) Text("✓", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                        }
+                        Spacer(Modifier.height(5.dp))
+                        Text(filter.title, color = Color.White.copy(alpha = if (selectedFilterId == filter.id) 1f else 0.65f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            // Trim slider (video output only)
+            if (isVideoAd) {
+                Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Trim", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                        Spacer(Modifier.weight(1f))
+                        Text("${trimSeconds.toInt()}s", color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp)
+                    }
+                    Slider(
+                        value = trimSeconds,
+                        onValueChange = { trimSeconds = it.coerceIn(1f, 10f) },
+                        valueRange = 1f..10f,
+                        steps = 8,
+                        colors = SliderDefaults.colors(thumbColor = Color(0xFFFF3838), activeTrackColor = Color(0xFFFF3838))
+                    )
+                }
+            }
+
+            // Music + Broadcast row
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Music picker button
+                Surface(
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                            type = "*/*"
+                            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/*", "video/*"))
+                        }
+                        musicPickerLauncher.launch(intent)
+                    },
+                    shape = RoundedCornerShape(999.dp),
+                    color = if (selectedMusicUri != null) Color(0xFF1DB954) else Color.White.copy(alpha = 0.15f),
+                    contentColor = Color.White,
+                    modifier = Modifier.height(48.dp)
+                ) {
+                    Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(if (selectedMusicUri != null) "♪" else "♫", fontSize = 16.sp)
+                        Text(if (selectedMusicUri != null) "Music" else "Add Music", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                // Broadcast button
+                Button(
+                    enabled = !isPosting,
+                    onClick = {
+                        isPosting = true
+                        scope.launch {
+                            try {
+                                val outputUri: Uri
+                                val outputIsVideo: Boolean
+                                val music = selectedMusicUri
+
+                                if (isVideoAd && adVideoUrl != null) {
+                                    // Download generated video, apply trim + optional music
+                                    val dlFile = OutputMusicMixer.downloadVideo(context, adVideoUrl)
+                                    if (dlFile != null) {
+                                        val trimmedFile = OutputMusicMixer.trimVideo(context, dlFile, trimSeconds.toDouble())
+                                            ?: dlFile
+                                        dlFile.delete()
+                                        val finalFile = if (music != null) {
+                                            OutputMusicMixer.mixAudio(context, music, trimmedFile) ?: trimmedFile
+                                        } else trimmedFile
+                                        outputUri = Uri.fromFile(finalFile)
+                                        outputIsVideo = true
+                                    } else {
+                                        isPosting = false
+                                        return@launch
+                                    }
+                                } else if (adBitmap != null) {
+                                    val filtered = OutputMusicMixer.applyFilter(adBitmap, selectedFilterId)
+                                    if (music != null) {
+                                        val videoFile = OutputMusicMixer.imageWithAudio(context, filtered, music, filterId = "original")
+                                        if (videoFile != null) {
+                                            outputUri = Uri.fromFile(videoFile)
+                                            outputIsVideo = true
+                                        } else {
+                                            // Music mix failed — fall back to image
+                                            val imgFile = java.io.File(context.cacheDir, "ad_${System.currentTimeMillis()}.jpg")
+                                            imgFile.outputStream().use { filtered.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it) }
+                                            outputUri = Uri.fromFile(imgFile)
+                                            outputIsVideo = false
+                                        }
+                                    } else {
+                                        val imgFile = java.io.File(context.cacheDir, "ad_${System.currentTimeMillis()}.jpg")
+                                        imgFile.outputStream().use { filtered.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it) }
+                                        outputUri = Uri.fromFile(imgFile)
+                                        outputIsVideo = false
+                                    }
+                                } else {
+                                    isPosting = false
+                                    return@launch
+                                }
+
+                                onBroadcast(outputUri, outputIsVideo)
+                            } catch (e: Exception) {
+                                isPosting = false
+                            }
+                        }
+                    },
+                    shape = RoundedCornerShape(999.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3838), contentColor = Color.White),
+                    modifier = Modifier.weight(1f).height(48.dp)
+                ) {
+                    if (isPosting) {
+                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Broadcasting…", fontWeight = FontWeight.Black, fontSize = 13.sp)
+                    } else {
+                        Text("Broadcast Ad", fontWeight = FontWeight.Black, fontSize = 13.sp)
+                    }
                 }
             }
         }
@@ -1984,6 +2228,64 @@ private class CameraShutter {
             }
         } catch (e: Exception) {
             // Ignore release errors
+        }
+    }
+}
+
+// MARK: - ML Object Detection Overlay
+
+@Composable
+private fun MLObjectShaderOverlay(
+    objects: List<com.apptists.poplur2025.data.DetectedObject>,
+    modifier: Modifier = Modifier
+) {
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+    AnimatedVisibility(
+        visible = objects.isNotEmpty(),
+        enter = fadeIn(tween(200)) + slideInVertically { -it },
+        exit = fadeOut(tween(300)) + slideOutVertically { -it },
+        modifier = modifier
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            objects.firstOrNull()?.let { primary ->
+                ShaderNumberText(
+                    text = primary.label.uppercase(java.util.Locale.US),
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black,
+                    intensity = 1.5f,
+                    letterSpacing = 2.8.sp
+                )
+            }
+            if (objects.size > 1) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    objects.drop(1).take(3).forEachIndexed { idx, obj ->
+                        Text(
+                            obj.label.replaceFirstChar { it.uppercase(java.util.Locale.US) },
+                            color = Color.White.copy(alpha = 0.88f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.8.sp,
+                            modifier = Modifier
+                                .background(
+                                    Color.White.copy(alpha = 0.14f),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .padding(horizontal = 9.dp, vertical = 4.dp)
+                                .graphicsLayer {
+                                    rotationX = 9f
+                                    cameraDistance = 8f * density
+                                }
+                        )
+                    }
+                }
+            }
         }
     }
 }

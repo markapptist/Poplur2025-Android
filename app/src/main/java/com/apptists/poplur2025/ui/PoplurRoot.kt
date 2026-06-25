@@ -184,6 +184,7 @@ fun PoplurRoot(
     var selectedCaptureTrimSeconds by remember { mutableFloatStateOf(10f) }
     var selectedCaptureChannel by remember { mutableStateOf<com.apptists.poplur2025.ui.screens.PostCaptureChannelOption?>(null) }
     var capturedAdBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var capturedAdVideoUrl by remember { mutableStateOf<String?>(null) }
     var capturedAdMeta by remember { mutableStateOf<com.apptists.poplur2025.data.TVStyleMetadata?>(null) }
     val persistentCubeHost = context as? PersistentCubeOverlayHost
 
@@ -763,6 +764,7 @@ fun PoplurRoot(
                             liveTrigger = cameraLiveTrigger,
                             filtersTrigger = cameraFiltersTrigger,
                             onFiltersToggle = { filtersVisible = it },
+                            onObjectDetected = { channelObjectPopToken++ },
                             onMediaCaptured = { uri, isVideo ->
                                 capturedMediaUri = uri
                                 isCapturedVideo = isVideo
@@ -849,8 +851,9 @@ fun PoplurRoot(
                                             selectedChannel = channel,
                                             coordinate = loc?.let { Pair(it.latitude, it.longitude) },
                                             onBack = { capturePostStep = CapturePostStep.Channel },
-                                            onAdGenerated = { bitmap, meta ->
+                                            onAdGenerated = { bitmap, videoUrl, meta ->
                                                 capturedAdBitmap = bitmap
+                                                capturedAdVideoUrl = videoUrl
                                                 capturedAdMeta = meta
                                                 capturePostStep = CapturePostStep.AdPreview
                                             }
@@ -858,20 +861,21 @@ fun PoplurRoot(
                                     }
                                     CapturePostStep.AdPreview -> {
                                         val bitmap = capturedAdBitmap
+                                        val videoUrl = capturedAdVideoUrl
                                         val meta = capturedAdMeta
                                         val channel = selectedCaptureChannel ?: com.apptists.poplur2025.ui.screens.postCaptureChannels.first()
-                                        if (bitmap != null && meta != null) {
+                                        if ((bitmap != null || videoUrl != null) && meta != null) {
                                             com.apptists.poplur2025.ui.screens.AdPreviewScreen(
                                                 adBitmap = bitmap,
+                                                adVideoUrl = videoUrl,
                                                 selectedChannel = channel,
                                                 meta = meta,
                                                 onBack = { capturePostStep = CapturePostStep.AdDescribe },
-                                                onBroadcast = {
+                                                onBroadcast = { outputUri, outputIsVideo ->
                                                     val point = pendingCaptureLocation ?: CaptureMapPoint(0.0, 0.0)
-                                                    val adUri = saveBitmapToCache(context, bitmap)
                                                     DemoPostStore.addUserPost(
-                                                        uri = adUri,
-                                                        isVideo = false,
+                                                        uri = outputUri.toString(),
+                                                        isVideo = outputIsVideo,
                                                         latitude = point.latitude,
                                                         longitude = point.longitude,
                                                         channelId = channel.id,
@@ -882,6 +886,7 @@ fun PoplurRoot(
                                                     )
                                                     capturedMediaUri = null
                                                     capturedAdBitmap = null
+                                                    capturedAdVideoUrl = null
                                                     capturedAdMeta = null
                                                     pendingCaptureLocation = null
                                                     captureFlowOrigin = CaptureFlowOrigin.CameraFirst
