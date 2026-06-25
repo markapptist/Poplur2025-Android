@@ -1212,7 +1212,8 @@ fun CapturedChannelScreen(
     filterId: String,
     trimSeconds: Float?,
     onBack: () -> Unit,
-    onPosted: (PostCaptureChannelOption, TVStyleMetadata) -> Unit
+    onPosted: (PostCaptureChannelOption, TVStyleMetadata) -> Unit,
+    onGenerateAd: (PostCaptureChannelOption) -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1303,6 +1304,17 @@ fun CapturedChannelScreen(
                     Text("Post to ${selectedChannel.title}", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
                 }
             }
+
+            OutlinedButton(
+                enabled = !isPosting,
+                onClick = { onGenerateAd(selectedChannel) },
+                shape = RoundedCornerShape(999.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.38f)),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)
+            ) {
+                Text("✦ Generate Ad", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 6.dp))
+            }
         }
     }
 }
@@ -1382,6 +1394,247 @@ private fun fallbackTVMetadata(channel: PostCaptureChannelOption): TVStyleMetada
         tagline = "A fresh Poplur moment is now live from the map.",
         broadcastName = "POPLUR ${channel.title.uppercase(Locale.US)}"
     )
+
+// MARK: - Describe Ad Screen
+
+@Composable
+fun DescribeAdScreen(
+    uri: Uri,
+    isVideo: Boolean,
+    selectedChannel: PostCaptureChannelOption,
+    coordinate: Pair<Double, Double>?,
+    onBack: () -> Unit,
+    onAdGenerated: (android.graphics.Bitmap, TVStyleMetadata) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var whoText by remember { mutableStateOf("") }
+    var whatText by remember { mutableStateOf("") }
+    var whereText by remember { mutableStateOf("") }
+    var whyText by remember { mutableStateOf("") }
+    var isGenerating by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 22.dp)
+        ) {
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    onClick = onBack,
+                    shape = CircleShape,
+                    color = Color.White.copy(alpha = 0.12f),
+                    contentColor = Color.White
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(20.dp))
+                }
+                Spacer(Modifier.width(14.dp))
+                Column {
+                    Text("Describe your ad", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                    coordinate?.let {
+                        Text(
+                            String.format("%.4f, %.4f", it.first, it.second),
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(28.dp))
+            Text(
+                "Tell AI about your post",
+                color = Color.White,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                "Answer any or all — AI uses these to generate your ${selectedChannel.title} ad.",
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 13.sp
+            )
+            Spacer(Modifier.height(20.dp))
+
+            AdDescribeField(icon = "👤", label = "WHO", placeholder = "About me", value = whoText, onValueChange = { whoText = it })
+            Spacer(Modifier.height(10.dp))
+            AdDescribeField(icon = "⚡", label = "WHAT", placeholder = "Doing fun", value = whatText, onValueChange = { whatText = it })
+            Spacer(Modifier.height(10.dp))
+            AdDescribeField(icon = "📍", label = "WHERE", placeholder = "At home", value = whereText, onValueChange = { whereText = it })
+            Spacer(Modifier.height(10.dp))
+            AdDescribeField(icon = "💡", label = "WHY", placeholder = "Idk", value = whyText, onValueChange = { whyText = it })
+
+            Spacer(Modifier.height(20.dp))
+            errorMessage?.let {
+                Text(it, color = Color(0xFFFF5555), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(10.dp))
+            }
+
+            Button(
+                enabled = !isGenerating,
+                onClick = {
+                    isGenerating = true
+                    errorMessage = null
+                    scope.launch {
+                        try {
+                            val meta = TVStyleAnalyzer.analyze(context, uri, isVideo)
+                            val prompt = buildAdPrompt(meta, selectedChannel, coordinate, whoText.trim(), whatText.trim(), whereText.trim(), whyText.trim())
+                            val bitmap = com.apptists.poplur2025.data.AdGenerationService.generate(prompt)
+                            onAdGenerated(bitmap, meta)
+                        } catch (e: com.apptists.poplur2025.data.TVAnalyzerError.NoAPIKey) {
+                            errorMessage = "Claude API key missing."
+                        } catch (e: com.apptists.poplur2025.data.TVAnalyzerError.HttpError) {
+                            errorMessage = "AI analysis failed (HTTP ${e.code}) — check your API key."
+                        } catch (e: com.apptists.poplur2025.data.TVAnalyzerError.ParseError) {
+                            errorMessage = "AI response couldn't be parsed — try again."
+                        } catch (e: Exception) {
+                            errorMessage = "Generation failed — check your internet connection and try again."
+                        } finally {
+                            isGenerating = false
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(999.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isGenerating) {
+                    CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Generating…", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                } else {
+                    Text("✦ Generate Ad", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun AdDescribeField(icon: String, label: String, placeholder: String, value: String, onValueChange: (String) -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = Color.White.copy(alpha = 0.08f)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text(icon, fontSize = 22.sp)
+            Column(Modifier.weight(1f)) {
+                Text(label, color = Color.White.copy(alpha = 0.45f), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                androidx.compose.foundation.text.BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold),
+                    decorationBox = { inner ->
+                        if (value.isEmpty()) Text(placeholder, color = Color.White.copy(alpha = 0.3f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        inner()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+private fun buildAdPrompt(
+    meta: TVStyleMetadata,
+    channel: PostCaptureChannelOption,
+    coordinate: Pair<Double, Double>?,
+    who: String, what: String, where: String, why: String
+): String {
+    val channelCtx = "${channel.emoji} ${channel.title}"
+    val coords = coordinate?.let { String.format("%.2f°, %.2f°", it.first, it.second) } ?: ""
+    val parts = mutableListOf<String>()
+    if (who.isNotBlank()) parts.add("Subject: $who")
+    if (what.isNotBlank()) parts.add("Action: $what")
+    if (where.isNotBlank()) parts.add("Setting: $where")
+    if (why.isNotBlank()) parts.add("Message: $why")
+    val userContext = if (parts.isEmpty()) "" else parts.joinToString(". ") + ". "
+    return "${userContext}A stunning cinematic TV advertisement for ${meta.broadcastName}. " +
+        "${meta.tvFormat.replace("_", " ")} format. " +
+        "Ad concept: ${meta.adConcept}. Channel: $channelCtx. ${if (coords.isNotEmpty()) "Location: $coords. " else ""}" +
+        "Ultra-high production value, broadcast television quality, vivid saturated colors, " +
+        "professional product photography, advertising industry standard. No text overlays."
+}
+
+// MARK: - Ad Preview Screen
+
+@Composable
+fun AdPreviewScreen(
+    adBitmap: android.graphics.Bitmap,
+    selectedChannel: PostCaptureChannelOption,
+    meta: TVStyleMetadata,
+    onBack: () -> Unit,
+    onBroadcast: () -> Unit
+) {
+    var isPosting by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        androidx.compose.foundation.layout.Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            AsyncImage(
+                model = adBitmap,
+                contentDescription = "Generated ad",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
+        }
+        TVBroadcastOverlay(meta)
+
+        Column(
+            Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(18.dp)
+        ) {
+            Surface(
+                onClick = onBack,
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.58f),
+                contentColor = Color.White
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(22.dp))
+            }
+        }
+
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .background(Color.Black.copy(alpha = 0.82f))
+                .padding(horizontal = 18.dp, vertical = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Button(
+                enabled = !isPosting,
+                onClick = { isPosting = true; onBroadcast() },
+                shape = RoundedCornerShape(999.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3838), contentColor = Color.White),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isPosting) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Broadcasting…", fontWeight = FontWeight.Black)
+                } else {
+                    Text("Broadcast Ad to ${selectedChannel.title}", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                }
+            }
+        }
+    }
+}
 
 // MARK: - TV Broadcast Overlay (composable)
 

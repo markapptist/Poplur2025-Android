@@ -4,5 +4,5 @@ package com.apptists.poplur2025.data
 // Add your keys here; they are used directly at runtime.
 object Secrets {
     const val replicateApiKey = "r8_RrDeC8dJBQYGHA7ZWJ8nez5QqvUlEhY2NWoUD"
-    const val claudeApiKey    = ""  // Add your Anthropic API key: https://console.anthropic.com/
+    const val claudeApiKey    = "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"
 }

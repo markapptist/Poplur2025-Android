@@ -182,6 +182,9 @@ fun PoplurRoot(
     var pendingCaptureLocation by remember { mutableStateOf<CaptureMapPoint?>(null) }
     var selectedCaptureFilterId by remember { mutableStateOf("original") }
     var selectedCaptureTrimSeconds by remember { mutableFloatStateOf(10f) }
+    var selectedCaptureChannel by remember { mutableStateOf<com.apptists.poplur2025.ui.screens.PostCaptureChannelOption?>(null) }
+    var capturedAdBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+    var capturedAdMeta by remember { mutableStateOf<com.apptists.poplur2025.data.TVStyleMetadata?>(null) }
     val persistentCubeHost = context as? PersistentCubeOverlayHost
 
     SideEffect {
@@ -809,6 +812,10 @@ fun PoplurRoot(
                                         filterId = selectedCaptureFilterId,
                                         trimSeconds = if (isCapturedVideo) selectedCaptureTrimSeconds else null,
                                         onBack = { capturePostStep = CapturePostStep.Edit },
+                                        onGenerateAd = { channel ->
+                                            selectedCaptureChannel = channel
+                                            capturePostStep = CapturePostStep.AdDescribe
+                                        },
                                         onPosted = { channel, meta ->
                                             val point = pendingCaptureLocation ?: CaptureMapPoint(0.0, 0.0)
                                             DemoPostStore.addUserPost(
@@ -833,6 +840,63 @@ fun PoplurRoot(
                                             tab = AppTab.Profile
                                         }
                                     )
+                                    CapturePostStep.AdDescribe -> {
+                                        val channel = selectedCaptureChannel ?: com.apptists.poplur2025.ui.screens.postCaptureChannels.first()
+                                        val loc = pendingCaptureLocation
+                                        com.apptists.poplur2025.ui.screens.DescribeAdScreen(
+                                            uri = uri,
+                                            isVideo = isCapturedVideo,
+                                            selectedChannel = channel,
+                                            coordinate = loc?.let { Pair(it.latitude, it.longitude) },
+                                            onBack = { capturePostStep = CapturePostStep.Channel },
+                                            onAdGenerated = { bitmap, meta ->
+                                                capturedAdBitmap = bitmap
+                                                capturedAdMeta = meta
+                                                capturePostStep = CapturePostStep.AdPreview
+                                            }
+                                        )
+                                    }
+                                    CapturePostStep.AdPreview -> {
+                                        val bitmap = capturedAdBitmap
+                                        val meta = capturedAdMeta
+                                        val channel = selectedCaptureChannel ?: com.apptists.poplur2025.ui.screens.postCaptureChannels.first()
+                                        if (bitmap != null && meta != null) {
+                                            com.apptists.poplur2025.ui.screens.AdPreviewScreen(
+                                                adBitmap = bitmap,
+                                                selectedChannel = channel,
+                                                meta = meta,
+                                                onBack = { capturePostStep = CapturePostStep.AdDescribe },
+                                                onBroadcast = {
+                                                    val point = pendingCaptureLocation ?: CaptureMapPoint(0.0, 0.0)
+                                                    val adUri = saveBitmapToCache(context, bitmap)
+                                                    DemoPostStore.addUserPost(
+                                                        uri = adUri,
+                                                        isVideo = false,
+                                                        latitude = point.latitude,
+                                                        longitude = point.longitude,
+                                                        channelId = channel.id,
+                                                        channelTitle = channel.title,
+                                                        filterId = "original",
+                                                        trimSeconds = null,
+                                                        tvMetadata = meta
+                                                    )
+                                                    capturedMediaUri = null
+                                                    capturedAdBitmap = null
+                                                    capturedAdMeta = null
+                                                    pendingCaptureLocation = null
+                                                    captureFlowOrigin = CaptureFlowOrigin.CameraFirst
+                                                    capturePostStep = CapturePostStep.Preview
+                                                    selectedCaptureFilterId = "original"
+                                                    selectedCaptureTrimSeconds = 10f
+                                                    selectedProfile = UserProfile()
+                                                    currentPostIndex = 0
+                                                    tab = AppTab.Profile
+                                                }
+                                            )
+                                        } else {
+                                            capturePostStep = CapturePostStep.AdDescribe
+                                        }
+                                    }
                                 }
                             } else {
                                 capturePostStep = CapturePostStep.Preview
@@ -1135,6 +1199,12 @@ private fun buildFeedComposerSparkles(): List<FeedComposerSparkle> {
     }
 }
 
+private fun saveBitmapToCache(context: android.content.Context, bitmap: android.graphics.Bitmap): String {
+    val file = java.io.File(context.cacheDir, "ad_${System.currentTimeMillis()}.jpg")
+    file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it) }
+    return file.toURI().toString()
+}
+
 private fun AppTab.cubeTabIndex(): Int = when (this) {
     AppTab.Map -> 0
     AppTab.Camera -> 1
@@ -1147,7 +1217,9 @@ private enum class CapturePostStep {
     Preview,
     Location,
     Edit,
-    Channel
+    Channel,
+    AdDescribe,
+    AdPreview
 }
 
 private enum class CaptureFlowOrigin {

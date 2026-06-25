@@ -31,6 +31,7 @@ data class TVStyleMetadata(
 sealed class TVAnalyzerError(message: String) : Exception(message) {
     object NoAPIKey : TVAnalyzerError("No Claude API key configured")
     object ParseError : TVAnalyzerError("Failed to parse Claude response as TVStyleMetadata")
+    data class HttpError(val code: Int) : TVAnalyzerError("HTTP $code from Claude API")
 }
 
 // MARK: - Analyzer
@@ -127,9 +128,19 @@ Analyze this image and respond ONLY with a JSON object — no extra text, no mar
 
             OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
 
+            val code = conn.responseCode
+            if (code != 200) {
+                val body = runCatching { conn.errorStream?.bufferedReader()?.readText() }.getOrNull() ?: ""
+                println("🎬 [TVStyleAnalyzer] HTTP $code: $body")
+                throw TVAnalyzerError.HttpError(code)
+            }
             val response = conn.inputStream.bufferedReader().readText()
             val outer = JSONObject(response)
-            val text = outer.getJSONArray("content").getJSONObject(0).getString("text").trim()
+            var text = outer.getJSONArray("content").getJSONObject(0).getString("text").trim()
+            // Strip markdown code fences Claude sometimes adds
+            val start = text.indexOf('{')
+            val end = text.lastIndexOf('}')
+            if (start >= 0 && end > start) text = text.substring(start, end + 1)
             val json = JSONObject(text)
             return TVStyleMetadata(
                 channel       = json.optString("channel", "entertainment"),
@@ -139,6 +150,8 @@ Analyze this image and respond ONLY with a JSON object — no extra text, no mar
                 tagline       = json.optString("tagline", ""),
                 broadcastName = json.optString("broadcastName", "POPLUR TV")
             )
+        } catch (e: TVAnalyzerError) {
+            throw e
         } catch (e: Exception) {
             throw TVAnalyzerError.ParseError
         } finally {
