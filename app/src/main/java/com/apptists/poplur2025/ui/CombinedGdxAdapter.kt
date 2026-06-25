@@ -356,45 +356,74 @@ class CombinedGdxAdapter(
     }
 
     private fun rebuildSkinTextures() {
-        val path = skin.assetPath ?: return
-        try {
-            val fullPixmap = Pixmap(Gdx.files.internal(path))
-            val tileW = fullPixmap.width / 4
-            val tileH = fullPixmap.height / 3
-            
-            // Horizontal Cross Layout:
-            // Top: (1, 0), Left: (0, 1), Front: (1, 1), Right: (2, 1), Back: (3, 1), Bottom: (1, 2)
-            val coords = listOf(
-                1 to 1, // Front (0)
-                2 to 1, // Right (1)
-                3 to 1, // Back  (2)
-                0 to 1, // Left  (3)
-                1 to 0, // Top   (4)
-                1 to 2  // Bottom(5)
-            )
-
-            skinFaceTextures.forEach { it?.dispose() }
-            coords.forEachIndexed { i, (col, row) ->
-                val p = Pixmap(tileW, tileH, fullPixmap.format)
-                p.drawPixmap(fullPixmap, 0, 0, col * tileW, row * tileH, tileW, tileH)
-                makeDrawnPixelsOpaque(p)
-                val tex = Texture(p)
-                tex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
-                skinFaceTextures[i] = tex
-                p.dispose()
-                
-                skinMaterials[i] = Material(
-                    TextureAttribute.createDiffuse(tex),
-                    ColorAttribute.createDiffuse(Color.WHITE),
-                    BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, 1f),
-                    FloatAttribute.createAlphaTest(0.04f)
-                )
+        val path = skin.assetPath
+        val fileExists = path != null && Gdx.files.internal(path).exists()
+        if (fileExists && path != null) {
+            try {
+                rebuildSkinTexturesFromFile(path)
+                return
+            } catch (e: Exception) {
+                Log.e("CombinedGdxAdapter", "Failed to load skin asset: $path, falling back to color", e)
             }
-            fullPixmap.dispose()
-            modelDirty = true
-        } catch (e: Exception) {
-            Log.e("CombinedGdxAdapter", "Failed to load skin: $path", e)
         }
+        // No asset file — generate solid-color face textures from the skin's theme color
+        val color = skin.gdxColor ?: return
+        rebuildSkinTexturesFromColor(color)
+    }
+
+    private fun rebuildSkinTexturesFromFile(path: String) {
+        val fullPixmap = Pixmap(Gdx.files.internal(path))
+        val tileW = fullPixmap.width / 4
+        val tileH = fullPixmap.height / 3
+        val coords = listOf(1 to 1, 2 to 1, 3 to 1, 0 to 1, 1 to 0, 1 to 2)
+        skinFaceTextures.forEach { it?.dispose() }
+        coords.forEachIndexed { i, (col, row) ->
+            val p = Pixmap(tileW, tileH, fullPixmap.format)
+            p.drawPixmap(fullPixmap, 0, 0, col * tileW, row * tileH, tileW, tileH)
+            makeDrawnPixelsOpaque(p)
+            val tex = Texture(p)
+            tex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
+            skinFaceTextures[i] = tex
+            p.dispose()
+            skinMaterials[i] = Material(
+                TextureAttribute.createDiffuse(tex),
+                ColorAttribute.createDiffuse(Color.WHITE),
+                BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, 1f),
+                FloatAttribute.createAlphaTest(0.04f)
+            )
+        }
+        fullPixmap.dispose()
+        modelDirty = true
+    }
+
+    private fun rebuildSkinTexturesFromColor(baseColor: Color) {
+        val size = 256
+        skinFaceTextures.forEach { it?.dispose() }
+        repeat(6) { i ->
+            val p = Pixmap(size, size, Pixmap.Format.RGBA8888)
+            // Gradient from lighter top-left to darker bottom-right
+            for (y in 0 until size) {
+                for (x in 0 until size) {
+                    val t = (x + y).toFloat() / (size * 2)
+                    val r = (baseColor.r * (1.4f - t * 0.8f)).coerceIn(0f, 1f)
+                    val g = (baseColor.g * (1.4f - t * 0.8f)).coerceIn(0f, 1f)
+                    val b = (baseColor.b * (1.4f - t * 0.8f)).coerceIn(0f, 1f)
+                    p.setColor(r, g, b, 1f)
+                    p.drawPixel(x, y)
+                }
+            }
+            val tex = Texture(p)
+            tex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
+            skinFaceTextures[i] = tex
+            p.dispose()
+            skinMaterials[i] = Material(
+                TextureAttribute.createDiffuse(tex),
+                ColorAttribute.createDiffuse(Color.WHITE),
+                BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, 1f),
+                FloatAttribute.createAlphaTest(0.04f)
+            )
+        }
+        modelDirty = true
     }
 
     private fun rebuildMaterialsOpacity() {
