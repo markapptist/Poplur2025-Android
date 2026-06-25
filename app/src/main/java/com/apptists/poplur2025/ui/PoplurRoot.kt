@@ -295,11 +295,23 @@ fun PoplurRoot(
     }
 
     LaunchedEffect(isSignedIn) {
-        android.util.Log.d("PoplurRoot", "isSignedIn changed: $isSignedIn")
-        if (isSignedIn != null) {
-            kotlinx.coroutines.delay(1200)
-            showAppInitializationCover = false
-            showSlowInitializationDetails = false
+        when (isSignedIn) {
+            true -> {
+                // Always show the loading cover when signed in — covers both app-launch
+                // (null→true) and post-sign-in (false→true) cases so the feed always
+                // appears with the loading screen first.
+                showAppInitializationCover = true
+                kotlinx.coroutines.delay(1200)
+                showAppInitializationCover = false
+                showSlowInitializationDetails = false
+            }
+            false -> {
+                // Auth resolved as signed-out — brief pause then reveal WelcomeScreen.
+                kotlinx.coroutines.delay(300)
+                showAppInitializationCover = false
+                showSlowInitializationDetails = false
+            }
+            null -> { /* Firebase still resolving — keep loading cover visible */ }
         }
     }
 
