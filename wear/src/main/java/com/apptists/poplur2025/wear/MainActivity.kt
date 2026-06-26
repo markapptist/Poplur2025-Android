@@ -74,6 +74,7 @@ import com.google.android.gms.wearable.DataMap
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.Wearable
 import com.apptists.poplur2025.wear.gdx.GlobeGdxFragment
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -585,7 +586,7 @@ private fun GdxGlobeView(
             },
             update = { frameLayout ->
                 val fragmentManager = activity.supportFragmentManager
-                if (fragmentManager.findFragmentById(containerId) == null) {
+                if (!fragmentManager.isStateSaved && fragmentManager.findFragmentById(containerId) == null) {
                     fragmentManager.beginTransaction()
                         .replace(containerId, GlobeGdxFragment())
                         .commitAllowingStateLoss()
@@ -853,3 +854,21 @@ private fun readBatteryPercent(context: Context): Int {
     if (level < 0 || scale <= 0) return 0
     return ((level / scale.toFloat()) * 100f).toInt().coerceIn(0, 100)
 }
+
+suspend fun androidx.compose.ui.input.pointer.PointerInputScope.tryAwaitRelease(): Boolean {
+    return try {
+        awaitPointerEventScope {
+            var released = false
+            while (!released) {
+                val event = awaitPointerEvent()
+                if (event.changes.all { it.changedToUpIgnoreConsumed() }) {
+                    released = true
+                }
+            }
+            true
+        }
+    } catch (_: Exception) {
+        false
+    }
+}
+
