@@ -1216,7 +1216,7 @@ class CombinedGdxAdapter(
             val h = lastHeight.coerceAtLeast(1)
             Gdx.gl.glViewport(0, 0, w, h)
             Gdx.gl.glColorMask(true, true, true, true)
-            Gdx.gl.glClearColor(0.04f, 0.03f, 0.10f, 1f)
+            Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
             Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
 
             val now = System.currentTimeMillis()
