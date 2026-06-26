@@ -50,9 +50,14 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Apartment
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -207,6 +212,7 @@ fun MapScreenContent(
     var showLocationSearch by remember { mutableStateOf(false) }
     var showHoldMenu by remember { mutableStateOf(false) }
     var isMultiPostMode by remember { mutableStateOf(false) }
+    var isTourPaused by remember { mutableStateOf(false) }
     var showIndoorMap by remember { mutableStateOf(false) }
     var indoorVenues by remember { mutableStateOf<List<MappedinVenue>>(emptyList()) }
     var selectedVenueUrl by remember { mutableStateOf<String?>(null) }
@@ -714,8 +720,8 @@ fun MapScreenContent(
 
 
 
-    LaunchedEffect(isVisible, mapReady, idleGeneration, selectedRadioTopics) {
-        if (!isVisible || !mapReady) return@LaunchedEffect
+    LaunchedEffect(isVisible, mapReady, idleGeneration, selectedRadioTopics, isTourPaused) {
+        if (!isVisible || !mapReady || isTourPaused) return@LaunchedEffect
         delay(IDLE_TOUR_DELAY_MS)
         while (isVisible && mapReady) {
             TourStops.shuffled().take(TOUR_STOPS_PER_CYCLE).forEach { stop ->
@@ -1071,6 +1077,7 @@ fun MapScreenContent(
 
         if (showHoldMenu) {
             MapHoldMenuSheet(
+                isInTourMode = !isTourPaused,
                 onDismiss = { showHoldMenu = false },
                 onSearch = {
                     showHoldMenu = false
@@ -1078,12 +1085,16 @@ fun MapScreenContent(
                 },
                 onCurrentLocation = {
                     showHoldMenu = false
-                    val loc = userLocation
-                    if (loc != null) {
-                        mapView?.mapboxMap?.setCamera(
-                            com.mapbox.maps.CameraOptions.Builder().center(loc).zoom(15.0).build()
-                        )
-                    }
+                    val loc = userLocation ?: return@MapHoldMenuSheet
+                    mapView?.mapboxMap?.flyTo(
+                        CameraOptions.Builder()
+                            .center(loc)
+                            .zoom(16.9)
+                            .pitch(66.0)
+                            .bearing(28.0)
+                            .build(),
+                        mapAnimationOptions { duration(1200) }
+                    )
                 },
                 onPostToMap = {
                     showHoldMenu = false
@@ -1098,6 +1109,11 @@ fun MapScreenContent(
                 },
                 onStartTour = {
                     showHoldMenu = false
+                    isTourPaused = false
+                },
+                onStopTour = {
+                    showHoldMenu = false
+                    isTourPaused = true
                 }
             )
         }
@@ -1438,12 +1454,14 @@ private fun JSONObject.optFiniteDouble(vararg keys: String): Double? {
 
 @Composable
 private fun MapHoldMenuSheet(
+    isInTourMode: Boolean,
     onDismiss: () -> Unit,
     onSearch: () -> Unit,
     onCurrentLocation: () -> Unit,
     onPostToMap: () -> Unit,
     onPostMultipleToMap: () -> Unit,
-    onStartTour: () -> Unit
+    onStartTour: () -> Unit,
+    onStopTour: () -> Unit
 ) {
     Box(
         Modifier
@@ -1477,27 +1495,46 @@ private fun MapHoldMenuSheet(
                             .background(Color.White.copy(alpha = 0.22f), RoundedCornerShape(2.dp))
                     )
                 }
-                listOf(
-                    Triple("🔍", "Search") { onSearch() },
-                    Triple("📍", "Current location") { onCurrentLocation() },
-                    Triple("📸", "Post to map") { onPostToMap() },
-                    Triple("🗂️", "Post multiple to map") { onPostMultipleToMap() },
-                    Triple("🗺️", "Start tour") { onStartTour() }
-                ).forEach { (emoji, label, action) ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { action() }
-                            .padding(horizontal = 22.dp, vertical = 18.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Text(emoji, fontSize = 22.sp)
-                        Text(label, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
+                HoldMenuRow(icon = Icons.Default.Search, label = "Search", onClick = onSearch)
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(start = 58.dp))
+                HoldMenuRow(icon = Icons.Default.MyLocation, label = "Current location", onClick = onCurrentLocation)
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(start = 58.dp))
+                HoldMenuRow(icon = Icons.Default.PhotoCamera, label = "Post to map", onClick = onPostToMap)
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(start = 58.dp))
+                HoldMenuRow(icon = Icons.Default.PhotoLibrary, label = "Post multiple to map", onClick = onPostMultipleToMap)
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(start = 58.dp))
+                HoldMenuRow(
+                    icon = Icons.Default.Explore,
+                    label = if (isInTourMode) "Stop tour" else "Start tour",
+                    onClick = if (isInTourMode) onStopTour else onStartTour
+                )
+                Spacer(Modifier.height(4.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun HoldMenuRow(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 22.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(22.dp)
+        )
+        Text(label, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
