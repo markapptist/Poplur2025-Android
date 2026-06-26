@@ -205,6 +205,8 @@ fun MapScreenContent(
     var userLocation by remember { mutableStateOf<Point?>(null) }
     var idleGeneration by remember { mutableIntStateOf(0) }
     var showLocationSearch by remember { mutableStateOf(false) }
+    var showHoldMenu by remember { mutableStateOf(false) }
+    var isMultiPostMode by remember { mutableStateOf(false) }
     var showIndoorMap by remember { mutableStateOf(false) }
     var indoorVenues by remember { mutableStateOf<List<MappedinVenue>>(emptyList()) }
     var selectedVenueUrl by remember { mutableStateOf<String?>(null) }
@@ -592,7 +594,7 @@ fun MapScreenContent(
 
     LaunchedEffect(openHoldMenuTrigger) {
         openHoldMenuTrigger.collect {
-            showLocationSearch = true
+            showHoldMenu = true
         }
     }
 
@@ -1067,6 +1069,39 @@ fun MapScreenContent(
             )
         }
 
+        if (showHoldMenu) {
+            MapHoldMenuSheet(
+                onDismiss = { showHoldMenu = false },
+                onSearch = {
+                    showHoldMenu = false
+                    showLocationSearch = true
+                },
+                onCurrentLocation = {
+                    showHoldMenu = false
+                    val loc = userLocation
+                    if (loc != null) {
+                        mapView?.mapboxMap?.setCamera(
+                            com.mapbox.maps.CameraOptions.Builder().center(loc).zoom(15.0).build()
+                        )
+                    }
+                },
+                onPostToMap = {
+                    showHoldMenu = false
+                    val center = mapView?.mapboxMap?.cameraState?.center ?: userLocation
+                    if (center != null) onMapFirstPostLocationSelected(center)
+                },
+                onPostMultipleToMap = {
+                    showHoldMenu = false
+                    isMultiPostMode = true
+                    val center = mapView?.mapboxMap?.cameraState?.center ?: userLocation
+                    if (center != null) onMapFirstPostLocationSelected(center)
+                },
+                onStartTour = {
+                    showHoldMenu = false
+                }
+            )
+        }
+
         if (showLocationSearch) {
             LocationSearchDialog(
                 query = locationSearchQuery,
@@ -1399,6 +1434,71 @@ private fun JSONObject.optFiniteDouble(vararg keys: String): Double? {
         if (value.isFinite()) return value
     }
     return null
+}
+
+@Composable
+private fun MapHoldMenuSheet(
+    onDismiss: () -> Unit,
+    onSearch: () -> Unit,
+    onCurrentLocation: () -> Unit,
+    onPostToMap: () -> Unit,
+    onPostMultipleToMap: () -> Unit,
+    onStartTour: () -> Unit
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.48f))
+            .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { onDismiss() },
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = false) {},
+            color = Color(0xFF111111),
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+        ) {
+            Column(
+                Modifier
+                    .navigationBarsPadding()
+                    .padding(bottom = 12.dp)
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp, bottom = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        Modifier
+                            .width(36.dp)
+                            .height(4.dp)
+                            .background(Color.White.copy(alpha = 0.22f), RoundedCornerShape(2.dp))
+                    )
+                }
+                listOf(
+                    Triple("🔍", "Search") { onSearch() },
+                    Triple("📍", "Current location") { onCurrentLocation() },
+                    Triple("📸", "Post to map") { onPostToMap() },
+                    Triple("🗂️", "Post multiple to map") { onPostMultipleToMap() },
+                    Triple("🗺️", "Start tour") { onStartTour() }
+                ).forEach { (emoji, label, action) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { action() }
+                            .padding(horizontal = 22.dp, vertical = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(emoji, fontSize = 22.sp)
+                        Text(label, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

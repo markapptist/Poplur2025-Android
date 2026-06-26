@@ -22,17 +22,15 @@ object FaceAdGenerationService {
         val body = JSONObject().apply {
             put("input", JSONObject().apply {
                 put("image", dataUri)
-                put("prompt", prompt)
-                put("negative_prompt", "low quality, blurry, bad anatomy, multiple people, text, watermark")
-                put("width", 768)
-                put("height", 1344)
+                put("prompt", "$prompt, cinematic TV advertisement, broadcast quality, vivid professional lighting")
+                put("negative_prompt", "low quality, blurry, bad anatomy, multiple people, text, watermark, cartoon")
+                put("style", "None")
+                put("guidance_scale", 7.5)
                 put("num_inference_steps", 30)
-                put("guidance_scale", 5.0)
-                put("style_strength_ratio", 20)
-                put("enhance_face_region", true)
+                put("disable_safety_checker", true)
             })
         }
-        val id = start("https://api.replicate.com/v1/models/zsxkib/instant-id/predictions", body, key)
+        val id = start("https://api.replicate.com/v1/models/fofr/face-to-many/predictions", body, key)
         val url = poll(id, key)
         download(url)
     }

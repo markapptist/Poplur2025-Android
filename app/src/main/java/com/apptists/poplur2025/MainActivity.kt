@@ -208,7 +208,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
     }
 }
 
-private const val CUBE_OVERLAY_SIZE_DP = 200f
+private const val CUBE_OVERLAY_SIZE_DP = 230f
 private const val CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP = 174f
 
 object PoplurVolumeEvents {

@@ -282,9 +282,9 @@ fun FeedLaunchCover(
                 bitmap = logoBitmap,
                 contentDescription = "Poplur Logo",
                 modifier = Modifier
-                    .size(130.dp)
+                    .size(200.dp)
                     .align(Alignment.Center)
-                    .offset(y = (-52).dp)
+                    .offset(y = (-60).dp)
                     .graphicsLayer {
                         scaleX = logoScale.value
                         scaleY = logoScale.value
@@ -296,9 +296,9 @@ fun FeedLaunchCover(
                 painter = painterResource(id = R.mipmap.ic_launcher),
                 contentDescription = "Poplur Logo",
                 modifier = Modifier
-                    .size(130.dp)
+                    .size(200.dp)
                     .align(Alignment.Center)
-                    .offset(y = (-52).dp)
+                    .offset(y = (-60).dp)
                     .graphicsLayer {
                         scaleX = logoScale.value
                         scaleY = logoScale.value
