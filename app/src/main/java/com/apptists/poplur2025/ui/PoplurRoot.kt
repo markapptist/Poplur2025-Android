@@ -37,10 +37,14 @@ import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Tv
@@ -532,9 +536,41 @@ fun PoplurRoot(
                 )
             )
         } else if (tab == AppTab.Map) {
-            scope.launch {
-                mapViewModel.triggerOpenHoldMenu()
-            }
+            val tourPaused = mapViewModel.isTourPaused.value
+            cubeMenuWheelController.beginHold(
+                listOf(
+                    CubeMenuWheelItem(
+                        label = "Search",
+                        icon = Icons.Default.Search,
+                        accent = Color(0xFF4DFF58),
+                        onSelected = { scope.launch { mapViewModel.triggerOpenSearch() } }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "Location",
+                        icon = Icons.Default.MyLocation,
+                        accent = Color(0xFF18D8E8),
+                        onSelected = { scope.launch { mapViewModel.triggerCenterOnUser() } }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "Post Here",
+                        icon = Icons.Default.PhotoCamera,
+                        accent = Color(0xFFFF2D8A),
+                        onSelected = { scope.launch { mapViewModel.triggerPostToMap() } }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "Post Multiple",
+                        icon = Icons.Default.PhotoLibrary,
+                        accent = Color(0xFF7076FF),
+                        onSelected = { scope.launch { mapViewModel.triggerPostMultiple() } }
+                    ),
+                    CubeMenuWheelItem(
+                        label = if (tourPaused) "Start Tour" else "Stop Tour",
+                        icon = Icons.Default.Explore,
+                        accent = Color(0xFFFF8C1A),
+                        onSelected = { mapViewModel.setTourPaused(!tourPaused) }
+                    )
+                )
+            )
         } else if (tab == AppTab.Camera) {
             cubeMenuWheelController.beginHold(
                 listOf(

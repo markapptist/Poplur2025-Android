@@ -50,14 +50,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Apartment
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -71,6 +66,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
@@ -151,11 +148,16 @@ fun MapScreen(
     onCaptureLocationConfirmed: (Point) -> Unit = {},
     onMapFirstPostLocationSelected: (Point) -> Unit = {}
 ) {
+    val isTourPaused by mapViewModel.isTourPaused.collectAsState()
     MapScreenContent(
         isVisible = isVisible,
         centerOnUserTrigger = mapViewModel.centerOnUserTrigger,
         postCoordinateTrigger = mapViewModel.postCoordinateTrigger,
-        openHoldMenuTrigger = mapViewModel.openHoldMenuTrigger,
+        openSearchTrigger = mapViewModel.openSearchTrigger,
+        postToMapTrigger = mapViewModel.postToMapTrigger,
+        postMultipleTrigger = mapViewModel.postMultipleTrigger,
+        isTourPaused = isTourPaused,
+        onSetTourPaused = mapViewModel::setTourPaused,
         isSelectingPostLocation = isSelectingPostLocation,
         onCaptureLocationConfirmed = onCaptureLocationConfirmed,
         onMapFirstPostLocationSelected = onMapFirstPostLocationSelected
@@ -168,7 +170,11 @@ fun MapScreenContent(
     isVisible: Boolean = true,
     centerOnUserTrigger: Flow<Unit> = emptyFlow(),
     postCoordinateTrigger: Flow<Point> = emptyFlow(),
-    openHoldMenuTrigger: Flow<Unit> = emptyFlow(),
+    openSearchTrigger: Flow<Unit> = emptyFlow(),
+    postToMapTrigger: Flow<Unit> = emptyFlow(),
+    postMultipleTrigger: Flow<Unit> = emptyFlow(),
+    isTourPaused: Boolean = false,
+    onSetTourPaused: (Boolean) -> Unit = {},
     isSelectingPostLocation: Boolean = false,
     onCaptureLocationConfirmed: (Point) -> Unit = {},
     onMapFirstPostLocationSelected: (Point) -> Unit = {}
@@ -210,9 +216,7 @@ fun MapScreenContent(
     var userLocation by remember { mutableStateOf<Point?>(null) }
     var idleGeneration by remember { mutableIntStateOf(0) }
     var showLocationSearch by remember { mutableStateOf(false) }
-    var showHoldMenu by remember { mutableStateOf(false) }
     var isMultiPostMode by remember { mutableStateOf(false) }
-    var isTourPaused by remember { mutableStateOf(false) }
     var showIndoorMap by remember { mutableStateOf(false) }
     var indoorVenues by remember { mutableStateOf<List<MappedinVenue>>(emptyList()) }
     var selectedVenueUrl by remember { mutableStateOf<String?>(null) }
@@ -598,9 +602,20 @@ fun MapScreenContent(
         }
     }
 
-    LaunchedEffect(openHoldMenuTrigger) {
-        openHoldMenuTrigger.collect {
-            showHoldMenu = true
+    LaunchedEffect(openSearchTrigger) {
+        openSearchTrigger.collect { showLocationSearch = true }
+    }
+    LaunchedEffect(postToMapTrigger) {
+        postToMapTrigger.collect {
+            val center = mapView?.mapboxMap?.cameraState?.center ?: userLocation
+            if (center != null) onMapFirstPostLocationSelected(center)
+        }
+    }
+    LaunchedEffect(postMultipleTrigger) {
+        postMultipleTrigger.collect {
+            isMultiPostMode = true
+            val center = mapView?.mapboxMap?.cameraState?.center ?: userLocation
+            if (center != null) onMapFirstPostLocationSelected(center)
         }
     }
 
@@ -931,6 +946,9 @@ fun MapScreenContent(
                 color = Color.White,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
+                style = TextStyle(
+                    shadow = Shadow(Color.Black.copy(alpha = 0.6f), Offset(0f, 2f), 8f)
+                ),
                 modifier = Modifier.graphicsLayer {
                     val pulse = 1f + (titlePulse * 0.018f)
                     scaleX = pulse
@@ -950,10 +968,10 @@ fun MapScreenContent(
                 .padding(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(activeWeather.icon, fontSize = 36.sp)
-            Text(activeWeather.label, color = Color.White, fontWeight = FontWeight.Bold)
+            Text(activeWeather.icon, fontSize = 36.sp, style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.5f), Offset(0f, 2f), 6f)))
+            Text(activeWeather.label, color = Color.White, fontWeight = FontWeight.Bold, style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.5f), Offset(0f, 1f), 4f)))
             activeWeather.temperatureLabel?.let { temperature ->
-                Text(temperature, color = Color.White.copy(alpha = .78f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(temperature, color = Color.White.copy(alpha = .78f), fontSize = 12.sp, fontWeight = FontWeight.Bold, style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.5f), Offset(0f, 1f), 4f)))
             }
         }
         MapZoomSlider(
@@ -1000,11 +1018,12 @@ fun MapScreenContent(
                 .padding(start = 86.dp, bottom = 132.dp, end = 16.dp)
                 .zIndex(4f)
         )
+        val mapTextShadow = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.55f), Offset(0f, 1f), 5f))
         Column(Modifier.padding(bottom = 58.dp, start = 20.dp).align(Alignment.BottomStart).zIndex(2f)) {
-            Text("TRENDING", color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp)
+            Text("TRENDING", color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.4.sp, style = mapTextShadow)
             HorizontalDivider(color = Color.White, thickness = 2.dp, modifier = Modifier.width(60.dp).padding(vertical = 6.dp))
-            Text(DemoPostStore.posts.size.toString(), color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 42.sp)
-            Text("posts", color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(DemoPostStore.posts.size.toString(), color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 42.sp, style = mapTextShadow)
+            Text("posts", color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, fontWeight = FontWeight.Bold, style = mapTextShadow)
         }
         selectedCoordinate?.let { point ->
             Surface(Modifier.align(Alignment.BottomCenter).padding(bottom = 158.dp, start = 20.dp, end = 20.dp).zIndex(2f), color = Color.Black.copy(alpha = .72f), shape = MaterialTheme.shapes.large) {
@@ -1075,49 +1094,6 @@ fun MapScreenContent(
             )
         }
 
-        if (showHoldMenu) {
-            MapHoldMenuSheet(
-                isInTourMode = !isTourPaused,
-                onDismiss = { showHoldMenu = false },
-                onSearch = {
-                    showHoldMenu = false
-                    showLocationSearch = true
-                },
-                onCurrentLocation = {
-                    showHoldMenu = false
-                    val loc = userLocation ?: return@MapHoldMenuSheet
-                    mapView?.mapboxMap?.flyTo(
-                        CameraOptions.Builder()
-                            .center(loc)
-                            .zoom(16.9)
-                            .pitch(66.0)
-                            .bearing(28.0)
-                            .build(),
-                        mapAnimationOptions { duration(1200) }
-                    )
-                },
-                onPostToMap = {
-                    showHoldMenu = false
-                    val center = mapView?.mapboxMap?.cameraState?.center ?: userLocation
-                    if (center != null) onMapFirstPostLocationSelected(center)
-                },
-                onPostMultipleToMap = {
-                    showHoldMenu = false
-                    isMultiPostMode = true
-                    val center = mapView?.mapboxMap?.cameraState?.center ?: userLocation
-                    if (center != null) onMapFirstPostLocationSelected(center)
-                },
-                onStartTour = {
-                    showHoldMenu = false
-                    isTourPaused = false
-                },
-                onStopTour = {
-                    showHoldMenu = false
-                    isTourPaused = true
-                }
-            )
-        }
-
         if (showLocationSearch) {
             LocationSearchDialog(
                 query = locationSearchQuery,
@@ -1158,6 +1134,7 @@ private fun TourSubtextLine(text: String, isTouring: Boolean) {
             fontSize = 16.sp,
             fontWeight = if (isTouring) FontWeight.SemiBold else FontWeight.Normal,
             lineHeight = 20.sp,
+            style = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.55f), Offset(0f, 1f), 5f)),
             modifier = Modifier.padding(top = 3.dp)
         )
     }
@@ -1450,92 +1427,6 @@ private fun JSONObject.optFiniteDouble(vararg keys: String): Double? {
         if (value.isFinite()) return value
     }
     return null
-}
-
-@Composable
-private fun MapHoldMenuSheet(
-    isInTourMode: Boolean,
-    onDismiss: () -> Unit,
-    onSearch: () -> Unit,
-    onCurrentLocation: () -> Unit,
-    onPostToMap: () -> Unit,
-    onPostMultipleToMap: () -> Unit,
-    onStartTour: () -> Unit,
-    onStopTour: () -> Unit
-) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.48f))
-            .clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { onDismiss() },
-        contentAlignment = Alignment.BottomCenter
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = false) {},
-            color = Color(0xFF111111),
-            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
-        ) {
-            Column(
-                Modifier
-                    .navigationBarsPadding()
-                    .padding(bottom = 12.dp)
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp, bottom = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        Modifier
-                            .width(36.dp)
-                            .height(4.dp)
-                            .background(Color.White.copy(alpha = 0.22f), RoundedCornerShape(2.dp))
-                    )
-                }
-                HoldMenuRow(icon = Icons.Default.Search, label = "Search", onClick = onSearch)
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(start = 58.dp))
-                HoldMenuRow(icon = Icons.Default.MyLocation, label = "Current location", onClick = onCurrentLocation)
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(start = 58.dp))
-                HoldMenuRow(icon = Icons.Default.PhotoCamera, label = "Post to map", onClick = onPostToMap)
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(start = 58.dp))
-                HoldMenuRow(icon = Icons.Default.PhotoLibrary, label = "Post multiple to map", onClick = onPostMultipleToMap)
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f), modifier = Modifier.padding(start = 58.dp))
-                HoldMenuRow(
-                    icon = Icons.Default.Explore,
-                    label = if (isInTourMode) "Stop tour" else "Start tour",
-                    onClick = if (isInTourMode) onStopTour else onStartTour
-                )
-                Spacer(Modifier.height(4.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun HoldMenuRow(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 22.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier.size(22.dp)
-        )
-        Text(label, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-    }
 }
 
 @Composable
