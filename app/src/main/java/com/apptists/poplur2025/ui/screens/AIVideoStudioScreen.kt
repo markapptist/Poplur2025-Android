@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.apptists.poplur2025.data.AIVideoStyle
+import com.apptists.poplur2025.ui.components.PoplurText
 import com.google.android.gms.location.LocationServices
 
 @Composable
@@ -98,7 +99,7 @@ fun AIVideoStudioScreen(
                         tint = Color.White
                     )
                 }
-                Text(
+                PoplurText(
                     "Poplur AI",
                     color = Color.White,
                     fontSize = 22.sp,
@@ -108,7 +109,7 @@ fun AIVideoStudioScreen(
             }
 
             // Prompt input
-            Text(
+            PoplurText(
                 "What should happen?",
                 color = Color.White.copy(alpha = 0.7f),
                 fontSize = 13.sp,
@@ -119,7 +120,7 @@ fun AIVideoStudioScreen(
                 value = prompt,
                 onValueChange = { prompt = it.take(280) },
                 placeholder = {
-                    Text(
+                    PoplurText(
                         "e.g. A news anchor reporting live from the streets of Miami at night",
                         color = Color.White.copy(alpha = 0.35f),
                         fontSize = 15.sp
@@ -141,7 +142,7 @@ fun AIVideoStudioScreen(
                 shape = RoundedCornerShape(18.dp),
                 modifier = Modifier.fillMaxWidth()
             )
-            Text(
+            PoplurText(
                 "${prompt.length}/280",
                 color = Color.White.copy(alpha = 0.32f),
                 fontSize = 12.sp,
@@ -152,7 +153,7 @@ fun AIVideoStudioScreen(
             )
 
             // Style picker
-            Text(
+            PoplurText(
                 "Style",
                 color = Color.White.copy(alpha = 0.7f),
                 fontSize = 13.sp,
@@ -165,7 +166,7 @@ fun AIVideoStudioScreen(
             )
 
             // Location
-            Text(
+            PoplurText(
                 "Location",
                 color = Color.White.copy(alpha = 0.7f),
                 fontSize = 13.sp,
@@ -176,7 +177,7 @@ fun AIVideoStudioScreen(
                 value = locationName,
                 onValueChange = { locationName = it },
                 placeholder = {
-                    Text(
+                    PoplurText(
                         if (isLocationLoading) "Detecting…" else "City, neighborhood, landmark",
                         color = Color.White.copy(alpha = 0.35f)
                     )
@@ -206,7 +207,7 @@ fun AIVideoStudioScreen(
                             locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                         }
                     }) {
-                        Text("📍", fontSize = 20.sp)
+                        PoplurText("📍", fontSize = 20.sp)
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -230,7 +231,7 @@ fun AIVideoStudioScreen(
                     .fillMaxWidth()
                     .height(58.dp)
             ) {
-                Text(
+                PoplurText(
                     "✨ Generate 3 Clips",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Black,
@@ -280,9 +281,9 @@ private fun StyleGrid(
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(style.emoji, fontSize = 28.sp)
+                    PoplurText(style.emoji, fontSize = 28.sp)
                     Spacer(Modifier.height(4.dp))
-                    Text(
+                    PoplurText(
                         style.label,
                         color = if (isSelected) Color.White else Color.White.copy(alpha = 0.72f),
                         fontSize = 11.sp,

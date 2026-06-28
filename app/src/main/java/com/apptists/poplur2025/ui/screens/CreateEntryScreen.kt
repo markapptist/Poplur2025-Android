@@ -70,8 +70,8 @@ fun CreateEntryScreen(
 
             PipelineCard(
                 emoji = "📹",
-                title = "My Content",
-                subtitle = "Photo · Video · Live",
+                title = "Camera First",
+                subtitle = "Capture · Preview · Location · Edit",
                 gradient = Brush.linearGradient(
                     colors = listOf(Color(0xFF0D0D1A), Color(0xFF12002C), Color(0xFF060D1A))
                 ),
@@ -86,8 +86,8 @@ fun CreateEntryScreen(
 
             PipelineCard(
                 emoji = "✨",
-                title = "Poplur AI",
-                subtitle = "Prompt → 3 AI clips → Post",
+                title = "Map First",
+                subtitle = "Location · Capture · Preview · Edit",
                 gradient = Brush.linearGradient(
                     colors = listOf(Color(0xFF1A0A2E), Color(0xFF0A0E2E), Color(0xFF200A20))
                 ),

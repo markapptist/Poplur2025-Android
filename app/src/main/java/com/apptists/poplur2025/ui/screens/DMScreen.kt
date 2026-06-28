@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.apptists.poplur2025.data.ConversationThread
 import com.apptists.poplur2025.data.FakeChatStore
+import com.apptists.poplur2025.ui.components.PoplurText
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -170,14 +171,14 @@ private fun DmTopBar() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(
+                PoplurText(
                     text = "Chats",
                     color = Color.White,
                     fontSize = 34.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.sp
                 )
-                Text(
+                PoplurText(
                     text = "Recent messages",
                     color = Color(0xFF94949C),
                     fontSize = 14.sp,
@@ -225,7 +226,7 @@ private fun DmLogo(modifier: Modifier = Modifier) {
             modifier = modifier
         )
     } else {
-        Text(
+        PoplurText(
             text = "POPLUR",
             color = Color.White,
             fontSize = 24.sp,
@@ -281,7 +282,7 @@ private fun DmSearchField(
 
         Box(modifier = Modifier.weight(1f)) {
             if (query.isEmpty()) {
-                Text(
+                PoplurText(
                     text = "Search",
                     color = Color(0xFF8F8F96),
                     fontSize = 16.sp,
@@ -331,7 +332,7 @@ private fun DmThreadRow(
             verticalArrangement = Arrangement.Center
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
+                PoplurText(
                     text = name,
                     color = Color.White,
                     fontSize = 18.sp,
@@ -341,7 +342,7 @@ private fun DmThreadRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                Text(
+                PoplurText(
                     text = threadTimestamp(threadId),
                     color = if (threadUnreadCount(threadId) > 0) Color(0xFF61FF78) else Color(0xFF8F8F96),
                     fontSize = 13.sp,
@@ -351,7 +352,7 @@ private fun DmThreadRow(
             }
             Spacer(modifier = Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
+                PoplurText(
                     text = preview,
                     color = Color(0xFFA8A8B0),
                     fontSize = 15.sp,
@@ -370,7 +371,7 @@ private fun DmThreadRow(
                             .background(Color(0xFF61FF78)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
+                        PoplurText(
                             text = unreadCount.toString(),
                             color = Color.Black,
                             fontSize = 11.sp,
@@ -422,7 +423,7 @@ private fun DmAvatar(
                 .border(1.dp, Color.White.copy(alpha = 0.12f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Text(
+            PoplurText(
                 text = initialsFor(name),
                 color = Color.White,
                 fontSize = 16.sp,
@@ -509,7 +510,7 @@ private fun DMChatDetailScreen(
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(
+                PoplurText(
                     text = thread.title,
                     color = Color.White,
                     fontSize = 22.sp,
@@ -518,7 +519,7 @@ private fun DMChatDetailScreen(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
+                PoplurText(
                     text = "Active now",
                     color = Color(0xFF8F8F96),
                     fontSize = 14.sp,
@@ -565,7 +566,7 @@ private fun DMChatDetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
+                    PoplurText(
                         text = "Today",
                         color = Color(0xFF9F9FA8),
                         fontSize = 12.sp,
@@ -614,7 +615,7 @@ private fun DMChatDetailScreen(
                 onValueChange = { draft = it },
                 modifier = Modifier.weight(1f),
                 placeholder = {
-                    Text(
+                    PoplurText(
                         text = "Message ${thread.title}",
                         color = Color.White.copy(alpha = 0.45f),
                         fontWeight = FontWeight.Bold
@@ -691,7 +692,7 @@ private fun DMMessageBubble(message: ChatBubbleState) {
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Column {
-                Text(
+                PoplurText(
                     text = message.text,
                     color = Color.White,
                     fontSize = 17.sp,
@@ -705,7 +706,7 @@ private fun DMMessageBubble(message: ChatBubbleState) {
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
+                    PoplurText(
                         text = message.time,
                         color = Color.White.copy(alpha = 0.62f),
                         fontSize = 10.sp,
@@ -714,7 +715,7 @@ private fun DMMessageBubble(message: ChatBubbleState) {
                     )
                     if (message.isMine) {
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text(
+                        PoplurText(
                             text = "✓",
                             color = Color.White.copy(alpha = 0.72f),
                             fontSize = 10.sp,

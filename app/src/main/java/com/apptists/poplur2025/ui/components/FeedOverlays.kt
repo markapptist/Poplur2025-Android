@@ -17,8 +17,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import com.apptists.poplur2025.ui.components.PoplurText
 import com.apptists.poplur2025.ui.components.ShaderNumberText
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -67,7 +68,7 @@ fun UserInfoOverlay(
 
     Column(modifier = modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("🇯🇵", fontSize = 32.sp)
+            PoplurText("🇯🇵", fontSize = 32.sp)
             Spacer(Modifier.width(10.dp))
 
             AnimatedContent(
@@ -146,7 +147,7 @@ private fun ChannelIcon(iconResId: Int?, fallbackEmoji: String, size: Int) {
             modifier = Modifier.size(size.dp)
         )
     } else {
-        Text(fallbackEmoji, fontSize = size.sp)
+        PoplurText(fallbackEmoji, fontSize = size.sp)
     }
 }
 

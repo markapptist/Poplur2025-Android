@@ -42,6 +42,7 @@ import androidx.media3.ui.PlayerView
 import com.apptists.poplur2025.data.AIVideoJobStatus
 import com.apptists.poplur2025.data.AIVideoService
 import com.apptists.poplur2025.data.AIVideoStoryboard
+import com.apptists.poplur2025.ui.components.PoplurText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -85,7 +86,7 @@ fun AIVideoProgressScreen(
                         tint = Color.White
                     )
                 }
-                Text(
+                PoplurText(
                     "Generating",
                     color = Color.White,
                     fontSize = 22.sp,
@@ -129,7 +130,7 @@ fun AIVideoProgressScreen(
                 // Error
                 if (status is AIVideoJobStatus.Failed) {
                     item {
-                        Text(
+                        PoplurText(
                             "Generation failed: ${(status as AIVideoJobStatus.Failed).reason}",
                             color = Color(0xFFFF6B6B),
                             fontSize = 14.sp,
@@ -181,7 +182,7 @@ fun AIVideoProgressScreen(
                             modifier = Modifier.size(22.dp)
                         )
                     } else {
-                        Text(
+                        PoplurText(
                             "Post Clip ${selectedClipIndex + 1}",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Black,
@@ -230,9 +231,9 @@ private fun StatusBanner(status: AIVideoJobStatus) {
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(icon, fontSize = 18.sp, modifier = Modifier.alpha(if (isActive) alpha else 1f))
+            PoplurText(icon, fontSize = 18.sp, modifier = Modifier.alpha(if (isActive) alpha else 1f))
             Spacer(Modifier.width(10.dp))
-            Text(
+            PoplurText(
                 labelText,
                 color = color,
                 fontSize = 14.sp,
@@ -253,14 +254,14 @@ private fun StoryboardCard(board: AIVideoStoryboard) {
             .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(18.dp))
             .padding(16.dp)
     ) {
-        Text(
+        PoplurText(
             board.title,
             color = Color.White,
             fontSize = 16.sp,
             fontWeight = FontWeight.Black,
             modifier = Modifier.padding(bottom = 4.dp)
         )
-        Text(
+        PoplurText(
             board.style,
             color = Color(0xFFB47DFF),
             fontSize = 12.sp,
@@ -276,7 +277,7 @@ private fun StoryboardCard(board: AIVideoStoryboard) {
                         .background(Color(0xFFB47DFF).copy(alpha = 0.22f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
+                    PoplurText(
                         "${shot.shot}",
                         color = Color(0xFFB47DFF),
                         fontSize = 11.sp,
@@ -285,13 +286,13 @@ private fun StoryboardCard(board: AIVideoStoryboard) {
                 }
                 Spacer(Modifier.width(10.dp))
                 Column {
-                    Text(
+                    PoplurText(
                         shot.type.replaceFirstChar { it.uppercase() },
                         color = Color.White.copy(alpha = 0.65f),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
-                    Text(
+                    PoplurText(
                         shot.prompt,
                         color = Color.White.copy(alpha = 0.80f),
                         fontSize = 13.sp,
@@ -333,7 +334,7 @@ private fun ClipCard(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 10.dp)
         ) {
-            Text(
+            PoplurText(
                 "CLIP ${index + 1}",
                 color = if (url != null) Color(0xFF4DFF58) else Color.White.copy(alpha = 0.42f),
                 fontSize = 12.sp,
@@ -347,7 +348,7 @@ private fun ClipCard(
                         .background(Color(0xFF4DFF58).copy(alpha = 0.18f), RoundedCornerShape(8.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
-                    Text("SELECTED", color = Color(0xFF4DFF58), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                    PoplurText("SELECTED", color = Color(0xFF4DFF58), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
             }
             if (isGenerating) {
@@ -407,7 +408,7 @@ private fun ClipCard(
                             modifier = Modifier.size(32.dp)
                         )
                         Spacer(Modifier.height(8.dp))
-                        Text(
+                        PoplurText(
                             "Generating…",
                             color = Color(0xFFB47DFF),
                             fontSize = 13.sp,
@@ -415,7 +416,7 @@ private fun ClipCard(
                         )
                     }
                 } else {
-                    Text(
+                    PoplurText(
                         "Pending",
                         color = Color.White.copy(alpha = 0.25f),
                         fontSize = 13.sp

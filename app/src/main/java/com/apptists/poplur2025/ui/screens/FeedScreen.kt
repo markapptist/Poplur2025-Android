@@ -838,36 +838,31 @@ private fun TVStaticTransitionOverlay(channelNumber: Int, channelCategory: Strin
     val overlayAlpha = remember { Animatable(1f) }
     // noiseTime drives per-frame Canvas redraws via state tracking
     val noiseTime = remember { Animatable(0f) }
-    var logoVisible by remember { mutableStateOf(false) }
-    var channelVisible by remember { mutableStateOf(false) }
-    val logoScale = remember { Animatable(0.05f) }
-    val channelScale = remember { Animatable(0.05f) }
+    var logoVisible by remember { mutableStateOf(true) }
+    var channelVisible by remember { mutableStateOf(true) }
+    val logoScale = remember { Animatable(0.82f) }
+    val channelScale = remember { Animatable(0.86f) }
 
     LaunchedEffect(Unit) {
         // Noise driver (infinite, cancelled when scope ends)
         launch { noiseTime.animateTo(9999f, infiniteRepeatable(tween(99999, easing = LinearEasing))) }
         // Audio
         launch(kotlinx.coroutines.Dispatchers.IO) { playTVStaticAudio() }
-        // Logo pop at 80ms
-        delay(80)
-        logoVisible = true
+        // Logo and channel identity begin on the first frames so the feed never outruns the tune card.
         launch {
-            logoScale.animateTo(1.32f, tween(110, easing = FastOutSlowInEasing))
-            logoScale.animateTo(0.87f, tween(80, easing = FastOutSlowInEasing))
-            logoScale.animateTo(1.08f, tween(60, easing = FastOutSlowInEasing))
-            logoScale.animateTo(1.0f, tween(50, easing = FastOutSlowInEasing))
+            logoScale.animateTo(1.22f, tween(70, easing = FastOutSlowInEasing))
+            logoScale.animateTo(0.92f, tween(50, easing = FastOutSlowInEasing))
+            logoScale.animateTo(1.04f, tween(40, easing = FastOutSlowInEasing))
+            logoScale.animateTo(1.0f, tween(30, easing = FastOutSlowInEasing))
         }
-        // Channel text pop at 260ms total
-        delay(180)
-        channelVisible = true
         launch {
-            channelScale.animateTo(1.28f, tween(100, easing = FastOutSlowInEasing))
-            channelScale.animateTo(0.90f, tween(70, easing = FastOutSlowInEasing))
-            channelScale.animateTo(1.05f, tween(50, easing = FastOutSlowInEasing))
-            channelScale.animateTo(1.0f, tween(40, easing = FastOutSlowInEasing))
+            channelScale.animateTo(1.20f, tween(70, easing = FastOutSlowInEasing))
+            channelScale.animateTo(0.94f, tween(50, easing = FastOutSlowInEasing))
+            channelScale.animateTo(1.03f, tween(40, easing = FastOutSlowInEasing))
+            channelScale.animateTo(1.0f, tween(30, easing = FastOutSlowInEasing))
         }
-        // Fade out at 640ms total
-        delay(400)
+        // Fade only after the channel number/logo have had a readable beat.
+        delay(500)
         overlayAlpha.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
     }
 
@@ -927,16 +922,39 @@ private fun TVStaticTransitionOverlay(channelNumber: Int, channelCategory: Strin
         }
         // Channel identity card
         if (channelIconResId != null) {
-            if (logoVisible) {
-                androidx.compose.foundation.Image(
-                    painter = painterResource(channelIconResId),
-                    contentDescription = "CH $channelNumber $channelCategory",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxWidth(0.80f)
-                        .wrapContentHeight()
-                        .graphicsLayer { scaleX = logoScale.value; scaleY = logoScale.value }
-                )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (logoVisible) {
+                    androidx.compose.foundation.Image(
+                        painter = painterResource(channelIconResId),
+                        contentDescription = "CH $channelNumber $channelCategory",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth(0.72f)
+                            .wrapContentHeight()
+                            .graphicsLayer { scaleX = logoScale.value; scaleY = logoScale.value }
+                    )
+                }
+                Spacer(modifier = Modifier.height(18.dp))
+                if (channelVisible) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.graphicsLayer { scaleX = channelScale.value; scaleY = channelScale.value }
+                    ) {
+                        ShaderNumberText(
+                            text = "CH $channelNumber",
+                            color = Color(0xFF4EFF40),
+                            fontSize = 40.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        ShaderNumberText(
+                            text = channelCategory.uppercase(),
+                            color = Color(0xFF4EFF40),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 2.sp
+                        )
+                    }
+                }
             }
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1055,15 +1073,15 @@ private fun TVStaticTransitionOverlay3D(channelNumber: Int, channelCategory: Str
     val noiseTime    = remember { Animatable(0f) }
 
     // Logo 3D flip: Y rotation from 90° (edge-on) → bounce to 0° (face-on)
-    var logoVisible by remember { mutableStateOf(false) }
-    val logoRotY  = remember { Animatable(90f) }
-    val logoScale = remember { Animatable(1f) }
+    var logoVisible by remember { mutableStateOf(true) }
+    val logoRotY  = remember { Animatable(16f) }
+    val logoScale = remember { Animatable(0.92f) }
 
     // Text 3D tilt-in: rotationX from -40° (facing up/away) → 0°, plus rise from below
-    var textVisible by remember { mutableStateOf(false) }
-    val textRotX   = remember { Animatable(-40f) }
-    val textTransY = remember { Animatable(80f) }
-    val textScale  = remember { Animatable(1f) }
+    var textVisible by remember { mutableStateOf(true) }
+    val textRotX   = remember { Animatable(-12f) }
+    val textTransY = remember { Animatable(22f) }
+    val textScale  = remember { Animatable(0.90f) }
 
     LaunchedEffect(Unit) {
         // Noise driver
@@ -1071,42 +1089,34 @@ private fun TVStaticTransitionOverlay3D(channelNumber: Int, channelCategory: Str
         // Audio
         launch(kotlinx.coroutines.Dispatchers.IO) { playTVStaticAudio() }
 
-        // Logo flip at 80ms
-        delay(80)
-        logoVisible = true
         launch {
-            logoRotY.animateTo(-14f, tween(200, easing = FastOutSlowInEasing))
-            logoRotY.animateTo(7f,   tween(110, easing = FastOutSlowInEasing))
-            logoRotY.animateTo(-3f,  tween(70,  easing = FastOutSlowInEasing))
-            logoRotY.animateTo(0f,   tween(50,  easing = FastOutSlowInEasing))
+            logoRotY.animateTo(-8f, tween(90, easing = FastOutSlowInEasing))
+            logoRotY.animateTo(4f,  tween(60, easing = FastOutSlowInEasing))
+            logoRotY.animateTo(0f,  tween(40, easing = FastOutSlowInEasing))
         }
         launch {
-            logoScale.animateTo(1.20f, tween(130, easing = FastOutSlowInEasing))
-            logoScale.animateTo(0.90f, tween(90,  easing = FastOutSlowInEasing))
-            logoScale.animateTo(1.0f,  tween(70,  easing = FastOutSlowInEasing))
+            logoScale.animateTo(1.16f, tween(70, easing = FastOutSlowInEasing))
+            logoScale.animateTo(0.94f, tween(50, easing = FastOutSlowInEasing))
+            logoScale.animateTo(1.0f,  tween(40, easing = FastOutSlowInEasing))
         }
 
-        // Text tilt-in at 270ms total
-        delay(190)
-        textVisible = true
         launch {
-            textRotX.animateTo(10f,  tween(180, easing = FastOutSlowInEasing))
-            textRotX.animateTo(-5f,  tween(90,  easing = FastOutSlowInEasing))
-            textRotX.animateTo(0f,   tween(60,  easing = FastOutSlowInEasing))
+            textRotX.animateTo(6f,  tween(90, easing = FastOutSlowInEasing))
+            textRotX.animateTo(-3f, tween(50, easing = FastOutSlowInEasing))
+            textRotX.animateTo(0f,  tween(40, easing = FastOutSlowInEasing))
         }
         launch {
-            textTransY.animateTo(-14f, tween(180, easing = FastOutSlowInEasing))
-            textTransY.animateTo(8f,   tween(90,  easing = FastOutSlowInEasing))
-            textTransY.animateTo(0f,   tween(60,  easing = FastOutSlowInEasing))
+            textTransY.animateTo(-8f, tween(90, easing = FastOutSlowInEasing))
+            textTransY.animateTo(4f,  tween(50, easing = FastOutSlowInEasing))
+            textTransY.animateTo(0f,  tween(40, easing = FastOutSlowInEasing))
         }
         launch {
-            textScale.animateTo(1.22f, tween(120, easing = FastOutSlowInEasing))
-            textScale.animateTo(0.92f, tween(80,  easing = FastOutSlowInEasing))
-            textScale.animateTo(1.0f,  tween(60,  easing = FastOutSlowInEasing))
+            textScale.animateTo(1.15f, tween(70, easing = FastOutSlowInEasing))
+            textScale.animateTo(0.95f, tween(50, easing = FastOutSlowInEasing))
+            textScale.animateTo(1.0f,  tween(40, easing = FastOutSlowInEasing))
         }
 
-        // Fade out at 650ms total
-        delay(410)
+        delay(500)
         overlayAlpha.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
     }
 
@@ -1157,23 +1167,54 @@ private fun TVStaticTransitionOverlay3D(channelNumber: Int, channelCategory: Str
         }
 
         if (channelIconResId != null) {
-            // 3D flip applied to the whole channel PNG
-            if (logoVisible) {
-                val density = LocalDensity.current.density
-                androidx.compose.foundation.Image(
-                    painter = painterResource(channelIconResId),
-                    contentDescription = "CH $channelNumber $channelCategory",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxWidth(0.80f)
-                        .wrapContentHeight()
-                        .graphicsLayer {
-                            rotationY = logoRotY.value
-                            scaleX = logoScale.value
-                            scaleY = logoScale.value
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (logoVisible) {
+                    val density = LocalDensity.current.density
+                    androidx.compose.foundation.Image(
+                        painter = painterResource(channelIconResId),
+                        contentDescription = "CH $channelNumber $channelCategory",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth(0.72f)
+                            .wrapContentHeight()
+                            .graphicsLayer {
+                                rotationY = logoRotY.value
+                                scaleX = logoScale.value
+                                scaleY = logoScale.value
+                                cameraDistance = 10f * density
+                            }
+                    )
+                }
+                Spacer(modifier = Modifier.height(18.dp))
+                if (textVisible) {
+                    val density = LocalDensity.current.density
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.graphicsLayer {
+                            rotationX = textRotX.value
+                            translationY = textTransY.value * density
+                            scaleX = textScale.value
+                            scaleY = textScale.value
                             cameraDistance = 10f * density
                         }
-                )
+                    ) {
+                        Text(
+                            text = "CH $channelNumber",
+                            color = Color(0xFF4EFF40),
+                            fontSize = 40.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                        )
+                        Text(
+                            text = channelCategory.uppercase(),
+                            color = Color(0xFF4EFF40),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            letterSpacing = 2.sp
+                        )
+                    }
+                }
             }
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {

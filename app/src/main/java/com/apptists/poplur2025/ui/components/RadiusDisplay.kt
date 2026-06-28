@@ -8,7 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
+import com.apptists.poplur2025.ui.components.PoplurText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -57,7 +57,7 @@ fun RadiusDisplay(
         horizontalAlignment = Alignment.End
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
+            PoplurText(
                 text = "RADIUS",
                 color = contentColor.copy(alpha = 0.7f),
                 fontSize = 11.sp,
@@ -89,7 +89,7 @@ fun RadiusDisplay(
                 intensity = 1.05f,
                 autoSize = true
             )
-            Text(
+            PoplurText(
                 text = displayUnit,
                 color = Color(0xFFD8892B),
                 fontSize = 14.sp,

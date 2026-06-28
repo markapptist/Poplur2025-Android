@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
 import com.apptists.poplur2025.data.UserProfile
+import com.apptists.poplur2025.ui.components.PoplurText
 
 @Composable
 fun EditProfileScreen(
@@ -39,14 +40,14 @@ fun EditProfileScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onDismiss) {
-                Text("CANCEL", fontWeight = FontWeight.Black, fontSize = 18.sp, color = Color.Gray)
+                PoplurText("CANCEL", fontWeight = FontWeight.Black, fontSize = 18.sp, color = Color.Gray)
             }
             TextButton(
                 onClick = {
                     onSave(profile.copy(displayName = displayName, username = username, bio = bio), null)
                 }
             ) {
-                Text("SAVE", fontWeight = FontWeight.Black, fontSize = 18.sp, color = Color(0xFF7B78FF))
+                PoplurText("SAVE", fontWeight = FontWeight.Black, fontSize = 18.sp, color = Color(0xFF7B78FF))
             }
         }
 
@@ -56,7 +57,7 @@ fun EditProfileScreen(
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            Text(
+            PoplurText(
                 "Edit Profile",
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Black,
@@ -78,7 +79,7 @@ private fun EditField(
     onValueChange: (String) -> Unit
 ) {
     Column(Modifier.fillMaxWidth()) {
-        Text(
+        PoplurText(
             label,
             fontWeight = FontWeight.Bold,
             fontSize = 14.sp,

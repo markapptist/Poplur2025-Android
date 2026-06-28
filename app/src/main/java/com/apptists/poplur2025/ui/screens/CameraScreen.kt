@@ -106,6 +106,7 @@ import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.MusicSearchSheet
 import com.apptists.poplur2025.ui.components.ShaderNumberText
+import com.apptists.poplur2025.ui.components.PoplurText
 import com.apptists.poplur2025.ui.components.poplurCountdownDisplayModifier
 import com.apptists.poplur2025.ui.components.poplurRadiusDisplayModifier
 import com.google.mlkit.vision.common.InputImage
@@ -131,6 +132,7 @@ fun CameraScreen(
     liveTrigger: Int = 0,
     filtersTrigger: Int = 0,
     initialShowFilters: Boolean = false,
+    objectDetectionEnabled: Boolean = false,
     currentUserProfile: UserProfile = UserProfile(),
     onFiltersToggle: (Boolean) -> Unit = {},
     onMediaCaptured: (Uri, Boolean) -> Unit = { _, _ -> },
@@ -475,8 +477,18 @@ fun CameraScreen(
         }
     }
 
-    LaunchedEffect(detectedObjectLabels) {
-        if (!isPreview) com.apptists.poplur2025.ml.CameraAIAnnouncer.announceMLObjects(detectedObjectLabels)
+    LaunchedEffect(objectDetectionEnabled) {
+        if (!objectDetectionEnabled) {
+            detectedObjectLabels = emptyList()
+            lastDetectedLabelKey = ""
+            if (!isPreview) com.apptists.poplur2025.ml.CameraAIAnnouncer.announceMLObjects(emptyList())
+        }
+    }
+
+    LaunchedEffect(detectedObjectLabels, objectDetectionEnabled) {
+        if (!isPreview && objectDetectionEnabled) {
+            com.apptists.poplur2025.ml.CameraAIAnnouncer.announceMLObjects(detectedObjectLabels)
+        }
     }
 
     Box(
@@ -518,7 +530,7 @@ fun CameraScreen(
                         modifier = Modifier.fillMaxSize().background(Color.DarkGray),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Camera Preview Placeholder", color = Color.White, fontWeight = FontWeight.Bold)
+                        PoplurText("Camera Preview Placeholder", color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 } else {
                     key(useFrontCamera) {
@@ -566,7 +578,8 @@ fun CameraScreen(
 
                                                 // Count pending async tasks so imageProxy is only closed once both finish
                                                 val pending = java.util.concurrent.atomic.AtomicInteger(
-                                                    (if (faceDetector != null) 1 else 0) + (if (mlDetectionManager != null) 1 else 0)
+                                                    (if (faceDetector != null) 1 else 0) +
+                                                        (if (objectDetectionEnabled && mlDetectionManager != null) 1 else 0)
                                                 )
                                                 val doClose: () -> Unit = {
                                                     if (pending.decrementAndGet() == 0) {
@@ -581,19 +594,21 @@ fun CameraScreen(
                                                 }
 
                                                 // ML object detection (best-effort, STREAM_MODE handles dropped frames)
-                                                mlDetectionManager?.analyze(mediaImage, rotation) { objects ->
-                                                    if (objects.isNotEmpty()) {
-                                                        detectedObjectLabels = objects
-                                                        val key = objects.take(3).joinToString(",") { it.label }
-                                                        if (key != lastDetectedLabelKey) {
-                                                            lastDetectedLabelKey = key
-                                                            onObjectDetected()
+                                                if (objectDetectionEnabled && mlDetectionManager != null) {
+                                                    mlDetectionManager.analyze(mediaImage, rotation) { objects ->
+                                                        if (objects.isNotEmpty()) {
+                                                            detectedObjectLabels = objects
+                                                            val key = objects.take(3).joinToString(",") { it.label }
+                                                            if (key != lastDetectedLabelKey) {
+                                                                lastDetectedLabelKey = key
+                                                                onObjectDetected()
+                                                            }
+                                                        } else if (detectedObjectLabels.isNotEmpty()) {
+                                                            detectedObjectLabels = emptyList()
+                                                            lastDetectedLabelKey = ""
                                                         }
-                                                    } else if (detectedObjectLabels.isNotEmpty()) {
-                                                        detectedObjectLabels = emptyList()
-                                                        lastDetectedLabelKey = ""
+                                                        doClose()
                                                     }
-                                                    doClose()
                                                 }
 
                                                 // Face detection
@@ -639,7 +654,7 @@ fun CameraScreen(
             } else {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Button(onClick = { cameraPermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA)) }) {
-                        Text("Enable Camera")
+                        PoplurText("Enable Camera")
                     }
                 }
             }
@@ -666,13 +681,15 @@ fun CameraScreen(
         }
 
         // Top Center: ML object detection overlay
-        MLObjectShaderOverlay(
-            objects = detectedObjectLabels,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(top = 14.dp)
-        )
+        if (objectDetectionEnabled) {
+            MLObjectShaderOverlay(
+                objects = detectedObjectLabels,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 14.dp)
+            )
+        }
 
         // Top Left: Flash Control
         IconButton(
@@ -782,7 +799,7 @@ fun CameraScreen(
 
 
         selectedMedia?.let {
-            Text(
+            PoplurText(
                 it.lastPathSegment ?: "Selected media",
                 color = Color.White.copy(alpha = .82f),
                 fontSize = 12.sp,
@@ -800,7 +817,7 @@ fun CameraScreen(
                 color = Color.Black.copy(alpha = .58f),
                 shape = RoundedCornerShape(18.dp)
             ) {
-                Text(
+                PoplurText(
                     output,
                     color = Color.White,
                     fontSize = 16.sp,
@@ -826,7 +843,7 @@ fun CameraScreen(
                 shape = RoundedCornerShape(999.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.28f))
             ) {
-                Text(
+                PoplurText(
                     label,
                     color = Color.White,
                     fontSize = 13.sp,
@@ -851,7 +868,7 @@ private fun RecordingTimerBadge(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
+            PoplurText(
                 "RECORDING",
                 color = Color.White.copy(alpha = 0.68f),
                 fontSize = 11.sp,
@@ -928,7 +945,7 @@ private fun LiveVideoBadge(
                         .clip(CircleShape)
                         .background(Color(0xFFFF2B2B))
                 )
-                Text(
+                PoplurText(
                     "LIVE",
                     color = Color.White,
                     fontSize = 12.sp,
@@ -936,20 +953,20 @@ private fun LiveVideoBadge(
                     letterSpacing = 1.1.sp
                 )
             }
-            Text(
+            PoplurText(
                 formatLiveDuration(seconds),
                 color = Color.White.copy(alpha = 0.88f),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold
             )
-            Text(
+            PoplurText(
                 "$viewers watching",
                 color = Color(0xFF4DFF58),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Black
             )
             if (!locationName.isNullOrBlank()) {
-                Text(
+                PoplurText(
                     locationName,
                     color = Color.White.copy(alpha = 0.76f),
                     fontSize = 12.sp,
@@ -1019,13 +1036,13 @@ private fun LiveLocationPickerSheet(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
+                    PoplurText(
                         "Go Live",
                         color = Color.White,
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Black
                     )
-                    Text(
+                    PoplurText(
                         "Choose where the live radius starts",
                         color = Color.White.copy(alpha = 0.62f),
                         fontSize = 13.sp,
@@ -1058,7 +1075,7 @@ private fun LiveLocationPickerSheet(
                         )
                         Spacer(Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
+                            PoplurText(
                                 location.title,
                                 color = Color.White,
                                 fontSize = 17.sp,
@@ -1066,7 +1083,7 @@ private fun LiveLocationPickerSheet(
                                 maxLines = 1,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
-                            Text(
+                            PoplurText(
                                 "${location.subtitle} - ${formatLiveRadius(location.radiusMeters)}",
                                 color = Color.White.copy(alpha = 0.58f),
                                 fontSize = 12.sp,
@@ -1139,7 +1156,7 @@ fun CapturedOutputScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Post Original", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                    PoplurText("Post Original", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
                 }
                 Button(
                     onClick = onUsePoplurAI,
@@ -1147,10 +1164,10 @@ fun CapturedOutputScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3838), contentColor = Color.White),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Add Poplur AI", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                    PoplurText("Add Poplur AI", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
                 }
                 TextButton(onClick = onBack) {
-                    Text("Back", color = Color.White.copy(alpha = 0.82f), fontWeight = FontWeight.Bold)
+                    PoplurText("Back", color = Color.White.copy(alpha = 0.82f), fontWeight = FontWeight.Bold)
                 }
             } else {
                 // Action row
@@ -1169,7 +1186,7 @@ fun CapturedOutputScreen(
                             tint = Color.White,
                             modifier = Modifier.size(44.dp)
                         )
-                        Text(
+                        PoplurText(
                             "Retake",
                             color = Color.White,
                             fontSize = 13.sp,
@@ -1187,7 +1204,7 @@ fun CapturedOutputScreen(
                             tint = Color(0xFFFF3838),
                             modifier = Modifier.size(44.dp)
                         )
-                        Text(
+                        PoplurText(
                             continueLabel,
                             color = Color.White,
                             fontSize = 13.sp,
@@ -1268,7 +1285,7 @@ fun CapturedMediaEditorScreen(
                 Icon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(22.dp))
             }
             Spacer(Modifier.height(12.dp))
-            Text("Edit capture", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            PoplurText("Edit capture", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
         }
 
         Column(
@@ -1305,11 +1322,11 @@ fun CapturedMediaEditorScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             if (selectedFilterId == filter.id) {
-                                Text("✓", color = Color.White, fontWeight = FontWeight.Black)
+                                PoplurText("✓", color = Color.White, fontWeight = FontWeight.Black)
                             }
                         }
                         Spacer(Modifier.height(7.dp))
-                        Text(
+                        PoplurText(
                             filter.title,
                             color = Color.White.copy(alpha = if (selectedFilterId == filter.id) 1f else 0.7f),
                             fontSize = 11.sp,
@@ -1322,9 +1339,9 @@ fun CapturedMediaEditorScreen(
             if (isVideo) {
                 Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Trim", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
+                        PoplurText("Trim", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
                         Spacer(Modifier.weight(1f))
-                        Text("${trimSeconds.toInt()}s", color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        PoplurText("${trimSeconds.toInt()}s", color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                     Slider(
                         value = trimSeconds,
@@ -1354,7 +1371,7 @@ fun CapturedMediaEditorScreen(
                 ),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)
             ) {
-                Text(
+                PoplurText(
                     if (selectedMusicUri == null) "♫ Add Music" else "♪ Music Added",
                     fontWeight = FontWeight.Black,
                     modifier = Modifier.padding(vertical = 6.dp)
@@ -1367,7 +1384,7 @@ fun CapturedMediaEditorScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)
             ) {
-                Text("Continue", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                PoplurText("Continue", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
             }
         }
     }
@@ -1407,7 +1424,7 @@ fun CapturedChannelScreen(
                 Icon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(22.dp))
             }
             Spacer(Modifier.height(12.dp))
-            Text("Choose channel", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            PoplurText("Choose channel", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
         }
 
         Column(
@@ -1438,13 +1455,13 @@ fun CapturedChannelScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(channel.emoji, fontSize = 27.sp, modifier = Modifier.width(42.dp))
+                        PoplurText(channel.emoji, fontSize = 27.sp, modifier = Modifier.width(42.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("CH ${channel.number}  ${channel.title}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
-                            Text(channel.subtitle, color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            PoplurText("CH ${channel.number}  ${channel.title}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                            PoplurText(channel.subtitle, color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                         }
                         if (selectedChannel == channel) {
-                            Text("✓", color = Color(0xFF4DFF58), fontWeight = FontWeight.Black)
+                            PoplurText("✓", color = Color(0xFF4DFF58), fontWeight = FontWeight.Black)
                         }
                     }
                 }
@@ -1487,9 +1504,9 @@ fun CapturedChannelScreen(
                 if (isPosting) {
                     CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(10.dp))
-                    Text("AI is making Poplur TV...", fontWeight = FontWeight.Black)
+                    PoplurText("AI is making Poplur TV...", fontWeight = FontWeight.Black)
                 } else {
-                    Text(
+                    PoplurText(
                         if (isPoplurAIOutput) "Post Poplur TV" else "Post to ${selectedChannel.title}",
                         fontWeight = FontWeight.Black,
                         modifier = Modifier.padding(vertical = 8.dp)
@@ -1516,8 +1533,8 @@ private fun ChannelValidationNotice(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(if (willMove) "⚠" else "✓", color = if (willMove) Color(0xFFFFD84D) else Color(0xFF4DFF58), fontWeight = FontWeight.Black)
-        Text(
+        PoplurText(if (willMove) "⚠" else "✓", color = if (willMove) Color(0xFFFFD84D) else Color(0xFF4DFF58), fontWeight = FontWeight.Black)
+        PoplurText(
             if (willMove && recommendedChannel != null) {
                 "AI check: this fits CH ${recommendedChannel.number} ${recommendedChannel.title}. It will post there instead."
             } else {
@@ -1742,9 +1759,9 @@ fun DescribeAdScreen(
                 }
                 Spacer(Modifier.width(14.dp))
                 Column {
-                    Text("Describe your ad", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                    PoplurText("Describe Poplur AI", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
                     coordinate?.let {
-                        Text(
+                        PoplurText(
                             String.format("%.4f, %.4f", it.first, it.second),
                             color = Color.White.copy(alpha = 0.5f),
                             fontSize = 11.sp
@@ -1754,13 +1771,13 @@ fun DescribeAdScreen(
             }
 
             Spacer(Modifier.height(28.dp))
-            Text(
+            PoplurText(
                 "Tell Poplur AI what to make",
                 color = Color.White,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Black
             )
-            Text(
+            PoplurText(
                 "Write one prompt. Photos generate photos, and videos generate videos.",
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 13.sp
@@ -1774,7 +1791,7 @@ fun DescribeAdScreen(
 
             Spacer(Modifier.height(20.dp))
             errorMessage?.let {
-                Text(it, color = Color(0xFFFF5555), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                PoplurText(it, color = Color(0xFFFF5555), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(10.dp))
             }
 
@@ -1844,9 +1861,9 @@ fun DescribeAdScreen(
                 if (isGenerating) {
                     CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(10.dp))
-                    Text("Generating…", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                    PoplurText("Generating…", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
                 } else {
-                    Text("✦ Generate Ad", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                    PoplurText("✦ Generate Poplur AI", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
                 }
             }
             Spacer(Modifier.height(24.dp))
@@ -1868,16 +1885,16 @@ private fun AdPromptField(value: String, onValueChange: (String) -> Unit) {
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text("✦", fontSize = 22.sp, color = Color.White)
+            PoplurText("✦", fontSize = 22.sp, color = Color.White)
             Column(Modifier.weight(1f)) {
-                Text("PROMPT", color = Color.White.copy(alpha = 0.45f), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                PoplurText("PROMPT", color = Color.White.copy(alpha = 0.45f), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                 androidx.compose.foundation.text.BasicTextField(
                     value = value,
                     onValueChange = onValueChange,
                     textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold),
                     decorationBox = { inner ->
                         if (value.isEmpty()) {
-                            Text(
+                            PoplurText(
                                 "A cinematic Poplur ad about...",
                                 color = Color.White.copy(alpha = 0.3f),
                                 fontSize = 16.sp,
@@ -2048,10 +2065,10 @@ fun AdPreviewScreen(
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (selectedFilterId == filter.id) Text("✓", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                            if (selectedFilterId == filter.id) PoplurText("✓", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
                         }
                         Spacer(Modifier.height(5.dp))
-                        Text(filter.title, color = Color.White.copy(alpha = if (selectedFilterId == filter.id) 1f else 0.65f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        PoplurText(filter.title, color = Color.White.copy(alpha = if (selectedFilterId == filter.id) 1f else 0.65f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -2060,9 +2077,9 @@ fun AdPreviewScreen(
             if (isVideoAd) {
                 Column(Modifier.padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Trim", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                        PoplurText("Trim", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
                         Spacer(Modifier.weight(1f))
-                        Text("${trimSeconds.toInt()}s", color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp)
+                        PoplurText("${trimSeconds.toInt()}s", color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp)
                     }
                     Slider(
                         value = trimSeconds,
@@ -2090,13 +2107,13 @@ fun AdPreviewScreen(
                             .background(Color(0xFF4DFF58).copy(alpha = 0.82f), RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("♪", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        PoplurText("♪", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Black)
                     }
                     Column(Modifier.weight(1f)) {
-                        Text(track.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                        Text("${track.artist} • ${track.provider.displayName}", color = Color.White.copy(alpha = 0.65f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        PoplurText(track.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        PoplurText("${track.artist} • ${track.provider.displayName}", color = Color.White.copy(alpha = 0.65f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     }
-                    Text(
+                    PoplurText(
                         "×",
                         modifier = Modifier.clickable { selectedMusicTrack = null },
                         color = Color.White.copy(alpha = 0.55f),
@@ -2120,8 +2137,8 @@ fun AdPreviewScreen(
                     modifier = Modifier.height(48.dp)
                 ) {
                     Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(if (selectedMusicUri != null || selectedMusicTrack != null) "♪" else "♫", fontSize = 16.sp)
-                        Text(
+                        PoplurText(if (selectedMusicUri != null || selectedMusicTrack != null) "♪" else "♫", fontSize = 16.sp)
+                        PoplurText(
                             when {
                                 selectedMusicUri != null -> "Music File"
                                 selectedMusicTrack != null -> "Track Linked"
@@ -2198,9 +2215,9 @@ fun AdPreviewScreen(
                     if (isPosting) {
                         CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
-                        Text("Preparing…", fontWeight = FontWeight.Black, fontSize = 13.sp)
+                        PoplurText("Preparing…", fontWeight = FontWeight.Black, fontSize = 13.sp)
                     } else {
-                        Text("Pick Channel", fontWeight = FontWeight.Black, fontSize = 13.sp)
+                        PoplurText("Pick Channel", fontWeight = FontWeight.Black, fontSize = 13.sp)
                     }
                 }
             }
@@ -2241,8 +2258,8 @@ private fun TVBroadcastOverlay(meta: TVStyleMetadata) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            Text(channelEmoji(meta.channel), fontSize = 14.sp)
-            Text(
+            PoplurText(channelEmoji(meta.channel), fontSize = 14.sp)
+            PoplurText(
                 meta.broadcastName.uppercase(),
                 color = Color.White,
                 fontSize = 9.sp,
@@ -2252,7 +2269,7 @@ private fun TVBroadcastOverlay(meta: TVStyleMetadata) {
         }
 
         // HD badge — top right
-        Text(
+        PoplurText(
             "HD",
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -2283,7 +2300,7 @@ private fun TVBroadcastOverlay(meta: TVStyleMetadata) {
                     .padding(start = 18.dp, end = 18.dp, top = 22.dp, bottom = 120.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
-                Text(
+                PoplurText(
                     meta.caption.uppercase(),
                     color = Color.White,
                     fontSize = 20.sp,
@@ -2291,7 +2308,7 @@ private fun TVBroadcastOverlay(meta: TVStyleMetadata) {
                     lineHeight = 24.sp,
                     maxLines = 2
                 )
-                Text(
+                PoplurText(
                     meta.tagline,
                     color = Color.White.copy(alpha = 0.84f),
                     fontSize = 12.sp,
@@ -2349,7 +2366,7 @@ private fun ScanningOverlay() {
                     modifier = Modifier.size(24.dp)
                 )
             }
-            Text(
+            PoplurText(
                 "SCANNING BROADCAST",
                 color = Color.White.copy(alpha = 0.88f),
                 fontSize = 10.sp,
@@ -2424,7 +2441,7 @@ private fun ArFilterSelector(
                         )
                     }
                     Spacer(Modifier.height(10.dp))
-                    Text(
+                    PoplurText(
                         filter.label,
                         color = Color.White,
                         fontSize = 13.sp,
@@ -2632,7 +2649,7 @@ private fun MLObjectShaderOverlay(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     objects.drop(1).take(3).forEachIndexed { idx, obj ->
-                        Text(
+                        PoplurText(
                             obj.label.replaceFirstChar { it.uppercase(java.util.Locale.US) },
                             color = Color.White.copy(alpha = 0.88f),
                             fontSize = 11.sp,

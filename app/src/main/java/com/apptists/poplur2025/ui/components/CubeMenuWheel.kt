@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
+import com.apptists.poplur2025.ui.components.PoplurText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -62,6 +62,7 @@ enum class CubeMenuLayout {
 data class CubeMenuWheelItem(
     val label: String,
     val icon: ImageVector,
+    val secondaryIcon: ImageVector? = null,
     val accent: Color,
     val onSelected: () -> Unit
 )
@@ -492,13 +493,28 @@ private fun CubeNeonMenuTile(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Icon(
-                    item.icon,
-                    contentDescription = item.label,
-                    tint = contentTint,
-                    modifier = Modifier.size(if (selected) 38.dp else 28.dp)
-                )
-                Text(
+                Box(
+                    modifier = Modifier.size(if (selected) 42.dp else 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        item.icon,
+                        contentDescription = item.label,
+                        tint = contentTint,
+                        modifier = Modifier.size(if (selected) 38.dp else 28.dp)
+                    )
+                    item.secondaryIcon?.let { secondaryIcon ->
+                        Icon(
+                            secondaryIcon,
+                            contentDescription = null,
+                            tint = contentTint,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(if (selected) 18.dp else 14.dp)
+                        )
+                    }
+                }
+                PoplurText(
                     item.label,
                     color = contentTint,
                     fontSize = if (selected) 17.sp else 13.sp,

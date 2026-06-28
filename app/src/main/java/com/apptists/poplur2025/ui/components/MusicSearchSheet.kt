@@ -25,7 +25,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import com.apptists.poplur2025.ui.components.PoplurText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,7 +77,7 @@ fun MusicSearchSheet(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
+                    PoplurText(
                         "Add music",
                         color = Color.White,
                         fontSize = 22.sp,
@@ -90,7 +90,7 @@ fun MusicSearchSheet(
                         color = Color.White.copy(alpha = 0.12f),
                         contentColor = Color.White
                     ) {
-                        Text("×", modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp), fontSize = 22.sp, fontWeight = FontWeight.Black)
+                        PoplurText("×", modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp), fontSize = 22.sp, fontWeight = FontWeight.Black)
                     }
                 }
 
@@ -98,7 +98,7 @@ fun MusicSearchSheet(
                     value = query,
                     onValueChange = { query = it },
                     singleLine = true,
-                    placeholder = { Text("Search songs, artists, sounds", color = Color.White.copy(alpha = 0.45f)) },
+                    placeholder = { PoplurText("Search songs, artists, sounds", color = Color.White.copy(alpha = 0.45f)) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -137,17 +137,17 @@ fun MusicSearchSheet(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text("♫", fontSize = 22.sp, fontWeight = FontWeight.Black)
+                        PoplurText("♫", fontSize = 22.sp, fontWeight = FontWeight.Black)
                         Column(Modifier.weight(1f)) {
-                            Text("Use local audio/video file", fontSize = 13.sp, fontWeight = FontWeight.Black)
-                            Text(
+                            PoplurText("Use local audio/video file", fontSize = 13.sp, fontWeight = FontWeight.Black)
+                            PoplurText(
                                 "This is the current path for burning music into uploads.",
                                 color = Color.White.copy(alpha = 0.58f),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
-                        Text("›", color = Color.White.copy(alpha = 0.5f), fontSize = 24.sp, fontWeight = FontWeight.Black)
+                        PoplurText("›", color = Color.White.copy(alpha = 0.5f), fontSize = 24.sp, fontWeight = FontWeight.Black)
                     }
                 }
 
@@ -174,7 +174,7 @@ private fun ProviderChip(title: String, selected: Boolean, onClick: () -> Unit) 
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
-        Text(
+        PoplurText(
             title,
             color = if (selected) Color.Black else Color.White,
             fontSize = 12.sp,
@@ -211,12 +211,12 @@ private fun MusicTrackRow(track: MusicSearchTrack, isSelected: Boolean, onSelect
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Text("♪", color = Color.Black.copy(alpha = 0.82f), fontSize = 24.sp, fontWeight = FontWeight.Black)
+            PoplurText("♪", color = Color.Black.copy(alpha = 0.82f), fontSize = 24.sp, fontWeight = FontWeight.Black)
         }
 
         Column(Modifier.weight(1f)) {
-            Text(track.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
+            PoplurText(track.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            PoplurText(
                 "${track.artist} • ${track.album}",
                 color = Color.White.copy(alpha = 0.62f),
                 fontSize = 11.sp,
@@ -224,13 +224,13 @@ private fun MusicTrackRow(track: MusicSearchTrack, isSelected: Boolean, onSelect
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(track.provider.displayName, color = providerColor(track.provider), fontSize = 10.sp, fontWeight = FontWeight.Black)
+            PoplurText(track.provider.displayName, color = providerColor(track.provider), fontSize = 10.sp, fontWeight = FontWeight.Black)
         }
 
         Column(horizontalAlignment = Alignment.End) {
-            Text(track.durationText, color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            PoplurText(track.durationText, color = Color.White.copy(alpha = 0.55f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
-            Text(if (isSelected) "✓" else "+", color = if (isSelected) Color(0xFF4DFF58) else Color.White.copy(alpha = 0.48f), fontSize = 20.sp, fontWeight = FontWeight.Black)
+            PoplurText(if (isSelected) "✓" else "+", color = if (isSelected) Color(0xFF4DFF58) else Color.White.copy(alpha = 0.48f), fontSize = 20.sp, fontWeight = FontWeight.Black)
         }
     }
 }

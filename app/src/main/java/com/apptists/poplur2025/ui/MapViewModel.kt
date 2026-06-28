@@ -23,8 +23,18 @@ class MapViewModel : ViewModel() {
     private val _postMultipleTrigger = MutableSharedFlow<Unit>(replay = 0)
     val postMultipleTrigger = _postMultipleTrigger.asSharedFlow()
 
+    private val _addMessageTrigger = MutableSharedFlow<Unit>(replay = 0)
+    val addMessageTrigger = _addMessageTrigger.asSharedFlow()
+
     private val _isTourPaused = MutableStateFlow(false)
     val isTourPaused = _isTourPaused.asStateFlow()
+
+    private val _use2DMap = MutableStateFlow(false)
+    val use2DMap = _use2DMap.asStateFlow()
+
+    fun toggleMapMode() {
+        _use2DMap.value = !_use2DMap.value
+    }
 
     suspend fun triggerCenterOnUser() {
         _centerOnUserTrigger.emit(Unit)
@@ -44,6 +54,10 @@ class MapViewModel : ViewModel() {
 
     suspend fun triggerPostMultiple() {
         _postMultipleTrigger.emit(Unit)
+    }
+
+    suspend fun triggerAddMessage() {
+        _addMessageTrigger.emit(Unit)
     }
 
     fun setTourPaused(paused: Boolean) {

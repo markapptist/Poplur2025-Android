@@ -2,6 +2,7 @@ package com.apptists.poplur2025.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -28,13 +29,14 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import android.content.Context
 import com.apptists.poplur2025.data.PoplurLanguage
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
-import coil.compose.AsyncImage
 import com.apptists.poplur2025.ui.CubeSkin
+import com.apptists.poplur2025.ui.appIconResId
 import com.apptists.poplur2025.ui.components.CubeMenuLayout
 import com.apptists.poplur2025.ui.skinBackdropBrush
 import com.apptists.poplur2025.ui.uiTheme
@@ -489,17 +491,6 @@ private fun SkinPreviewPanel(previewSkin: CubeSkin) {
             .border(1.5.dp, previewTheme.border, shape),
         contentAlignment = Alignment.Center
     ) {
-        previewSkin.assetPath?.let { assetPath ->
-            AsyncImage(
-                model = "file:///android_asset/$assetPath",
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .matchParentSize()
-                    .padding(28.dp)
-                    .clip(RoundedCornerShape(28.dp))
-            )
-        }
         Box(
             Modifier
                 .matchParentSize()
@@ -515,16 +506,16 @@ private fun SkinPreviewPanel(previewSkin: CubeSkin) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(
                 modifier = Modifier
-                    .size(112.dp)
+                    .size(126.dp)
                     .shadow(12.dp, RoundedCornerShape(24.dp), clip = false)
                     .clip(RoundedCornerShape(24.dp))
                     .background(previewTheme.surfaceStrong)
                     .border(2.5.dp, previewTheme.accent, RoundedCornerShape(24.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = previewSkin.assetPath?.let { "file:///android_asset/$it" },
-                    contentDescription = null,
+                Image(
+                    painter = painterResource(previewSkin.appIconResId),
+                    contentDescription = "${previewSkin.label} app icon",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -566,14 +557,12 @@ private fun SkinOption(
                 ),
             contentAlignment = Alignment.Center
         ) {
-            skin.assetPath?.let { assetPath ->
-                AsyncImage(
-                    model = "file:///android_asset/$assetPath",
-                    contentDescription = skin.label,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+            Image(
+                painter = painterResource(skin.appIconResId),
+                contentDescription = "${skin.label} app icon",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
             if (isSelected) {
                 Surface(shape = CircleShape, color = skinTheme.badgeFill) {
                     Text(

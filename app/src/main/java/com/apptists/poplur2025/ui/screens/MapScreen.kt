@@ -156,6 +156,7 @@ fun MapScreen(
     onMapFirstPostLocationSelected: (Point) -> Unit = {}
 ) {
     val isTourPaused by mapViewModel.isTourPaused.collectAsState()
+    val use2DMap by mapViewModel.use2DMap.collectAsState()
     MapScreenContent(
         isVisible = isVisible,
         centerOnUserTrigger = mapViewModel.centerOnUserTrigger,
@@ -163,8 +164,10 @@ fun MapScreen(
         openSearchTrigger = mapViewModel.openSearchTrigger,
         postToMapTrigger = mapViewModel.postToMapTrigger,
         postMultipleTrigger = mapViewModel.postMultipleTrigger,
+        addMessageTrigger = mapViewModel.addMessageTrigger,
         isTourPaused = isTourPaused,
         onSetTourPaused = mapViewModel::setTourPaused,
+        use2DMap = use2DMap,
         isSelectingPostLocation = isSelectingPostLocation,
         cubeSkin = cubeSkin,
         onCaptureLocationConfirmed = onCaptureLocationConfirmed,
@@ -181,8 +184,10 @@ fun MapScreenContent(
     openSearchTrigger: Flow<Unit> = emptyFlow(),
     postToMapTrigger: Flow<String?> = emptyFlow(),
     postMultipleTrigger: Flow<Unit> = emptyFlow(),
+    addMessageTrigger: Flow<Unit> = emptyFlow(),
     isTourPaused: Boolean = false,
     onSetTourPaused: (Boolean) -> Unit = {},
+    use2DMap: Boolean = false,
     isSelectingPostLocation: Boolean = false,
     cubeSkin: CubeSkin = CubeSkin.Default,
     onCaptureLocationConfirmed: (Point) -> Unit = {},
@@ -225,6 +230,8 @@ fun MapScreenContent(
     var userLocation by remember { mutableStateOf<Point?>(null) }
     var idleGeneration by remember { mutableIntStateOf(0) }
     var showLocationSearch by remember { mutableStateOf(false) }
+    var showAddMessage by remember { mutableStateOf(false) }
+    var addMessageText by remember { mutableStateOf("") }
     var isMultiPostMode by remember { mutableStateOf(false) }
     var isPostSearchMode by remember { mutableStateOf(false) }
     var showIndoorMap by remember { mutableStateOf(false) }
@@ -593,6 +600,15 @@ fun MapScreenContent(
         }
     }
 
+    LaunchedEffect(use2DMap, mapReady) {
+        if (!mapReady) return@LaunchedEffect
+        val targetPitch = if (use2DMap) 0.0 else 66.0
+        mapView?.mapboxMap?.flyTo(
+            CameraOptions.Builder().pitch(targetPitch).build(),
+            mapAnimationOptions { duration(600) }
+        )
+    }
+
     LaunchedEffect(mapReady, userLocation) {
         centerOnUserTrigger.collect {
             val location = userLocation ?: return@collect
@@ -664,6 +680,12 @@ fun MapScreenContent(
             isMultiPostMode = true
             val center = mapView?.mapboxMap?.cameraState?.center ?: userLocation
             if (center != null) onMapFirstPostLocationSelected(center)
+        }
+    }
+    LaunchedEffect(addMessageTrigger) {
+        addMessageTrigger.collect {
+            addMessageText = ""
+            showAddMessage = true
         }
     }
 
@@ -1168,6 +1190,24 @@ fun MapScreenContent(
                 onSelect = openSearchStop
             )
         }
+
+        if (showAddMessage) {
+            AddMessageDialog(
+                cityName = activeCityName,
+                text = addMessageText,
+                onTextChange = { addMessageText = it },
+                onDismiss = {
+                    showAddMessage = false
+                    addMessageText = ""
+                },
+                onPost = { text ->
+                    val coord = mapView?.mapboxMap?.cameraState?.center ?: userLocation
+                    android.util.Log.d("MapMessage", "Message posted at $activeCityName (${coord?.latitude()}, ${coord?.longitude()}): $text")
+                    showAddMessage = false
+                    addMessageText = ""
+                }
+            )
+        }
     }
 }
 
@@ -1658,6 +1698,71 @@ private fun LocationSearchDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(if (isRadioLive) "Pause Radio" else "Play Radio")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddMessageDialog(
+    cityName: String,
+    text: String,
+    onTextChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onPost: (String) -> Unit
+) {
+    BackHandler(onBack = onDismiss)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(80f)
+            .background(Color.Black.copy(alpha = 0.62f))
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+        contentAlignment = Alignment.TopCenter
+    ) {
+        Surface(
+            modifier = Modifier
+                .padding(horizontal = 18.dp, vertical = 22.dp)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Add Message", fontWeight = FontWeight.Black, fontSize = 20.sp)
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                }
+                Text(
+                    "📍 $cityName",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    placeholder = { Text("Type your message…") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp),
+                    maxLines = 8,
+                    singleLine = false
+                )
+                Button(
+                    onClick = { onPost(text) },
+                    enabled = text.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Post Message", fontWeight = FontWeight.SemiBold)
                 }
             }
         }

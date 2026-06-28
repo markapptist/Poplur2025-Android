@@ -39,6 +39,8 @@ import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -47,8 +49,10 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -97,10 +101,12 @@ import com.apptists.poplur2025.ui.components.CubeMenuLayout
 import com.apptists.poplur2025.ui.components.CubeMenuWheelOverlay
 import com.apptists.poplur2025.ui.components.PersistentCubeOverlay
 import com.apptists.poplur2025.ui.components.PersistentCubeOverlayHost
+import com.apptists.poplur2025.ui.components.PoplurText
 import com.apptists.poplur2025.ui.components.FeedLaunchCover
 import com.apptists.poplur2025.ui.components.PoplurVolumeBars
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.PoplurRadioPrewarm
+import com.apptists.poplur2025.ui.games.screens.GameLaunchScreen
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
@@ -184,6 +190,7 @@ fun PoplurRoot(
     var cameraRecordTrigger by remember { mutableIntStateOf(0) }
     var cameraLiveTrigger by remember { mutableIntStateOf(0) }
     var cameraFiltersTrigger by remember { mutableIntStateOf(0) }
+    var cameraObjectDetectionEnabled by rememberSaveable { mutableStateOf(false) }
     var isAppVisible by remember { mutableStateOf(true) }
     var filtersVisible by remember { mutableStateOf(false) }
     var isPhoneCallScreenVisible by remember { mutableStateOf(false) }
@@ -239,6 +246,7 @@ fun PoplurRoot(
 
     LaunchedEffect(selectedCubeSkin) {
         settingsPrefs.edit().putString("selected_cube_skin", selectedCubeSkin.id).apply()
+        AppIconThemeManager.apply(appContext, selectedCubeSkin)
     }
     LaunchedEffect(cubeMenuLayout) {
         settingsPrefs.edit().putString("cube_menu_layout", cubeMenuLayout.name).apply()
@@ -791,6 +799,7 @@ fun PoplurRoot(
             )
         } else if (tab == AppTab.Map) {
             val tourPaused = mapViewModel.isTourPaused.value
+            val use2D = mapViewModel.use2DMap.value
             cubeMenuWheelController.beginHold(
                 listOf(
                     CubeMenuWheelItem(
@@ -812,16 +821,22 @@ fun PoplurRoot(
                         onSelected = { scope.launch { mapViewModel.triggerPostToMap() } }
                     ),
                     CubeMenuWheelItem(
-                        label = "Post Multiple",
-                        icon = Icons.Default.PhotoLibrary,
-                        accent = Color(0xFF7076FF),
-                        onSelected = { scope.launch { mapViewModel.triggerPostMultiple() } }
+                        label = if (use2D) "3D Map" else "2D Map",
+                        icon = Icons.Default.Map,
+                        accent = Color(0xFF5B9BFF),
+                        onSelected = { mapViewModel.toggleMapMode() }
                     ),
                     CubeMenuWheelItem(
                         label = if (tourPaused) "Start Tour" else "Stop Tour",
                         icon = Icons.Default.Explore,
                         accent = Color(0xFFFF8C1A),
                         onSelected = { mapViewModel.setTourPaused(!tourPaused) }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "Message",
+                        icon = Icons.Default.Message,
+                        accent = Color(0xFFFFD91A),
+                        onSelected = { scope.launch { mapViewModel.triggerAddMessage() } }
                     )
                 )
             )
@@ -851,6 +866,13 @@ fun PoplurRoot(
                         icon = Icons.Default.AutoAwesome,
                         accent = Color(0xFF18D8E8),
                         onSelected = { cameraFiltersTrigger++ }
+                    ),
+                    CubeMenuWheelItem(
+                        label = if (cameraObjectDetectionEnabled) "Detect On" else "Detect Off",
+                        icon = Icons.Default.Search,
+                        secondaryIcon = Icons.Default.Visibility,
+                        accent = if (cameraObjectDetectionEnabled) Color(0xFF4DFF58) else Color(0xFFFF8C1A),
+                        onSelected = { cameraObjectDetectionEnabled = !cameraObjectDetectionEnabled }
                     )
                 )
             )
@@ -1073,14 +1095,19 @@ fun PoplurRoot(
                             onOriginalContent = {
                                 postCaptureCreationMode = PostCaptureCreationMode.Original
                                 capturePostStep = CapturePostStep.Preview
-                                tab = AppTab.CapturedOutput
+                                pendingCaptureLocation = null
+                                captureFlowOrigin = CaptureFlowOrigin.CameraFirst
+                                tab = AppTab.Camera
                             },
                             onPoplurAI = {
-                                aiVideoPrompt = ""
-                                aiVideoStyle = AIVideoStyle.PoplurTV
-                                aiVideoLocationName = ""
-                                AIVideoService.reset()
-                                tab = AppTab.AIVideoStudio
+                                postCaptureCreationMode = PostCaptureCreationMode.Original
+                                capturePostStep = CapturePostStep.Location
+                                pendingCaptureLocation = null
+                                capturedMediaUri = null
+                                captureFlowOrigin = CaptureFlowOrigin.MapFirst
+                                previousTab = AppTab.CreateEntry
+                                tab = AppTab.Map
+                                scope.launch { mapViewModel.triggerPostToMap() }
                             },
                             onBack = {
                                 tab = AppTab.Camera
@@ -1125,6 +1152,7 @@ fun PoplurRoot(
                             recordTrigger = cameraRecordTrigger,
                             liveTrigger = cameraLiveTrigger,
                             filtersTrigger = cameraFiltersTrigger,
+                            objectDetectionEnabled = cameraObjectDetectionEnabled,
                             currentUserProfile = currentUserProfile,
                             onFiltersToggle = { filtersVisible = it },
                             onObjectDetected = { channelObjectPopToken++ },
@@ -1134,7 +1162,7 @@ fun PoplurRoot(
                                 if (pendingCaptureLocation == null) {
                                     captureFlowOrigin = CaptureFlowOrigin.CameraFirst
                                 }
-                                capturePostStep = CapturePostStep.Preview
+                                capturePostStep = CapturePostStep.Preview // Preview screen first
                                 postCaptureCreationMode = PostCaptureCreationMode.Original
                                 selectedCaptureFilterId = "original"
                                 selectedCaptureTrimSeconds = 10f
@@ -1216,13 +1244,10 @@ fun PoplurRoot(
                                         musicUri = if (postCaptureCreationMode == PostCaptureCreationMode.Original) selectedCaptureMusicUri else null,
                                         isPoplurAIOutput = postCaptureCreationMode == PostCaptureCreationMode.PoplurAI,
                                         onBack = {
-                                            capturePostStep = if (
-                                                postCaptureCreationMode == PostCaptureCreationMode.PoplurAI &&
-                                                (capturedAdBitmap != null || capturedAdVideoUrl != null)
-                                            ) {
-                                                CapturePostStep.AdPreview
+                                            if (postCaptureCreationMode == PostCaptureCreationMode.PoplurAI && (capturedAdBitmap != null || capturedAdVideoUrl != null)) {
+                                                capturePostStep = CapturePostStep.AdPreview
                                             } else {
-                                                CapturePostStep.Edit
+                                                capturePostStep = CapturePostStep.CreateChoice
                                             }
                                         },
                                         onPosted = { channel, meta, outputUri, outputIsVideo ->
@@ -1505,7 +1530,7 @@ private fun FeedCommentComposerOverlay(
 
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
+                        PoplurText(
                             text = "COMMENT",
                             color = Color.White,
                             fontSize = 26.sp,
@@ -1526,7 +1551,7 @@ private fun FeedCommentComposerOverlay(
                         value = draft,
                         onValueChange = { draft = it.take(220) },
                         placeholder = {
-                            Text(
+                            PoplurText(
                                 text = "Say it",
                                 color = Color.White.copy(alpha = 0.52f),
                                 fontWeight = FontWeight.Bold
@@ -1558,7 +1583,7 @@ private fun FeedCommentComposerOverlay(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         TextButton(onClick = onDismiss) {
-                            Text("Cancel", color = Color.White.copy(alpha = 0.82f), fontWeight = FontWeight.Bold)
+                            PoplurText("Cancel", color = Color.White.copy(alpha = 0.82f), fontWeight = FontWeight.Bold)
                         }
                         Spacer(Modifier.width(8.dp))
                         Button(
@@ -1575,7 +1600,7 @@ private fun FeedCommentComposerOverlay(
                             ),
                             shape = RoundedCornerShape(999.dp)
                         ) {
-                            Text("Post", fontWeight = FontWeight.Black)
+                            PoplurText("Post", fontWeight = FontWeight.Black)
                         }
                     }
                 }

@@ -28,7 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Text
+import com.apptists.poplur2025.ui.components.PoplurText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -310,7 +310,7 @@ fun FeedLaunchCover(
                 },
                 label = "loadingPhase"
             ) { idx ->
-                Text(
+                PoplurText(
                     text = "AI ${shuffledPhases[idx]}",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
