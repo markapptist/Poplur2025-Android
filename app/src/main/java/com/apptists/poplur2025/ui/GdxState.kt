@@ -5,26 +5,51 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.badlogic.gdx.graphics.Color
 
-enum class CubeSkin(val id: String, val label: String, val assetPath: String?, val gdxColor: Color?) {
-    Default    ("default",   "Classic",     null,                    null),
-    Gold       ("gold",      "24K Gold",    "cube/skin_gold.png",    Color(0.88f, 0.68f, 0.10f, 1f)),
-    Toy        ("toy",       "Toy Box",     "cube/skin_toy.png",     Color(0.95f, 0.20f, 0.20f, 1f)),
-    Rainbow    ("rainbow",   "Neon Rainbow","cube/skin_rainbow.png",  Color(0.55f, 0.10f, 0.95f, 1f)),
-    Carbon     ("carbon",    "Carbon Pink", "cube/skin_carbon.png",  Color(1.00f, 0.40f, 0.70f, 1f)),
-    Ice        ("ice",       "Arctic Ice",  "cube/skin_ice.png",     Color(0.75f, 0.92f, 1.00f, 1f)),
-    Chocolate  ("chocolate", "Rich Cocoa",  "cube/skin_chocolate.png",Color(0.45f, 0.25f, 0.08f, 1f)),
-    Space      ("space",     "Deep Space",  "cube/skin_space.png",   Color(0.08f, 0.05f, 0.20f, 1f)),
-    Camo       ("camo",      "Stealth Camo","cube/skin_camo.png",    Color(0.30f, 0.48f, 0.18f, 1f))
+/** Normalized [r, g, b] in 0..1 for menu tinting, or null for the Default skin. */
+val CubeSkin.themeColorRGB: FloatArray?
+    get() = gdxColor?.let { floatArrayOf(it.r, it.g, it.b) }
+
+/** True when each hold-menu tile should glow in its own item.accent instead of the shared skin colour. */
+val CubeSkin.usePerItemTint: Boolean
+    get() = this == CubeSkin.Default || this == CubeSkin.Toy
+
+/** Asset path for the hold-menu panel/tile background texture, or null to use the color-based fallback. */
+val CubeSkin.holdMenuAssetPath: String?
+    get() = when (this) {
+        CubeSkin.Ice       -> "holdmenu/ice.png"
+        CubeSkin.Camo      -> "holdmenu/camo.png"
+        CubeSkin.Chocolate -> "holdmenu/chocolate.png"
+        CubeSkin.Default   -> "holdmenu/classic.png"
+        CubeSkin.Gold      -> "holdmenu/gold.png"
+        CubeSkin.Carbon    -> "holdmenu/sparkle.png"
+        CubeSkin.Rainbow   -> "holdmenu/rainbow.png"
+        CubeSkin.Toy       -> "holdmenu/toy.png"
+        CubeSkin.Space     -> "holdmenu/sparkle.png"
+    }
+
+enum class CubeSkin(val id: String, val label: String, val assetPath: String?, val gdxColor: Color?, val logoAssetPath: String = "logo.png") {
+    Default    ("default",   "Classic",     null,                     null,                                "logo.png"),
+    Gold       ("gold",      "24K Gold",    "cube/skin_gold.png",     Color(0.88f, 0.68f, 0.10f, 1f),     "logo/logo_gold.png"),
+    Toy        ("toy",       "Toy Box",     "cube/skin_toy.png",      Color(0.95f, 0.20f, 0.20f, 1f),     "logo/logo_toy.png"),
+    Rainbow    ("rainbow",   "Neon Rainbow","cube/skin_rainbow.png",  Color(0.55f, 0.10f, 0.95f, 1f),     "logo/logo_rainbow.png"),
+    Carbon     ("carbon",    "Carbon Pink", "cube/skin_carbon.png",   Color(1.00f, 0.40f, 0.70f, 1f),     "logo/logo_sparkle_pink.png"),
+    Ice        ("ice",       "Arctic Ice",  "cube/skin_ice.png",      Color(0.75f, 0.92f, 1.00f, 1f),     "logo/logo_ice.png"),
+    Chocolate  ("chocolate", "Rich Cocoa",  "cube/skin_chocolate.png",Color(0.45f, 0.25f, 0.08f, 1f),     "logo/logo_chocolate.png"),
+    Space      ("space",     "Deep Space",  "cube/skin_space.png",    Color(0.08f, 0.05f, 0.20f, 1f),     "logo.png"),
+    Camo       ("camo",      "Stealth Camo","cube/skin_camo.png",     Color(0.30f, 0.48f, 0.18f, 1f),     "logo/logo_camo.png")
 }
 
 object GdxState {
     var isSceneActive by mutableStateOf(false)
     var currentScene by mutableStateOf("radius")
-    
+
     var selectedCubeSkin by mutableStateOf(CubeSkin.Default)
 
     var sceneBoundsX by mutableStateOf(0f)
     var sceneBoundsY by mutableStateOf(0f)
     var sceneBoundsWidth by mutableStateOf(0f)
     var sceneBoundsHeight by mutableStateOf(0f)
+
+    // Written from sensor thread, read in LibGDX render thread
+    @Volatile @JvmField var tiltYawOffset: Float = 0f
 }

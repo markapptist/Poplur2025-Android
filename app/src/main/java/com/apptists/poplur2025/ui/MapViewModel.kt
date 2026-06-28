@@ -17,7 +17,7 @@ class MapViewModel : ViewModel() {
     private val _openSearchTrigger = MutableSharedFlow<Unit>(replay = 0)
     val openSearchTrigger = _openSearchTrigger.asSharedFlow()
 
-    private val _postToMapTrigger = MutableSharedFlow<Unit>(replay = 0)
+    private val _postToMapTrigger = MutableSharedFlow<String?>(replay = 0)
     val postToMapTrigger = _postToMapTrigger.asSharedFlow()
 
     private val _postMultipleTrigger = MutableSharedFlow<Unit>(replay = 0)
@@ -38,8 +38,8 @@ class MapViewModel : ViewModel() {
         _openSearchTrigger.emit(Unit)
     }
 
-    suspend fun triggerPostToMap() {
-        _postToMapTrigger.emit(Unit)
+    suspend fun triggerPostToMap(locationQuery: String? = null) {
+        _postToMapTrigger.emit(locationQuery)
     }
 
     suspend fun triggerPostMultiple() {

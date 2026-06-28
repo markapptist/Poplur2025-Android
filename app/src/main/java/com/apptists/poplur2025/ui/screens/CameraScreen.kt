@@ -3,7 +3,9 @@ package com.apptists.poplur2025.ui.screens
 import android.Manifest
 import android.content.ContentValues
 import android.content.pm.PackageManager
+import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.Typeface
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -74,6 +76,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -94,11 +97,14 @@ import com.apptists.poplur2025.data.AdGenerationService
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.FaceAdGenerationService
 import com.apptists.poplur2025.data.LiveBroadcastLocation
+import com.apptists.poplur2025.data.MusicSearchTrack
 import com.apptists.poplur2025.data.OutputMusicMixer
 import com.apptists.poplur2025.data.TVStyleAnalyzer
 import com.apptists.poplur2025.data.VideoAdGenerationService
 import com.apptists.poplur2025.data.TVStyleMetadata
+import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.components.RadiusDisplay
+import com.apptists.poplur2025.ui.components.MusicSearchSheet
 import com.apptists.poplur2025.ui.components.ShaderNumberText
 import com.apptists.poplur2025.ui.components.poplurCountdownDisplayModifier
 import com.apptists.poplur2025.ui.components.poplurRadiusDisplayModifier
@@ -125,6 +131,7 @@ fun CameraScreen(
     liveTrigger: Int = 0,
     filtersTrigger: Int = 0,
     initialShowFilters: Boolean = false,
+    currentUserProfile: UserProfile = UserProfile(),
     onFiltersToggle: (Boolean) -> Unit = {},
     onMediaCaptured: (Uri, Boolean) -> Unit = { _, _ -> },
     onObjectDetected: () -> Unit = {}
@@ -187,7 +194,13 @@ fun CameraScreen(
     val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
         hasCameraPermission = permissions[Manifest.permission.CAMERA] ?: hasCameraPermission
     }
-    val photoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> selectedMedia = uri }
+    val photoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            selectedMedia = uri
+            val mimeType = context.contentResolver.getType(uri).orEmpty()
+            onMediaCaptured(uri, mimeType.startsWith("video/"))
+        }
+    }
     val toggleCamera = {
         useFrontCamera = !useFrontCamera
         torchEnabled = false
@@ -446,6 +459,26 @@ fun CameraScreen(
         }
     }
 
+    DisposableEffect(context) {
+        if (!isPreview) com.apptists.poplur2025.ml.CameraAIAnnouncer.init(context)
+        onDispose { if (!isPreview) com.apptists.poplur2025.ml.CameraAIAnnouncer.shutdown() }
+    }
+
+    val aiCameraAnnouncement by com.apptists.poplur2025.ml.CameraAIAnnouncer.announcement.collectAsState()
+
+    LaunchedEffect(detectedFaces, useFrontCamera, currentUserProfile) {
+        if (!isPreview) {
+            com.apptists.poplur2025.ml.CameraAIAnnouncer.announceFaceDetected(
+                faceCount = detectedFaces.size,
+                profile = if (useFrontCamera) currentUserProfile else null
+            )
+        }
+    }
+
+    LaunchedEffect(detectedObjectLabels) {
+        if (!isPreview) com.apptists.poplur2025.ml.CameraAIAnnouncer.announceMLObjects(detectedObjectLabels)
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -556,6 +589,9 @@ fun CameraScreen(
                                                             lastDetectedLabelKey = key
                                                             onObjectDetected()
                                                         }
+                                                    } else if (detectedObjectLabels.isNotEmpty()) {
+                                                        detectedObjectLabels = emptyList()
+                                                        lastDetectedLabelKey = ""
                                                     }
                                                     doClose()
                                                 }
@@ -614,6 +650,7 @@ fun CameraScreen(
                 overlaySize = overlaySize,
                 mirrored = useFrontCamera,
                 selectedFilter = selectedFilter,
+                username = if (useFrontCamera) currentUserProfile.username else null,
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { overlaySize = it }
@@ -726,7 +763,7 @@ fun CameraScreen(
                         .size(64.dp),
                     color = Color.Black.copy(alpha = .34f),
                     shape = RoundedCornerShape(12.dp),
-                    onClick = { photoPickerLauncher.launch("image/*") }
+                    onClick = { photoPickerLauncher.launch("*/*") }
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(Icons.Default.PhotoLibrary, "Gallery", tint = Color.White, modifier = Modifier.size(32.dp))
@@ -738,9 +775,8 @@ fun CameraScreen(
         }
 
         RadiusDisplay(
-            radius = 0,
-            totalRadius = 6371,
-            unit = "km",
+            radius = currentUserProfile.radius,
+            unit = "m",
             modifier = poplurRadiusDisplayModifier(Modifier.widthIn(min = 112.dp))
         )
 
@@ -770,6 +806,32 @@ fun CameraScreen(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                )
+            }
+        }
+
+        // AI Announcer pill — shows briefly when TTS speaks a detection event
+        AnimatedVisibility(
+            visible = aiCameraAnnouncement != null && !isPreview,
+            enter = fadeIn(tween(160)) + slideInVertically { it / 3 },
+            exit = fadeOut(tween(300)),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 130.dp)
+        ) {
+            val label = aiCameraAnnouncement ?: ""
+            Surface(
+                color = Color.Black.copy(alpha = 0.75f),
+                shape = RoundedCornerShape(999.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.28f))
+            ) {
+                Text(
+                    label,
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
                 )
             }
         }
@@ -1047,15 +1109,19 @@ fun CapturedOutputScreen(
     uri: Uri,
     isVideo: Boolean,
     onBack: () -> Unit,
+    filterId: String = "original",
     continueLabel: String = "Next",
-    onContinue: () -> Unit = {}
+    onContinue: () -> Unit = {},
+    showCreationOptions: Boolean = false,
+    onUseOriginal: () -> Unit = onContinue,
+    onUsePoplurAI: () -> Unit = {}
 ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        CapturedMediaPreview(uri = uri, isVideo = isVideo)
+        CapturedMediaPreview(uri = uri, isVideo = isVideo, filterId = filterId)
 
         // Bottom controls
         Column(
@@ -1066,46 +1132,68 @@ fun CapturedOutputScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Action row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.clickable { onBack() }
+            if (showCreationOptions) {
+                Button(
+                    onClick = onUseOriginal,
+                    shape = RoundedCornerShape(999.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Retake",
-                        tint = Color.White,
-                        modifier = Modifier.size(44.dp)
-                    )
-                    Text(
-                        "Retake",
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Text("Post Original", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
                 }
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.clickable { onContinue() }
+                Button(
+                    onClick = onUsePoplurAI,
+                    shape = RoundedCornerShape(999.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3838), contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = continueLabel,
-                        tint = Color(0xFFFF3838),
-                        modifier = Modifier.size(44.dp)
-                    )
-                    Text(
-                        continueLabel,
-                        color = Color.White,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("Add Poplur AI", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                }
+                TextButton(onClick = onBack) {
+                    Text("Back", color = Color.White.copy(alpha = 0.82f), fontWeight = FontWeight.Bold)
+                }
+            } else {
+                // Action row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { onBack() }
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Retake",
+                            tint = Color.White,
+                            modifier = Modifier.size(44.dp)
+                        )
+                        Text(
+                            "Retake",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { onContinue() }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = continueLabel,
+                            tint = Color(0xFFFF3838),
+                            modifier = Modifier.size(44.dp)
+                        )
+                        Text(
+                            continueLabel,
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
@@ -1154,11 +1242,19 @@ fun CapturedMediaEditorScreen(
     isVideo: Boolean,
     selectedFilterId: String,
     trimSeconds: Float,
+    selectedMusicUri: Uri?,
     onFilterSelected: (String) -> Unit,
     onTrimSecondsChanged: (Float) -> Unit,
+    onMusicSelected: (Uri?) -> Unit,
     onBack: () -> Unit,
     onNext: () -> Unit
 ) {
+    val musicPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        result.data?.data?.let(onMusicSelected)
+    }
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         CapturedMediaPreview(uri = uri, isVideo = isVideo, filterId = selectedFilterId)
 
@@ -1244,12 +1340,34 @@ fun CapturedMediaEditorScreen(
             }
 
             Button(
+                onClick = {
+                    val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/*", "video/*"))
+                    }
+                    musicPickerLauncher.launch(intent)
+                },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (selectedMusicUri == null) Color.White.copy(alpha = 0.12f) else Color(0xFF1DB954),
+                    contentColor = Color.White
+                ),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)
+            ) {
+                Text(
+                    if (selectedMusicUri == null) "♫ Add Music" else "♪ Music Added",
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.padding(vertical = 6.dp)
+                )
+            }
+
+            Button(
                 onClick = onNext,
                 shape = RoundedCornerShape(999.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)
             ) {
-                Text("Pick Channel", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                Text("Continue", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
             }
         }
     }
@@ -1261,15 +1379,18 @@ fun CapturedChannelScreen(
     isVideo: Boolean,
     filterId: String,
     trimSeconds: Float?,
+    knownMetadata: TVStyleMetadata? = null,
+    musicUri: Uri? = null,
+    isPoplurAIOutput: Boolean = false,
     onBack: () -> Unit,
-    onPosted: (PostCaptureChannelOption, TVStyleMetadata) -> Unit,
-    onGenerateAd: (PostCaptureChannelOption) -> Unit = {}
+    onPosted: (PostCaptureChannelOption, TVStyleMetadata, Uri, Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedChannel by remember { mutableStateOf(postCaptureChannels.first()) }
     var tvState by remember { mutableStateOf<TVState>(TVState.Idle) }
     var isPosting by remember { mutableStateOf(false) }
+    val knownRecommendation = remember(knownMetadata) { knownMetadata?.let { recommendedChannelFor(it) } }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         CapturedMediaPreview(uri = uri, isVideo = isVideo, filterId = filterId)
@@ -1329,17 +1450,34 @@ fun CapturedChannelScreen(
                 }
             }
 
+            ChannelValidationNotice(
+                selectedChannel = selectedChannel,
+                recommendedChannel = knownRecommendation,
+                hasKnownMetadata = knownMetadata != null
+            )
+
             Button(
                 enabled = !isPosting,
                 onClick = {
                     isPosting = true
                     tvState = TVState.Analyzing
                     scope.launch {
-                        val meta = runCatching { TVStyleAnalyzer.analyze(context, uri, isVideo) }
-                            .getOrElse { fallbackTVMetadata(selectedChannel) }
-                        tvState = TVState.Ready(meta)
+                        val analyzedMeta = knownMetadata
+                            ?: runCatching { TVStyleAnalyzer.analyze(context, uri, isVideo) }
+                                .getOrElse { fallbackTVMetadata(selectedChannel) }
+                        val finalChannel = recommendedChannelFor(analyzedMeta) ?: selectedChannel
+                        val finalMeta = analyzedMeta.routedTo(finalChannel)
+                        val (outputUri, outputIsVideo) = preparePostOutput(
+                            context = context,
+                            uri = uri,
+                            isVideo = isVideo,
+                            filterId = filterId,
+                            trimSeconds = trimSeconds,
+                            musicUri = musicUri
+                        )
+                        tvState = TVState.Ready(finalMeta)
                         delay(350)
-                        onPosted(selectedChannel, meta)
+                        onPosted(finalChannel, finalMeta, outputUri, outputIsVideo)
                     }
                 },
                 shape = RoundedCornerShape(999.dp),
@@ -1351,21 +1489,45 @@ fun CapturedChannelScreen(
                     Spacer(Modifier.width(10.dp))
                     Text("AI is making Poplur TV...", fontWeight = FontWeight.Black)
                 } else {
-                    Text("Post to ${selectedChannel.title}", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                    Text(
+                        if (isPoplurAIOutput) "Post Poplur TV" else "Post to ${selectedChannel.title}",
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
                 }
             }
-
-            OutlinedButton(
-                enabled = !isPosting,
-                onClick = { onGenerateAd(selectedChannel) },
-                shape = RoundedCornerShape(999.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.38f)),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp)
-            ) {
-                Text("✦ Generate Ad", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 6.dp))
-            }
         }
+    }
+}
+
+@Composable
+private fun ChannelValidationNotice(
+    selectedChannel: PostCaptureChannelOption,
+    recommendedChannel: PostCaptureChannelOption?,
+    hasKnownMetadata: Boolean
+) {
+    val willMove = hasKnownMetadata && recommendedChannel != null && recommendedChannel.id != selectedChannel.id
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp)
+            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(if (willMove) "⚠" else "✓", color = if (willMove) Color(0xFFFFD84D) else Color(0xFF4DFF58), fontWeight = FontWeight.Black)
+        Text(
+            if (willMove && recommendedChannel != null) {
+                "AI check: this fits CH ${recommendedChannel.number} ${recommendedChannel.title}. It will post there instead."
+            } else {
+                "AI will verify this content and move it to the right channel if needed."
+            },
+            color = Color.White.copy(alpha = 0.72f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
@@ -1445,13 +1607,109 @@ private fun fallbackTVMetadata(channel: PostCaptureChannelOption): TVStyleMetada
         broadcastName = "POPLUR ${channel.title.uppercase(Locale.US)}"
     )
 
+private fun recommendedChannelFor(meta: TVStyleMetadata, prompt: String = ""): PostCaptureChannelOption? {
+    val text = listOf(meta.channel, meta.adConcept, meta.caption, meta.tagline, meta.broadcastName, prompt)
+        .joinToString(" ")
+        .lowercase(Locale.US)
+    return recommendedChannelFromText(text)
+}
+
+private fun recommendedChannelFromPrompt(prompt: String): PostCaptureChannelOption? =
+    recommendedChannelFromText(prompt.lowercase(Locale.US))
+
+private fun recommendedChannelFromText(text: String): PostCaptureChannelOption? {
+    val matches = listOf(
+        "food" to listOf("food", "restaurant", "burger", "pizza", "recipe", "coffee", "drink", "meal", "kitchen"),
+        "gaming" to listOf("gaming", "game", "stream", "console", "esport", "controller", "playthrough"),
+        "music" to listOf("music", "song", "studio", "concert", "artist", "album", "beat", "dj"),
+        "sports" to listOf("sports", "fitness", "workout", "training", "soccer", "basketball", "gym", "game day"),
+        "style" to listOf("style", "fashion", "beauty", "makeup", "skincare", "outfit", "hair"),
+        "shopping" to listOf("shopping", "shop", "buy", "haul", "drop", "deal", "store", "product"),
+        "city" to listOf("city", "street", "local", "news", "neighborhood", "traffic", "downtown", "tech"),
+        "film" to listOf("film", "movie", "cinema", "trailer", "show", "entertainment", "edit"),
+        "french" to listOf("french", "français", "france"),
+        "spanish" to listOf("spanish", "español", "spain", "latino")
+    )
+    val id = matches.firstOrNull { (_, keywords) -> keywords.any { text.contains(it) } }?.first
+    return id?.let { match -> postCaptureChannels.firstOrNull { it.id == match } }
+}
+
+private fun TVStyleMetadata.routedTo(channel: PostCaptureChannelOption): TVStyleMetadata {
+    val target = when (channel.id) {
+        "food" -> "food"
+        "music" -> "music"
+        "city" -> "city"
+        "sports" -> "sports"
+        "style" -> "fashion"
+        "film" -> "entertainment"
+        else -> "entertainment"
+    }
+    if (this.channel == target && broadcastName.contains(channel.title, ignoreCase = true)) return this
+    return copy(channel = target, broadcastName = "POPLUR ${channel.title.uppercase(Locale.US)}")
+}
+
+private suspend fun preparePostOutput(
+    context: android.content.Context,
+    uri: Uri,
+    isVideo: Boolean,
+    filterId: String,
+    trimSeconds: Float?,
+    musicUri: Uri?
+): Pair<Uri, Boolean> {
+    if (isVideo) {
+        val sourceFile = copyUriToCache(context, uri, "mp4") ?: return uri to true
+        var workingFile = if (trimSeconds != null) {
+            OutputMusicMixer.trimVideo(context, sourceFile, trimSeconds.toDouble()) ?: sourceFile
+        } else {
+            sourceFile
+        }
+        if (musicUri != null) {
+            workingFile = OutputMusicMixer.mixAudio(context, musicUri, workingFile) ?: workingFile
+        }
+        return Uri.fromFile(workingFile) to true
+    }
+
+    val bitmap = decodeBitmapForUri(context, uri) ?: return uri to false
+    if (musicUri != null) {
+        val videoFile = OutputMusicMixer.imageWithAudio(context, bitmap, musicUri, filterId = filterId)
+        if (videoFile != null) return Uri.fromFile(videoFile) to true
+    }
+    if (filterId != "original") {
+        val filtered = OutputMusicMixer.applyFilter(bitmap, filterId)
+        val file = java.io.File(context.cacheDir, "post_${System.currentTimeMillis()}.jpg")
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            file.outputStream().use { filtered.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, it) }
+        }
+        return Uri.fromFile(file) to false
+    }
+    return uri to false
+}
+
+private suspend fun copyUriToCache(context: android.content.Context, uri: Uri, extension: String): java.io.File? =
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val file = java.io.File(context.cacheDir, "post_${System.currentTimeMillis()}.$extension")
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return@withContext null
+            inputStream.use { input ->
+                file.outputStream().use { output -> input.copyTo(output) }
+            }
+            file
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+private suspend fun decodeBitmapForUri(context: android.content.Context, uri: Uri): android.graphics.Bitmap? =
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+    }
+
 // MARK: - Describe Ad Screen
 
 @Composable
 fun DescribeAdScreen(
     uri: Uri,
     isVideo: Boolean,
-    selectedChannel: PostCaptureChannelOption,
     coordinate: Pair<Double, Double>?,
     onBack: () -> Unit,
     // bitmap? is null for video-only output; videoUrl? is non-null when AI returns a video
@@ -1459,10 +1717,7 @@ fun DescribeAdScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var whoText by remember { mutableStateOf("") }
-    var whatText by remember { mutableStateOf("") }
-    var whereText by remember { mutableStateOf("") }
-    var whyText by remember { mutableStateOf("") }
+    var promptText by remember { mutableStateOf("") }
     var isGenerating by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -1500,25 +1755,22 @@ fun DescribeAdScreen(
 
             Spacer(Modifier.height(28.dp))
             Text(
-                "Tell AI about your post",
+                "Tell Poplur AI what to make",
                 color = Color.White,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Black
             )
             Text(
-                "Answer any or all — AI uses these to generate your ${selectedChannel.title} ad.",
+                "Write one prompt. Photos generate photos, and videos generate videos.",
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 13.sp
             )
             Spacer(Modifier.height(20.dp))
 
-            AdDescribeField(icon = "👤", label = "WHO", placeholder = "About me", value = whoText, onValueChange = { whoText = it })
-            Spacer(Modifier.height(10.dp))
-            AdDescribeField(icon = "⚡", label = "WHAT", placeholder = "Doing fun", value = whatText, onValueChange = { whatText = it })
-            Spacer(Modifier.height(10.dp))
-            AdDescribeField(icon = "📍", label = "WHERE", placeholder = "At home", value = whereText, onValueChange = { whereText = it })
-            Spacer(Modifier.height(10.dp))
-            AdDescribeField(icon = "💡", label = "WHY", placeholder = "Idk", value = whyText, onValueChange = { whyText = it })
+            AdPromptField(
+                value = promptText,
+                onValueChange = { promptText = it.take(500) }
+            )
 
             Spacer(Modifier.height(20.dp))
             errorMessage?.let {
@@ -1527,14 +1779,20 @@ fun DescribeAdScreen(
             }
 
             Button(
-                enabled = !isGenerating,
+                enabled = !isGenerating && promptText.isNotBlank(),
                 onClick = {
                     isGenerating = true
                     errorMessage = null
                     scope.launch {
                         try {
-                            val meta = TVStyleAnalyzer.analyze(context, uri, isVideo)
-                            val prompt = buildAdPrompt(meta, selectedChannel, coordinate, whoText.trim(), whatText.trim(), whereText.trim(), whyText.trim())
+                            val meta = runCatching { TVStyleAnalyzer.analyze(context, uri, isVideo) }
+                                .getOrElse { fallbackTVMetadata(recommendedChannelFromPrompt(promptText) ?: postCaptureChannels.first()) }
+                            val prompt = buildAdPrompt(
+                                meta = meta,
+                                channel = recommendedChannelFor(meta, promptText.trim()),
+                                coordinate = coordinate,
+                                userPrompt = promptText.trim()
+                            )
 
                             // Decode captured frame for face-preserving generation
                             val faceBitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -1597,28 +1855,40 @@ fun DescribeAdScreen(
 }
 
 @Composable
-private fun AdDescribeField(icon: String, label: String, placeholder: String, value: String, onValueChange: (String) -> Unit) {
+private fun AdPromptField(value: String, onValueChange: (String) -> Unit) {
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(18.dp),
         color = Color.White.copy(alpha = 0.08f)
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 132.dp)
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(icon, fontSize = 22.sp)
+            Text("✦", fontSize = 22.sp, color = Color.White)
             Column(Modifier.weight(1f)) {
-                Text(label, color = Color.White.copy(alpha = 0.45f), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                Text("PROMPT", color = Color.White.copy(alpha = 0.45f), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
                 androidx.compose.foundation.text.BasicTextField(
                     value = value,
                     onValueChange = onValueChange,
                     textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold),
                     decorationBox = { inner ->
-                        if (value.isEmpty()) Text(placeholder, color = Color.White.copy(alpha = 0.3f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        if (value.isEmpty()) {
+                            Text(
+                                "A cinematic Poplur ad about...",
+                                color = Color.White.copy(alpha = 0.3f),
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         inner()
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 86.dp)
                 )
             }
         }
@@ -1627,18 +1897,14 @@ private fun AdDescribeField(icon: String, label: String, placeholder: String, va
 
 private fun buildAdPrompt(
     meta: TVStyleMetadata,
-    channel: PostCaptureChannelOption,
+    channel: PostCaptureChannelOption?,
     coordinate: Pair<Double, Double>?,
-    who: String, what: String, where: String, why: String
+    userPrompt: String
 ): String {
-    val channelCtx = "${channel.emoji} ${channel.title}"
+    val resolvedChannel = channel ?: recommendedChannelFor(meta, userPrompt) ?: postCaptureChannels.first()
+    val channelCtx = "${resolvedChannel.emoji} ${resolvedChannel.title}"
     val coords = coordinate?.let { String.format("%.2f°, %.2f°", it.first, it.second) } ?: ""
-    val parts = mutableListOf<String>()
-    if (who.isNotBlank()) parts.add("Subject: $who")
-    if (what.isNotBlank()) parts.add("Action: $what")
-    if (where.isNotBlank()) parts.add("Setting: $where")
-    if (why.isNotBlank()) parts.add("Message: $why")
-    val userContext = if (parts.isEmpty()) "" else parts.joinToString(". ") + ". "
+    val userContext = if (userPrompt.isBlank()) "" else "User prompt: $userPrompt. "
     return "${userContext}A stunning cinematic TV advertisement for ${meta.broadcastName}. " +
         "${meta.tvFormat.replace("_", " ")} format. " +
         "Ad concept: ${meta.adConcept}. Channel: $channelCtx. ${if (coords.isNotEmpty()) "Location: $coords. " else ""}" +
@@ -1663,12 +1929,17 @@ fun AdPreviewScreen(
     var isPosting by remember { mutableStateOf(false) }
     var selectedFilterId by remember { mutableStateOf("original") }
     var selectedMusicUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedMusicTrack by remember { mutableStateOf<MusicSearchTrack?>(null) }
+    var showMusicSearch by remember { mutableStateOf(false) }
     var trimSeconds by remember { mutableFloatStateOf(10f) }
 
     val musicPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        result.data?.data?.let { selectedMusicUri = it }
+        result.data?.data?.let {
+            selectedMusicUri = it
+            selectedMusicTrack = null
+        }
     }
 
     val isVideoAd = adVideoUrl != null
@@ -1685,6 +1956,26 @@ fun AdPreviewScreen(
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
+        if (showMusicSearch) {
+            MusicSearchSheet(
+                selectedTrack = selectedMusicTrack,
+                onDismiss = { showMusicSearch = false },
+                onSelect = { track ->
+                    selectedMusicTrack = track
+                    selectedMusicUri = null
+                    showMusicSearch = false
+                },
+                onUseLocalFile = {
+                    showMusicSearch = false
+                    val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/*", "video/*"))
+                    }
+                    musicPickerLauncher.launch(intent)
+                }
+            )
+        }
+
         // Preview — video or image
         if (isVideoAd && exoPlayer != null) {
             AndroidView(
@@ -1783,6 +2074,38 @@ fun AdPreviewScreen(
                 }
             }
 
+            selectedMusicTrack?.let { track ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp)
+                        .background(Color.Black.copy(alpha = 0.58f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .background(Color(0xFF4DFF58).copy(alpha = 0.82f), RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("♪", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(track.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        Text("${track.artist} • ${track.provider.displayName}", color = Color.White.copy(alpha = 0.65f), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    }
+                    Text(
+                        "×",
+                        modifier = Modifier.clickable { selectedMusicTrack = null },
+                        color = Color.White.copy(alpha = 0.55f),
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+
             // Music + Broadcast row
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 18.dp),
@@ -1790,21 +2113,23 @@ fun AdPreviewScreen(
             ) {
                 // Music picker button
                 Surface(
-                    onClick = {
-                        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                            type = "*/*"
-                            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/*", "video/*"))
-                        }
-                        musicPickerLauncher.launch(intent)
-                    },
+                    onClick = { showMusicSearch = true },
                     shape = RoundedCornerShape(999.dp),
-                    color = if (selectedMusicUri != null) Color(0xFF1DB954) else Color.White.copy(alpha = 0.15f),
+                    color = if (selectedMusicUri != null || selectedMusicTrack != null) Color(0xFF1DB954) else Color.White.copy(alpha = 0.15f),
                     contentColor = Color.White,
                     modifier = Modifier.height(48.dp)
                 ) {
                     Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(if (selectedMusicUri != null) "♪" else "♫", fontSize = 16.sp)
-                        Text(if (selectedMusicUri != null) "Music" else "Add Music", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(if (selectedMusicUri != null || selectedMusicTrack != null) "♪" else "♫", fontSize = 16.sp)
+                        Text(
+                            when {
+                                selectedMusicUri != null -> "Music File"
+                                selectedMusicTrack != null -> "Track Linked"
+                                else -> "Add Music"
+                            },
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
 
@@ -1873,9 +2198,9 @@ fun AdPreviewScreen(
                     if (isPosting) {
                         CircularProgressIndicator(color = Color.White, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
-                        Text("Broadcasting…", fontWeight = FontWeight.Black, fontSize = 13.sp)
+                        Text("Preparing…", fontWeight = FontWeight.Black, fontSize = 13.sp)
                     } else {
-                        Text("Broadcast Ad", fontWeight = FontWeight.Black, fontSize = 13.sp)
+                        Text("Pick Channel", fontWeight = FontWeight.Black, fontSize = 13.sp)
                     }
                 }
             }
@@ -2119,8 +2444,17 @@ private fun FaceArOverlay(
     overlaySize: IntSize,
     mirrored: Boolean,
     selectedFilter: ArFilter,
+    username: String? = null,
     modifier: Modifier = Modifier
 ) {
+    val usernameLabel = remember(username) {
+        username
+            ?.trim()
+            ?.removePrefix("@")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "@$it" }
+    }
+
     Canvas(modifier) {
         if (imageSize.width <= 0 || imageSize.height <= 0 || overlaySize.width <= 0 || overlaySize.height <= 0) return@Canvas
 
@@ -2140,6 +2474,35 @@ private fun FaceArOverlay(
                 cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
                 style = Stroke(width = 3.dp.toPx())
             )
+
+            usernameLabel?.let { label ->
+                val horizontalPadding = 8.dp.toPx()
+                val badgeHeight = 24.dp.toPx()
+                val badgeGap = 8.dp.toPx()
+                val edgePadding = 8.dp.toPx()
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.BLACK
+                    textSize = 12.sp.toPx()
+                    typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                }
+                val badgeWidth = paint.measureText(label) + horizontalPadding * 2
+                val maxLeft = (size.width - badgeWidth - edgePadding).coerceAtLeast(edgePadding)
+                val badgeLeft = box.left.coerceIn(edgePadding, maxLeft)
+                val badgeTop = (box.top - badgeHeight - badgeGap).coerceAtLeast(edgePadding)
+
+                drawRoundRect(
+                    color = Color(0xFF4DFF58).copy(alpha = .92f),
+                    topLeft = Offset(badgeLeft, badgeTop),
+                    size = Size(badgeWidth, badgeHeight),
+                    cornerRadius = CornerRadius(12.dp.toPx(), 12.dp.toPx())
+                )
+                drawContext.canvas.nativeCanvas.drawText(
+                    label,
+                    badgeLeft + horizontalPadding,
+                    badgeTop + badgeHeight / 2f - (paint.descent() + paint.ascent()) / 2f,
+                    paint
+                )
+            }
 
             when (selectedFilter) {
                 ArFilter.None -> Unit

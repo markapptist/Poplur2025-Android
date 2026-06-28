@@ -14,7 +14,6 @@ import android.graphics.PointF
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
-import android.graphics.Typeface
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.os.Handler
@@ -49,9 +48,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -61,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -78,7 +80,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.AudioAttributes
 import androidx.compose.ui.platform.LocalInspectionMode
+import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.MapViewModel
+import com.apptists.poplur2025.ui.uiTheme
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -90,6 +94,7 @@ import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.weather.WeatherBadge
 import com.apptists.poplur2025.location.LocationProvider
 import com.apptists.poplur2025.ui.components.RadiusDisplay
+import com.apptists.poplur2025.ui.components.ThemedSkinPlate
 import com.mapbox.bindgen.DataRef
 import com.mapbox.bindgen.Value
 import com.mapbox.geojson.Feature
@@ -135,6 +140,7 @@ import kotlin.math.abs
 import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -145,6 +151,7 @@ fun MapScreen(
     isVisible: Boolean = true,
     mapViewModel: MapViewModel = viewModel(),
     isSelectingPostLocation: Boolean = false,
+    cubeSkin: CubeSkin = CubeSkin.Default,
     onCaptureLocationConfirmed: (Point) -> Unit = {},
     onMapFirstPostLocationSelected: (Point) -> Unit = {}
 ) {
@@ -159,6 +166,7 @@ fun MapScreen(
         isTourPaused = isTourPaused,
         onSetTourPaused = mapViewModel::setTourPaused,
         isSelectingPostLocation = isSelectingPostLocation,
+        cubeSkin = cubeSkin,
         onCaptureLocationConfirmed = onCaptureLocationConfirmed,
         onMapFirstPostLocationSelected = onMapFirstPostLocationSelected
     )
@@ -171,11 +179,12 @@ fun MapScreenContent(
     centerOnUserTrigger: Flow<Unit> = emptyFlow(),
     postCoordinateTrigger: Flow<Point> = emptyFlow(),
     openSearchTrigger: Flow<Unit> = emptyFlow(),
-    postToMapTrigger: Flow<Unit> = emptyFlow(),
+    postToMapTrigger: Flow<String?> = emptyFlow(),
     postMultipleTrigger: Flow<Unit> = emptyFlow(),
     isTourPaused: Boolean = false,
     onSetTourPaused: (Boolean) -> Unit = {},
     isSelectingPostLocation: Boolean = false,
+    cubeSkin: CubeSkin = CubeSkin.Default,
     onCaptureLocationConfirmed: (Point) -> Unit = {},
     onMapFirstPostLocationSelected: (Point) -> Unit = {}
 ) {
@@ -217,6 +226,7 @@ fun MapScreenContent(
     var idleGeneration by remember { mutableIntStateOf(0) }
     var showLocationSearch by remember { mutableStateOf(false) }
     var isMultiPostMode by remember { mutableStateOf(false) }
+    var isPostSearchMode by remember { mutableStateOf(false) }
     var showIndoorMap by remember { mutableStateOf(false) }
     var indoorVenues by remember { mutableStateOf<List<MappedinVenue>>(emptyList()) }
     var selectedVenueUrl by remember { mutableStateOf<String?>(null) }
@@ -336,9 +346,29 @@ fun MapScreenContent(
             }
         }
     }
-    val openSearchStop: (TourStop) -> Unit = { stop ->
+    val openSearchStop: (TourStop) -> Unit = openSearchStop@{ stop ->
         showLocationSearch = false
         locationSearchQuery = ""
+        if (isPostSearchMode) {
+            selectedCoordinate = stop.coordinate
+            activeTourFocusStop = null
+            activeLiveTourMoment = null
+            activeCityName = "Selected Location"
+            activeRadius = SELECTED_LOCATION_RADIUS_KM
+            activeWeatherPoint = stop.coordinate
+            activeAiInsight = null
+            idleGeneration++
+            mapView?.mapboxMap?.flyTo(
+                CameraOptions.Builder()
+                    .center(stop.coordinate)
+                    .zoom(17.6)
+                    .pitch(66.0)
+                    .bearing(stop.bearing)
+                    .build(),
+                mapAnimationOptions { duration(1200) }
+            )
+            return@openSearchStop
+        }
         selectedCoordinate = null
         activeTourFocusStop = null
         activeLiveTourMoment = null
@@ -603,12 +633,30 @@ fun MapScreenContent(
     }
 
     LaunchedEffect(openSearchTrigger) {
-        openSearchTrigger.collect { showLocationSearch = true }
+        openSearchTrigger.collect {
+            isPostSearchMode = false
+            showLocationSearch = true
+        }
     }
     LaunchedEffect(postToMapTrigger) {
-        postToMapTrigger.collect {
+        postToMapTrigger.collect { requestedLocation ->
+            isPostSearchMode = true
+            val locationQuery = requestedLocation?.trim().orEmpty()
+            if (locationQuery.isNotEmpty()) {
+                locationSearchQuery = locationQuery
+                showLocationSearch = true
+            }
             val center = mapView?.mapboxMap?.cameraState?.center ?: userLocation
-            if (center != null) onMapFirstPostLocationSelected(center)
+            if (center != null) {
+                selectedCoordinate = center
+                activeTourFocusStop = null
+                activeLiveTourMoment = null
+                activeCityName = "Selected Location"
+                activeRadius = SELECTED_LOCATION_RADIUS_KM
+                activeWeatherPoint = center
+                activeAiInsight = null
+                idleGeneration++
+            }
         }
     }
     LaunchedEffect(postMultipleTrigger) {
@@ -738,8 +786,12 @@ fun MapScreenContent(
     LaunchedEffect(isVisible, mapReady, idleGeneration, selectedRadioTopics, isTourPaused) {
         if (!isVisible || !mapReady || isTourPaused) return@LaunchedEffect
         delay(IDLE_TOUR_DELAY_MS)
+        var tourOffset = (0 until TourStops.size).random()
         while (isVisible && mapReady) {
-            TourStops.shuffled().take(TOUR_STOPS_PER_CYCLE).forEach { stop ->
+            val stops = (0 until TOUR_STOPS_PER_CYCLE).map { i ->
+                TourStops[(tourOffset + i) % TourStops.size]
+            }
+            stops.forEach { stop ->
                 activeCityName = "World"
                 activeTourFocusStop = null
                 activeLiveTourMoment = null
@@ -808,6 +860,7 @@ fun MapScreenContent(
                     delay((dwell - TREND_POP_START_DELAY_MS).coerceAtLeast(0L))
                 }
             }
+            tourOffset = (tourOffset + TOUR_STOPS_PER_CYCLE) % TourStops.size
         }
     }
 
@@ -976,6 +1029,7 @@ fun MapScreenContent(
         }
         MapZoomSlider(
             zoom = zoomSliderValue,
+            cubeSkin = cubeSkin,
             onZoomChange = { requestedZoom ->
                 zoomSliderValue = requestedZoom
                 if (mapReady) {
@@ -1053,28 +1107,27 @@ fun MapScreenContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(32.dp)
         ) {
-            if (indoorVenues.isNotEmpty()) {
-                Surface(
-                    onClick = {
-                        selectedVenueUrl = indoorVenues.first().mapUrl
-                        showIndoorMap = true
-                    },
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.Black.copy(alpha = 0.62f),
-                    contentColor = Color.White
+            Surface(
+                onClick = {
+                    selectedVenueUrl = indoorVenues.firstOrNull()?.mapUrl
+                        ?: "https://app.mappedin.com/map/${MappedinVenueSearch.DEMO_SLUG}"
+                    showIndoorMap = true
+                },
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Black.copy(alpha = 0.62f),
+                contentColor = Color.White
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text("3D Inside", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text("3D Inside", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
             MapSearchButton(
@@ -1614,26 +1667,43 @@ private fun LocationSearchDialog(
 @Composable
 private fun MapZoomSlider(
     zoom: Float,
+    cubeSkin: CubeSkin,
     onZoomChange: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var heightPx by remember { mutableIntStateOf(1) }
+    val theme = cubeSkin.uiTheme()
     val minZoom = 2.0f
     val maxZoom = 18.5f
     val clampedZoom = zoom.coerceIn(minZoom, maxZoom)
     val fraction = ((clampedZoom - minZoom) / (maxZoom - minZoom)).coerceIn(0f, 1f)
+    val sliderWidth = when (cubeSkin) {
+        CubeSkin.Ice -> 72.dp
+        CubeSkin.Camo, CubeSkin.Chocolate, CubeSkin.Gold -> 64.dp
+        else -> 66.dp
+    }
+    val sliderHeight = when (cubeSkin) {
+        CubeSkin.Camo -> 272.dp
+        CubeSkin.Ice -> 310.dp
+        else -> 292.dp
+    }
+    val cornerRadius = when (cubeSkin) {
+        CubeSkin.Camo, CubeSkin.Chocolate, CubeSkin.Gold -> 12.dp
+        CubeSkin.Toy -> 14.dp
+        else -> 22.dp
+    }
 
     fun updateFromY(y: Float) {
         val nextFraction = (1f - (y / heightPx.coerceAtLeast(1))).coerceIn(0f, 1f)
         onZoomChange(minZoom + nextFraction * (maxZoom - minZoom))
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
-            .width(64.dp)
-            .height(350.dp)
+            .width(sliderWidth)
+            .height(sliderHeight)
             .onSizeChanged { heightPx = it.height.coerceAtLeast(1) }
-            .pointerInput(Unit) {
+            .pointerInput(cubeSkin) {
                 detectDragGestures(
                     onDragStart = { offset -> updateFromY(offset.y) },
                     onDrag = { change, _ ->
@@ -1644,19 +1714,97 @@ private fun MapZoomSlider(
             },
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            Modifier
-                .width(4.dp)
-                .fillMaxHeight()
-                .background(Color.Black.copy(alpha = 0.32f), RoundedCornerShape(100.dp))
-        )
-        Box(
-            Modifier
+        ThemedSkinPlate(
+            skin = cubeSkin,
+            active = true,
+            cornerRadius = cornerRadius,
+            modifier = Modifier.matchParentSize()
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = "Zoom in",
+                tint = theme.primaryText,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 14.dp)
+                    .size(28.dp)
+            )
+            Canvas(
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(top = 58.dp, bottom = 58.dp)
+            ) {
+                val centerX = size.width / 2f
+                drawLine(
+                    color = theme.secondaryText.copy(alpha = 0.34f),
+                    start = Offset(centerX, 0f),
+                    end = Offset(centerX, size.height),
+                    strokeWidth = 3.dp.toPx()
+                )
+                drawLine(
+                    color = theme.accent.copy(alpha = 0.72f),
+                    start = Offset(centerX, size.height * (1f - fraction)),
+                    end = Offset(centerX, size.height),
+                    strokeWidth = 3.dp.toPx()
+                )
+                repeat(5) { index ->
+                    val y = size.height * (index + 1) / 6f
+                    drawCircle(
+                        color = theme.primaryText.copy(alpha = if (index < 4) 0.48f else 0.78f),
+                        radius = 2.2.dp.toPx(),
+                        center = Offset(centerX, y)
+                    )
+                }
+            }
+            Icon(
+                imageVector = Icons.Filled.Remove,
+                contentDescription = "Zoom out",
+                tint = theme.primaryText.copy(alpha = 0.9f),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 14.dp)
+                    .size(28.dp)
+            )
+        }
+
+        val knobSize = when (cubeSkin) {
+            CubeSkin.Camo, CubeSkin.Chocolate, CubeSkin.Gold -> 38.dp
+            CubeSkin.Ice -> 42.dp
+            else -> 36.dp
+        }
+        val topPad = 58.dp
+        val bottomPad = 58.dp
+        val travel = maxHeight - topPad - bottomPad
+        val knobY = topPad + travel * (1f - fraction) - knobSize / 2f
+        ThemedSkinPlate(
+            skin = cubeSkin,
+            active = true,
+            cornerRadius = if (cubeSkin == CubeSkin.Camo) 10.dp else 14.dp,
+            modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = ((1f - fraction) * 314f).dp)
-                .size(width = 52.dp, height = 36.dp)
-                .background(Color.White, RoundedCornerShape(7.dp))
-        )
+                .offset(y = knobY)
+                .size(knobSize)
+                .graphicsLayer {
+                    rotationZ = if (cubeSkin == CubeSkin.Carbon || cubeSkin == CubeSkin.Rainbow || cubeSkin == CubeSkin.Default) 45f else 0f
+                }
+        ) {
+            Canvas(Modifier.fillMaxSize().padding(9.dp)) {
+                val center = Offset(size.width / 2f, size.height / 2f)
+                drawCircle(theme.accent.copy(alpha = 0.62f), min(size.width, size.height) * 0.38f, center)
+                drawCircle(
+                    Color.White.copy(alpha = if (cubeSkin == CubeSkin.Ice) 0.94f else 0.72f),
+                    min(size.width, size.height) * 0.34f,
+                    center,
+                    style = Stroke(width = 1.8.dp.toPx())
+                )
+                if (cubeSkin == CubeSkin.Camo) {
+                    drawLine(theme.primaryText, Offset(center.x, 0f), Offset(center.x, size.height), 1.4.dp.toPx())
+                    drawLine(theme.primaryText, Offset(0f, center.y), Offset(size.width, center.y), 1.4.dp.toPx())
+                } else {
+                    drawCircle(theme.primaryText.copy(alpha = 0.92f), 3.dp.toPx(), center)
+                }
+            }
+        }
     }
 }
 
@@ -1797,18 +1945,18 @@ private class GdxUprightTrendPopView(
             }
             val x = frozenPosition.x
             val y = frozenPosition.y
-            if (x !in -160f..(width + 160f).toFloat() || y !in -220f..(height + 180f).toFloat()) return@forEachIndexed
+            if (x !in -160f..(width + 160f) || y !in -220f..(height + 180f)) return@forEachIndexed
             val popPhase = (localElapsed / TREND_3D_POP_MS.toFloat()).coerceIn(0f, 1f)
             val scale = overshootScale(popPhase) * item.scale
             val bob = sin((elapsed + index * 157L) / 520f) * 3f
             drawObjectConfetti(canvas, x, y + bob, localElapsed, item.seed)
-            drawUprightEmoji(canvas, item.emoji, x, y + bob, scale)
+            drawFeedChannelObject(canvas, item.objectId, x, y + bob, scale)
         }
     }
 
-    private fun drawUprightEmoji(
+    private fun drawFeedChannelObject(
         canvas: AndroidCanvas,
-        emoji: String,
+        objectId: String,
         x: Float,
         y: Float,
         scale: Float
@@ -1831,19 +1979,246 @@ private class GdxUprightTrendPopView(
         canvas.drawOval(RectF(-58f, 52f, 58f, 92f), paint)
         paint.shader = null
 
-        // Emoji with clean shadow
-        paint.style = Paint.Style.FILL
-        paint.textAlign = Paint.Align.CENTER
-        paint.typeface = Typeface.DEFAULT_BOLD
-        paint.textSize = 78f
-        paint.color = AndroidColor.WHITE
-        
-        // Drop shadow for the emoji itself
-        paint.setShadowLayer(12f, 0f, 6f, AndroidColor.argb(140, 0, 0, 0))
-        canvas.drawText(emoji, 0f, 18f, paint)
-        paint.clearShadowLayer()
+        drawFeedObjectDepth(canvas, objectId)
+        drawFeedObjectCore(canvas, objectId)
 
         canvas.restore()
+    }
+
+    private fun drawFeedObjectDepth(canvas: AndroidCanvas, objectId: String) {
+        val style = mapFeedObjectStyle(objectId)
+        paint.style = Paint.Style.FILL
+        paint.shader = null
+        repeat(7) { depth ->
+            canvas.save()
+            canvas.translate(9f + depth * 2.15f, 10f + depth * 2.35f)
+            paint.color = AndroidColor.argb(34 + depth * 4, 15, 10, 32)
+            drawFeedObjectSilhouette(canvas, objectId, style)
+            canvas.restore()
+        }
+    }
+
+    private fun drawFeedObjectCore(canvas: AndroidCanvas, objectId: String) {
+        val style = mapFeedObjectStyle(objectId)
+        paint.style = Paint.Style.FILL
+        paint.setShadowLayer(12f, 0f, 6f, AndroidColor.argb(150, 0, 0, 0))
+        paint.color = style.secondary
+        drawFeedObjectSilhouette(canvas, objectId, style)
+        paint.clearShadowLayer()
+
+        paint.shader = LinearGradient(
+            -54f,
+            -56f,
+            58f,
+            62f,
+            intArrayOf(AndroidColor.WHITE, style.primary, style.secondary),
+            floatArrayOf(0f, 0.46f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        drawFeedObjectSilhouette(canvas, objectId, style)
+        paint.shader = null
+
+        drawFeedObjectAccents(canvas, objectId, style)
+    }
+
+    private fun drawFeedObjectSilhouette(
+        canvas: AndroidCanvas,
+        objectId: String,
+        style: MapFeedObjectStyle
+    ) {
+        when (style.kind) {
+            MapFeedObjectKind.Curved -> {
+                if (objectId == "shoe") {
+                    canvas.drawRoundRect(RectF(-58f, 15f, 56f, 34f), 11f, 11f, paint)
+                    canvas.drawOval(RectF(-44f, -22f, 42f, 28f), paint)
+                    canvas.drawOval(RectF(16f, -12f, 65f, 26f), paint)
+                } else {
+                    canvas.drawPath(feedCurvePath(), paint)
+                }
+            }
+            MapFeedObjectKind.Orb -> {
+                if (objectId == "sun") {
+                    repeat(12) { index ->
+                        canvas.save()
+                        canvas.rotate(index * 30f)
+                        canvas.drawPath(feedConePath(RectF(-9f, -78f, 9f, -38f)), paint)
+                        canvas.restore()
+                    }
+                }
+                val radius = if (objectId == "beret") 50f else 48f
+                canvas.drawOval(RectF(-radius, -radius - 4f, radius, radius - 4f), paint)
+            }
+            MapFeedObjectKind.Cylinder -> {
+                when (objectId) {
+                    "cake" -> {
+                        canvas.drawOval(RectF(-52f, -34f, 52f, -2f), paint)
+                        canvas.drawRoundRect(RectF(-52f, -18f, 52f, 34f), 11f, 11f, paint)
+                        canvas.drawOval(RectF(-52f, 18f, 52f, 50f), paint)
+                    }
+                    "microphone" -> {
+                        canvas.drawRoundRect(RectF(-22f, -58f, 22f, 20f), 22f, 22f, paint)
+                        canvas.drawRoundRect(RectF(-9f, 4f, 9f, 56f), 8f, 8f, paint)
+                        canvas.drawOval(RectF(-38f, 48f, 38f, 64f), paint)
+                    }
+                    "dumbbell" -> {
+                        canvas.drawRoundRect(RectF(-62f, -9f, 62f, 9f), 9f, 9f, paint)
+                        canvas.drawRoundRect(RectF(-70f, -30f, -44f, 30f), 8f, 8f, paint)
+                        canvas.drawRoundRect(RectF(-42f, -24f, -22f, 24f), 7f, 7f, paint)
+                        canvas.drawRoundRect(RectF(44f, -30f, 70f, 30f), 8f, 8f, paint)
+                        canvas.drawRoundRect(RectF(22f, -24f, 42f, 24f), 7f, 7f, paint)
+                    }
+                    else -> canvas.drawRoundRect(RectF(-32f, -58f, 32f, 58f), 22f, 22f, paint)
+                }
+            }
+            MapFeedObjectKind.Boxy -> {
+                val rect = if (objectId == "speaker") {
+                    RectF(-36f, -58f, 36f, 58f)
+                } else {
+                    RectF(-56f, -40f, 56f, 40f)
+                }
+                canvas.drawRoundRect(rect, 12f, 12f, paint)
+            }
+            MapFeedObjectKind.Flat -> {
+                if (objectId == "note") {
+                    canvas.drawRoundRect(RectF(16f, -56f, 28f, 32f), 7f, 7f, paint)
+                    canvas.drawRoundRect(RectF(-34f, -60f, 22f, -42f), 7f, 7f, paint)
+                    canvas.drawOval(RectF(-54f, 12f, 2f, 46f), paint)
+                } else {
+                    canvas.drawRoundRect(RectF(-58f, -32f, 58f, 32f), 12f, 12f, paint)
+                }
+            }
+            MapFeedObjectKind.Trophy -> {
+                when (objectId) {
+                    "dress" -> canvas.drawPath(feedDressPath(), paint)
+                    "eiffel" -> canvas.drawPath(feedEiffelPath(), paint)
+                    else -> {
+                        canvas.drawPath(feedTrophyCupPath(), paint)
+                        canvas.drawRoundRect(RectF(-14f, 18f, 14f, 50f), 6f, 6f, paint)
+                        canvas.drawRoundRect(RectF(-42f, 48f, 42f, 64f), 9f, 9f, paint)
+                    }
+                }
+            }
+            MapFeedObjectKind.Star -> canvas.drawPath(feedStarPath(54f, 24f), paint)
+        }
+    }
+
+    private fun drawFeedObjectAccents(canvas: AndroidCanvas, objectId: String, style: MapFeedObjectStyle) {
+        paint.shader = null
+        paint.style = Paint.Style.FILL
+        paint.color = style.accent
+
+        when (objectId) {
+            "banana", "croissant", "guitar" -> {
+                paint.color = style.accent
+                canvas.drawCircle(-48f, 17f, 9f, paint)
+                canvas.drawCircle(51f, -4f, 9f, paint)
+            }
+            "fruit" -> {
+                paint.color = style.secondary
+                canvas.drawRoundRect(RectF(-7f, -68f, 8f, -42f), 7f, 7f, paint)
+                paint.color = style.accent
+                canvas.drawOval(RectF(3f, -70f, 36f, -48f), paint)
+            }
+            "globe" -> {
+                canvas.drawOval(RectF(-28f, -18f, 8f, -1f), paint)
+                canvas.drawOval(RectF(12f, 9f, 42f, 25f), paint)
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 4f
+                paint.color = AndroidColor.argb(190, 255, 255, 255)
+                canvas.drawOval(RectF(-51f, -18f, 51f, 10f), paint)
+            }
+            "ball" -> {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 4f
+                paint.color = AndroidColor.argb(210, 255, 255, 255)
+                canvas.drawLine(-42f, -28f, 42f, 28f, paint)
+                canvas.drawOval(RectF(-20f, -50f, 20f, 42f), paint)
+            }
+            "camera" -> {
+                paint.color = style.secondary
+                canvas.drawRoundRect(RectF(-38f, -51f, -4f, -30f), 7f, 7f, paint)
+                paint.color = style.accent
+                canvas.drawCircle(0f, 2f, 27f, paint)
+                paint.color = style.secondary
+                canvas.drawCircle(0f, 2f, 16f, paint)
+                paint.color = AndroidColor.WHITE
+                canvas.drawCircle(38f, -16f, 8f, paint)
+            }
+            "speaker" -> {
+                paint.color = style.primary
+                canvas.drawCircle(0f, 24f, 25f, paint)
+                paint.color = style.accent
+                canvas.drawCircle(0f, -30f, 16f, paint)
+                paint.color = style.secondary
+                canvas.drawCircle(0f, 24f, 11f, paint)
+            }
+            "chip" -> {
+                paint.color = style.secondary
+                canvas.drawRoundRect(RectF(-24f, -24f, 24f, 24f), 7f, 7f, paint)
+                paint.color = style.accent
+                repeat(5) { index ->
+                    val p = -40f + index * 20f
+                    canvas.drawRoundRect(RectF(p, -54f, p + 5f, -39f), 2f, 2f, paint)
+                    canvas.drawRoundRect(RectF(p, 39f, p + 5f, 54f), 2f, 2f, paint)
+                }
+            }
+            "bag" -> {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 7f
+                paint.strokeCap = Paint.Cap.ROUND
+                paint.color = style.accent
+                canvas.drawArc(RectF(-30f, -57f, 30f, 5f), 205f, 130f, false, paint)
+                paint.strokeCap = Paint.Cap.BUTT
+            }
+            "cake" -> {
+                paint.color = style.secondary
+                canvas.drawOval(RectF(-44f, -42f, 44f, -13f), paint)
+                paint.color = style.accent
+                canvas.drawRoundRect(RectF(-6f, -66f, 6f, -31f), 5f, 5f, paint)
+                paint.color = AndroidColor.rgb(255, 220, 70)
+                canvas.drawPath(feedConePath(RectF(-12f, -82f, 12f, -58f)), paint)
+            }
+            "microphone" -> {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 4f
+                paint.color = style.secondary
+                canvas.drawLine(-18f, -30f, 18f, -30f, paint)
+                canvas.drawLine(-17f, -8f, 17f, -8f, paint)
+            }
+            "dumbbell" -> {
+                paint.color = style.accent
+                canvas.drawCircle(0f, 0f, 13f, paint)
+            }
+            "trophy", "spotlight" -> {
+                paint.color = style.accent
+                canvas.drawOval(RectF(-32f, -52f, 32f, -30f), paint)
+            }
+            "dress" -> {
+                paint.color = style.accent
+                canvas.drawRoundRect(RectF(-18f, -64f, 18f, -42f), 7f, 7f, paint)
+            }
+            "eiffel" -> {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 5f
+                paint.color = style.accent
+                canvas.drawLine(-28f, 2f, 28f, 2f, paint)
+                canvas.drawLine(-40f, 34f, 40f, 34f, paint)
+            }
+            "star", "sparkle", "fan" -> {
+                paint.color = style.accent
+                canvas.drawPath(feedStarPath(27f, 10f), paint)
+            }
+            "note" -> {
+                paint.color = style.accent
+                canvas.drawCircle(-28f, 29f, 11f, paint)
+            }
+            "shoe" -> {
+                paint.color = style.accent
+                repeat(3) { index ->
+                    canvas.drawRoundRect(RectF(-18f + index * 14f, -12f, -8f + index * 14f, -5f), 3f, 3f, paint)
+                }
+            }
+        }
     }
 
     private fun drawObjectConfetti(canvas: AndroidCanvas, x: Float, y: Float, elapsed: Long, seed: Int) {
@@ -2231,7 +2606,7 @@ private const val BLUE_PIN_IMAGE_ID = "poplur-gdx-blue-location-pin"
 private const val PINK_PIN_IMAGE_ID = "poplur-gdx-pink-landmark-pin"
 private const val MUSIC_WAVE_IMAGE_ID_PREFIX = "poplur-gdx-music-wave"
 private const val MAPBOX_BASEMAP_IMPORT_ID = "basemap"
-private const val IDLE_TOUR_DELAY_MS = 30_000L
+private const val IDLE_TOUR_DELAY_MS = 3_000L
 private const val TOUR_STOP_DWELL_MS = 30_000L
 private const val TOUR_TOPIC_DWELL_MS = 14_000L
 private const val TOUR_STOPS_PER_CYCLE = 12
@@ -2738,7 +3113,7 @@ private data class SportsScoreboardFeed(
 
 private data class TrendPopObject(
     val point: Point,
-    val emoji: String,
+    val objectId: String,
     val scale: Float,
     val delayMs: Long,
     val seed: Int
@@ -3501,7 +3876,7 @@ private fun buildTrendPopObjects(stop: TourStop, insight: AiTourInsight): List<T
                 stop.coordinate.longitude() + cos(angle) * lngScale * radius,
                 stop.coordinate.latitude() + sin(angle) * latScale * radius
             ),
-            emoji = trendEmoji(insight.category, seed + index),
+            objectId = trendChannelObject(insight.category, seed + index),
             scale = 0.78f + ((index * 17 + seed) % 24) / 100f,
             delayMs = index * TREND_3D_SEQUENCE_GAP_MS,
             seed = seed + index * 97
@@ -3509,16 +3884,115 @@ private fun buildTrendPopObjects(stop: TourStop, insight: AiTourInsight): List<T
     }
 }
 
-private fun trendEmoji(category: TrendCategory, seed: Int): String {
-    val emojis = when (category) {
-        TrendCategory.Clothes -> listOf("👕", "👟", "🧢", "🕶️", "👜")
-        TrendCategory.Sports -> listOf("🏀", "⚽", "🏈", "⚾", "🏆")
-        TrendCategory.Food -> listOf("🍔", "🍕", "🍜", "🍣", "☕")
-        TrendCategory.Nightlife -> listOf("🪩", "🍸", "🎉", "🌃", "✨")
-        TrendCategory.Music -> listOf("🎤", "🎧", "🎸", "🎹", "🎵")
-        TrendCategory.Travel -> listOf("✈️", "🗽", "🏙️", "📍", "🌍")
+private fun trendChannelObject(category: TrendCategory, seed: Int): String {
+    val objects = when (category) {
+        TrendCategory.Clothes -> listOf("dress", "shoe", "bag")
+        TrendCategory.Sports -> listOf("ball", "trophy", "dumbbell")
+        TrendCategory.Food -> listOf("banana", "cake", "fruit")
+        TrendCategory.Nightlife -> listOf("sparkle", "spotlight", "microphone")
+        TrendCategory.Music -> listOf("microphone", "note", "speaker")
+        TrendCategory.Travel -> listOf("globe", "eiffel", "camera")
     }
-    return emojis[abs(seed) % emojis.size]
+    return objects[Math.floorMod(seed, objects.size)]
+}
+
+private enum class MapFeedObjectKind {
+    Curved,
+    Orb,
+    Cylinder,
+    Boxy,
+    Flat,
+    Trophy,
+    Star
+}
+
+private data class MapFeedObjectStyle(
+    val kind: MapFeedObjectKind,
+    val primary: Int,
+    val secondary: Int,
+    val accent: Int
+)
+
+private fun mapFeedObjectStyle(objectId: String): MapFeedObjectStyle = when (objectId) {
+    "banana" -> MapFeedObjectStyle(MapFeedObjectKind.Curved, AndroidColor.rgb(255, 209, 36), AndroidColor.rgb(230, 122, 20), AndroidColor.rgb(92, 51, 18))
+    "cake" -> MapFeedObjectStyle(MapFeedObjectKind.Cylinder, AndroidColor.rgb(255, 122, 184), AndroidColor.rgb(255, 214, 232), AndroidColor.rgb(122, 64, 33))
+    "fruit" -> MapFeedObjectStyle(MapFeedObjectKind.Orb, AndroidColor.rgb(255, 71, 41), AndroidColor.rgb(255, 163, 56), AndroidColor.rgb(51, 212, 110))
+    "lipstick" -> MapFeedObjectStyle(MapFeedObjectKind.Cylinder, AndroidColor.rgb(255, 20, 82), AndroidColor.rgb(20, 23, 41), AndroidColor.rgb(255, 184, 212))
+    "compact" -> MapFeedObjectStyle(MapFeedObjectKind.Flat, AndroidColor.rgb(255, 179, 230), AndroidColor.rgb(82, 64, 112), AndroidColor.rgb(255, 240, 250))
+    "sparkle", "star" -> MapFeedObjectStyle(MapFeedObjectKind.Star, AndroidColor.rgb(255, 232, 107), AndroidColor.rgb(255, 82, 217), AndroidColor.WHITE)
+    "ball" -> MapFeedObjectStyle(MapFeedObjectKind.Orb, AndroidColor.rgb(38, 184, 255), AndroidColor.rgb(20, 71, 199), AndroidColor.WHITE)
+    "trophy" -> MapFeedObjectStyle(MapFeedObjectKind.Trophy, AndroidColor.rgb(255, 194, 46), AndroidColor.rgb(212, 122, 20), AndroidColor.rgb(255, 242, 166))
+    "dumbbell" -> MapFeedObjectStyle(MapFeedObjectKind.Cylinder, AndroidColor.rgb(92, 255, 122), AndroidColor.rgb(31, 125, 74), AndroidColor.rgb(199, 255, 209))
+    "camera" -> MapFeedObjectStyle(MapFeedObjectKind.Boxy, AndroidColor.rgb(133, 158, 242), AndroidColor.rgb(23, 33, 74), AndroidColor.rgb(97, 247, 255))
+    "spotlight" -> MapFeedObjectStyle(MapFeedObjectKind.Trophy, AndroidColor.rgb(255, 219, 82), AndroidColor.rgb(112, 71, 15), AndroidColor.rgb(255, 245, 179))
+    "dress" -> MapFeedObjectStyle(MapFeedObjectKind.Trophy, AndroidColor.rgb(184, 87, 255), AndroidColor.rgb(74, 28, 133), AndroidColor.rgb(255, 168, 242))
+    "shoe" -> MapFeedObjectStyle(MapFeedObjectKind.Curved, AndroidColor.rgb(255, 133, 46), AndroidColor.rgb(89, 38, 20), AndroidColor.rgb(255, 224, 166))
+    "bag" -> MapFeedObjectStyle(MapFeedObjectKind.Boxy, AndroidColor.rgb(255, 71, 184), AndroidColor.rgb(115, 38, 99), AndroidColor.rgb(255, 214, 245))
+    "microphone" -> MapFeedObjectStyle(MapFeedObjectKind.Cylinder, AndroidColor.rgb(51, 224, 255), AndroidColor.rgb(31, 36, 59), AndroidColor.WHITE)
+    "note" -> MapFeedObjectStyle(MapFeedObjectKind.Flat, AndroidColor.rgb(122, 255, 255), AndroidColor.rgb(33, 97, 255), AndroidColor.WHITE)
+    "speaker" -> MapFeedObjectStyle(MapFeedObjectKind.Boxy, AndroidColor.rgb(102, 122, 255), AndroidColor.rgb(23, 26, 56), AndroidColor.rgb(97, 247, 255))
+    "laptop" -> MapFeedObjectStyle(MapFeedObjectKind.Flat, AndroidColor.rgb(41, 140, 255), AndroidColor.rgb(18, 23, 46), AndroidColor.rgb(77, 255, 191))
+    "chip" -> MapFeedObjectStyle(MapFeedObjectKind.Boxy, AndroidColor.rgb(51, 255, 191), AndroidColor.rgb(20, 56, 46), AndroidColor.rgb(255, 240, 117))
+    "controller" -> MapFeedObjectStyle(MapFeedObjectKind.Boxy, AndroidColor.rgb(133, 102, 255), AndroidColor.rgb(36, 26, 71), AndroidColor.rgb(255, 102, 214))
+    "newspaper" -> MapFeedObjectStyle(MapFeedObjectKind.Flat, AndroidColor.rgb(230, 235, 245), AndroidColor.rgb(138, 145, 166), AndroidColor.rgb(46, 107, 255))
+    "globe" -> MapFeedObjectStyle(MapFeedObjectKind.Orb, AndroidColor.rgb(61, 163, 255), AndroidColor.rgb(15, 59, 153), AndroidColor.rgb(89, 255, 173))
+    "eiffel" -> MapFeedObjectStyle(MapFeedObjectKind.Trophy, AndroidColor.rgb(56, 92, 255), AndroidColor.rgb(23, 33, 94), AndroidColor.rgb(176, 194, 255))
+    "croissant" -> MapFeedObjectStyle(MapFeedObjectKind.Curved, AndroidColor.rgb(255, 168, 61), AndroidColor.rgb(184, 99, 28), AndroidColor.rgb(255, 224, 153))
+    "beret" -> MapFeedObjectStyle(MapFeedObjectKind.Orb, AndroidColor.rgb(26, 41, 209), AndroidColor.rgb(13, 18, 61), AndroidColor.rgb(173, 186, 255))
+    "guitar" -> MapFeedObjectStyle(MapFeedObjectKind.Curved, AndroidColor.rgb(240, 115, 38), AndroidColor.rgb(122, 51, 20), AndroidColor.rgb(255, 212, 163))
+    "sun" -> MapFeedObjectStyle(MapFeedObjectKind.Orb, AndroidColor.rgb(255, 209, 51), AndroidColor.rgb(255, 122, 26), AndroidColor.rgb(255, 242, 166))
+    "fan" -> MapFeedObjectStyle(MapFeedObjectKind.Star, AndroidColor.rgb(255, 56, 77), AndroidColor.rgb(97, 26, 41), AndroidColor.rgb(255, 179, 186))
+    else -> MapFeedObjectStyle(MapFeedObjectKind.Star, AndroidColor.WHITE, AndroidColor.rgb(125, 138, 255), AndroidColor.rgb(255, 232, 107))
+}
+
+private fun feedCurvePath(): Path = Path().apply {
+    moveTo(-64f, 8f)
+    cubicTo(-42f, -38f, 34f, -48f, 64f, -8f)
+    cubicTo(44f, 22f, -28f, 38f, -64f, 8f)
+    close()
+}
+
+private fun feedConePath(rect: RectF): Path = Path().apply {
+    moveTo(rect.centerX(), rect.top)
+    lineTo(rect.right, rect.bottom)
+    lineTo(rect.left, rect.bottom)
+    close()
+}
+
+private fun feedDressPath(): Path = Path().apply {
+    moveTo(-21f, -60f)
+    lineTo(21f, -60f)
+    lineTo(56f, 58f)
+    quadTo(0f, 74f, -56f, 58f)
+    close()
+}
+
+private fun feedEiffelPath(): Path = Path().apply {
+    moveTo(0f, -68f)
+    lineTo(54f, 64f)
+    lineTo(22f, 64f)
+    lineTo(0f, 4f)
+    lineTo(-22f, 64f)
+    lineTo(-54f, 64f)
+    close()
+}
+
+private fun feedTrophyCupPath(): Path = Path().apply {
+    moveTo(-46f, -54f)
+    cubicTo(-42f, -10f, -26f, 14f, 0f, 18f)
+    cubicTo(26f, 14f, 42f, -10f, 46f, -54f)
+    close()
+}
+
+private fun feedStarPath(outer: Float, inner: Float): Path = Path().apply {
+    repeat(10) { index ->
+        val radius = if (index % 2 == 0) outer else inner
+        val angle = -Math.PI / 2.0 + index * Math.PI / 5.0
+        val x = cos(angle).toFloat() * radius
+        val y = sin(angle).toFloat() * radius
+        if (index == 0) moveTo(x, y) else lineTo(x, y)
+    }
+    close()
 }
 
 private fun overshootScale(phase: Float): Float {

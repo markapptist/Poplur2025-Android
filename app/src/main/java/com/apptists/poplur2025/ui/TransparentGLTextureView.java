@@ -3,6 +3,7 @@ package com.apptists.poplur2025.ui;
 import android.content.Context;
 import android.graphics.SurfaceTexture;
 import android.opengl.GLSurfaceView;
+import android.view.Display;
 import android.view.TextureView;
 
 import javax.microedition.khronos.opengles.GL10;
@@ -21,9 +22,11 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
     private GLSurfaceView.Renderer renderer;
     private GLThread glThread;
     private int renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY;
+    private final long targetFrameNanos;
 
     TransparentGLTextureView(Context context) {
         super(context);
+        targetFrameNanos = frameIntervalNanos(context);
         setOpaque(false);
         setSurfaceTextureListener(this);
     }
@@ -62,8 +65,21 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
     @Override
     public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
         if (renderer == null) return;
-        glThread = new GLThread(surface, width, height, renderer, renderMode);
+        glThread = new GLThread(surface, width, height, renderer, renderMode, targetFrameNanos);
         glThread.start();
+    }
+
+    private static long frameIntervalNanos(Context context) {
+        float refreshRate = 60f;
+        Display display = null;
+        if (context instanceof android.app.Activity) {
+            display = ((android.app.Activity) context).getWindowManager().getDefaultDisplay();
+        }
+        if (display != null && display.getRefreshRate() > 0f) {
+            refreshRate = display.getRefreshRate();
+        }
+        float targetFps = Math.max(60f, Math.min(refreshRate, 120f));
+        return (long) (1_000_000_000L / targetFps);
     }
 
     @Override
@@ -90,6 +106,7 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
         private boolean paused = false;
         private boolean renderRequested = true;
         private boolean sizeChanged = false;
+        private final long targetFrameNanos;
         private int width;
         private int height;
         private int renderMode;
@@ -105,7 +122,8 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
                 int width,
                 int height,
                 GLSurfaceView.Renderer renderer,
-                int renderMode
+                int renderMode,
+                long targetFrameNanos
         ) {
             super("PoplurCubeTextureGL");
             this.surfaceTexture = surfaceTexture;
@@ -113,6 +131,7 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
             this.height = Math.max(1, height);
             this.renderer = renderer;
             this.renderMode = renderMode;
+            this.targetFrameNanos = Math.max(1L, targetFrameNanos);
         }
 
         @Override
@@ -140,13 +159,14 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
                         sizeChanged = false;
                         renderRequested = false;
                     }
+                    long frameStartNanos = System.nanoTime();
                     if (changed) {
                         renderer.onSurfaceChanged(gl, w, h);
                     }
                     renderer.onDrawFrame(gl);
                     egl.eglSwapBuffers(display, surface);
                     if (renderMode == GLSurfaceView.RENDERMODE_CONTINUOUSLY) {
-                        Thread.sleep(16L);
+                        sleepUntilNextFrame(frameStartNanos);
                     }
                 }
             } catch (InterruptedException ignored) {
@@ -201,6 +221,15 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
                 lock.notifyAll();
             }
             interrupt();
+        }
+
+        private void sleepUntilNextFrame(long frameStartNanos) throws InterruptedException {
+            long elapsedNanos = System.nanoTime() - frameStartNanos;
+            long remainingNanos = targetFrameNanos - elapsedNanos;
+            if (remainingNanos <= 0L) return;
+            long millis = remainingNanos / 1_000_000L;
+            int nanos = (int) (remainingNanos % 1_000_000L);
+            Thread.sleep(millis, nanos);
         }
 
         private void initEgl() {

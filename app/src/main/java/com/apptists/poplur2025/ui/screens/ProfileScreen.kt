@@ -22,10 +22,12 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -40,10 +42,16 @@ import com.apptists.poplur2025.R
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.UserProfile
+import com.apptists.poplur2025.ui.CubeSkin
+import com.apptists.poplur2025.ui.PoplurAIProfileSortOrder
+import com.apptists.poplur2025.ui.components.ProfileAvatarSpeaker
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.poplurCountdownDisplayModifier
 import com.apptists.poplur2025.ui.components.poplurRadiusDisplayModifier
+import com.apptists.poplur2025.ui.skinBackdropBrush
+import com.apptists.poplur2025.ui.uiTheme
+import kotlinx.coroutines.delay
 
 private enum class ProfilePanel {
     Home,
@@ -233,7 +241,14 @@ fun ProfileScreen(
     onProfilePanelIconChanged: (String?) -> Unit = {},
     onPhoneCallVisibilityChanged: (Boolean) -> Unit = {},
     onColorwaySelected: (Color) -> Unit = {},
-    forcedColorway: Color? = null
+    forcedColorway: Color? = null,
+    avatarIs3D: Boolean = false,
+    cubeSkin: CubeSkin = CubeSkin.Default,
+    assistantSortOrder: PoplurAIProfileSortOrder? = null,
+    assistantSortToken: Int = 0,
+    showHeyPoplurTutorial: Boolean = false,
+    onHeyPoplurTutorialShown: () -> Unit = {},
+    onRequestAssistantTutorialPulse: () -> Unit = {}
 ) {
     ProfileScreenContent(
         profile = profile,
@@ -243,7 +258,14 @@ fun ProfileScreen(
         onProfilePanelIconChanged = onProfilePanelIconChanged,
         onPhoneCallVisibilityChanged = onPhoneCallVisibilityChanged,
         onColorwaySelected = onColorwaySelected,
-        forcedColorway = forcedColorway
+        forcedColorway = forcedColorway,
+        avatarIs3D = avatarIs3D,
+        cubeSkin = cubeSkin,
+        assistantSortOrder = assistantSortOrder,
+        assistantSortToken = assistantSortToken,
+        showHeyPoplurTutorial = showHeyPoplurTutorial,
+        onHeyPoplurTutorialShown = onHeyPoplurTutorialShown,
+        onRequestAssistantTutorialPulse = onRequestAssistantTutorialPulse
     )
 }
 
@@ -256,7 +278,14 @@ fun ProfileScreenContent(
     onProfilePanelIconChanged: (String?) -> Unit = {},
     onPhoneCallVisibilityChanged: (Boolean) -> Unit = {},
     onColorwaySelected: (Color) -> Unit = {},
-    forcedColorway: Color? = null
+    forcedColorway: Color? = null,
+    avatarIs3D: Boolean = false,
+    cubeSkin: CubeSkin = CubeSkin.Default,
+    assistantSortOrder: PoplurAIProfileSortOrder? = null,
+    assistantSortToken: Int = 0,
+    showHeyPoplurTutorial: Boolean = false,
+    onHeyPoplurTutorialShown: () -> Unit = {},
+    onRequestAssistantTutorialPulse: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var currentProfile by remember { mutableStateOf(profile) }
@@ -264,6 +293,7 @@ fun ProfileScreenContent(
     var activePanel by remember { mutableStateOf(ProfilePanel.Home) }
     var hasUncheckedNotifications by remember { mutableStateOf(true) }
     var purchasedRadius by remember { mutableIntStateOf(0) }
+    var radiusSortOrder by remember { mutableStateOf<PoplurAIProfileSortOrder?>(null) }
 
     LaunchedEffect(cubeMenuCommand?.id) {
         when (cubeMenuCommand?.action) {
@@ -289,6 +319,14 @@ fun ProfileScreenContent(
                 ProfilePanel.Home -> null
             }
         )
+    }
+
+    LaunchedEffect(assistantSortToken) {
+        if (assistantSortToken > 0) {
+            radiusSortOrder = assistantSortOrder ?: PoplurAIProfileSortOrder.MostRadius
+            selectedTab = 0
+            activePanel = ProfilePanel.Home
+        }
     }
 
     if (isEditing) {
@@ -332,7 +370,13 @@ fun ProfileScreenContent(
             },
             onOpenPhone = { activePanel = ProfilePanel.Phone },
             onOpenStore = { activePanel = ProfilePanel.Store },
-            onEdit = { isEditing = true }
+            onEdit = { isEditing = true },
+            avatarIs3D = avatarIs3D,
+            cubeSkin = cubeSkin,
+            radiusSortOrder = radiusSortOrder,
+            showHeyPoplurTutorial = showHeyPoplurTutorial,
+            onHeyPoplurTutorialShown = onHeyPoplurTutorialShown,
+            onRequestAssistantTutorialPulse = onRequestAssistantTutorialPulse
         )
     }
 }
@@ -348,15 +392,43 @@ private fun ProfileHome(
     onOpenNotifications: () -> Unit,
     onOpenPhone: () -> Unit,
     onOpenStore: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    avatarIs3D: Boolean = false,
+    cubeSkin: CubeSkin = CubeSkin.Default,
+    radiusSortOrder: PoplurAIProfileSortOrder? = null,
+    showHeyPoplurTutorial: Boolean = false,
+    onHeyPoplurTutorialShown: () -> Unit = {},
+    onRequestAssistantTutorialPulse: () -> Unit = {}
 ) {
-    Box(Modifier.fillMaxSize().background(Color.White)) {
+    val theme = cubeSkin.uiTheme()
+    var didStartHeyPoplurTutorial by rememberSaveable { mutableStateOf(false) }
+    val mediaPosts = when (radiusSortOrder) {
+        PoplurAIProfileSortOrder.MostRadius -> DemoPostStore.posts.sortedByDescending { it.radius }
+        PoplurAIProfileSortOrder.LeastRadius -> DemoPostStore.posts.sortedBy { it.radius }
+        null -> DemoPostStore.posts
+    }
+
+    LaunchedEffect(showHeyPoplurTutorial) {
+        if (showHeyPoplurTutorial && !didStartHeyPoplurTutorial) {
+            didStartHeyPoplurTutorial = true
+            onRequestAssistantTutorialPulse()
+            delay(7_000)
+            onHeyPoplurTutorialShown()
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(skinBackdropBrush(cubeSkin))
+    ) {
         Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            AsyncImage(
-                model = profile.avatarUrl,
-                contentDescription = "Avatar",
-                modifier = Modifier.size(96.dp).clip(CircleShape).background(Color.Gray),
-                contentScale = ContentScale.Crop
+            ProfileAvatarSpeaker(
+                avatarUrl = profile.avatarUrl,
+                totalRadiusMeters = profile.radius,
+                postCount = profile.posts,
+                is3D = avatarIs3D,
+                accentColor = theme.accent
             )
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -364,20 +436,20 @@ private fun ProfileHome(
                     profile.displayName.uppercase(), 
                     fontSize = 30.sp, 
                     fontWeight = FontWeight.Black, 
-                    color = Color.Black
+                    color = theme.primaryText
                 )
                 Spacer(Modifier.width(8.dp))
                 Icon(
                     Icons.Default.Edit,
                     contentDescription = "Edit Profile",
-                    tint = Color.Gray,
+                    tint = theme.secondaryText,
                     modifier = Modifier.size(20.dp).clickable { onEdit() }
                 )
             }
             Row(Modifier.fillMaxWidth().padding(top = 22.dp), horizontalArrangement = Arrangement.Center) {
-                ProfileTabItem("Media", selectedTab == 0) { onTab(0) }
+                ProfileTabItem("Media", selectedTab == 0, cubeSkin = cubeSkin) { onTab(0) }
                 Spacer(Modifier.width(56.dp))
-                ProfileTabItem("Messages", isSelected = false, onClick = onOpenMessages)
+                ProfileTabItem("Messages", isSelected = false, cubeSkin = cubeSkin, onClick = onOpenMessages)
             }
             Spacer(Modifier.height(18.dp))
             LazyVerticalGrid(
@@ -389,14 +461,14 @@ private fun ProfileHome(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                items(DemoPostStore.posts) { post -> MediaItem(post.mediaUrl ?: post.videoUrl, post.radius) }
+                items(mediaPosts) { post -> MediaItem(post.mediaUrl ?: post.videoUrl, post.radius, cubeSkin = cubeSkin) }
             }
         }
 
         TrendingDisplay(
             postsCount = 0,
             radiusChange = 0,
-            contentColor = Color.DarkGray,
+            contentColor = theme.accent,
             modifier = poplurCountdownDisplayModifier()
         )
         
@@ -404,8 +476,69 @@ private fun ProfileHome(
             modifier = poplurRadiusDisplayModifier(),
             radius = 56,
             unit = "mi",
-            contentColor = Color.DarkGray
+            contentColor = theme.accent
         )
+
+        if (showHeyPoplurTutorial) {
+            HeyPoplurProfileTutorialCard(
+                accent = theme.accent,
+                onDismiss = onHeyPoplurTutorialShown,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(start = 24.dp, end = 24.dp, bottom = 146.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun HeyPoplurProfileTutorialCard(
+    accent: Color,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(24.dp, RoundedCornerShape(22.dp)),
+        shape = RoundedCornerShape(22.dp),
+        color = Color.Black.copy(alpha = 0.78f),
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .border(1.5.dp, accent.copy(alpha = 0.9f), RoundedCornerShape(22.dp))
+                .padding(horizontal = 22.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Say \"Hey Poplur\"",
+                color = Color.White,
+                fontSize = 25.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = "The edges light up in your theme color. Then tell Poplur what to do.",
+                color = Color.White.copy(alpha = 0.82f),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = accent,
+                    contentColor = Color.Black
+                )
+            ) {
+                Text(
+                    text = "Got it",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
     }
 }
 
@@ -758,20 +891,54 @@ private fun StoreBadge(text: String) {
 }
 
 @Composable
-fun ProfileTabItem(text: String, isSelected: Boolean, onClick: () -> Unit) {
+fun ProfileTabItem(text: String, isSelected: Boolean, cubeSkin: CubeSkin = CubeSkin.Default, onClick: () -> Unit) {
+    val theme = cubeSkin.uiTheme()
     Column(modifier = Modifier.clickable { onClick() }, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text, fontSize = 20.sp, fontWeight = FontWeight.Black, color = if (isSelected) Color.Black else Color(0xFF222222))
+        Text(text, fontSize = 20.sp, fontWeight = FontWeight.Black, color = if (isSelected) theme.primaryText else theme.secondaryText)
         if (isSelected) Spacer(Modifier.height(4.dp))
-        if (isSelected) Box(Modifier.width(48.dp).height(3.dp).background(Color(0xFF7B61FF), RoundedCornerShape(2.dp)))
+        if (isSelected) Box(Modifier.width(48.dp).height(3.dp).background(theme.accent, RoundedCornerShape(2.dp)))
     }
 }
 
 @Composable
-fun MediaItem(url: String? = null, radius: Int = 5000) {
-    Box(Modifier.aspectRatio(1f).clip(RoundedCornerShape(18.dp)).background(Color.DarkGray)) {
-        AsyncImage(model = url, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        Surface(modifier = Modifier.padding(8.dp).align(Alignment.BottomStart), color = Color.Black.copy(alpha = 0.5f), shape = RoundedCornerShape(12.dp)) {
-            Text("${radius / 1000} KM", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+fun MediaItem(url: String? = null, radius: Int = 5000, cubeSkin: CubeSkin = CubeSkin.Default) {
+    val theme = cubeSkin.uiTheme()
+    val shape = RoundedCornerShape(18.dp)
+
+    Box(
+        Modifier
+            .aspectRatio(1f)
+            .shadow(8.dp, shape, clip = false)
+            .clip(shape)
+            .background(skinBackdropBrush(cubeSkin))
+            .border(1.8.dp, theme.border, shape)
+    ) {
+        if (!url.isNullOrBlank()) {
+            AsyncImage(model = url, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        } else {
+            cubeSkin.assetPath?.let { assetPath ->
+                AsyncImage(
+                    model = "file:///android_asset/$assetPath",
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+        }
+        Box(
+            Modifier
+                .matchParentSize()
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.Transparent,
+                            theme.backgroundDeep.copy(alpha = if (theme.isLight) 0.08f else 0.42f)
+                        )
+                    )
+                )
+        )
+        Surface(modifier = Modifier.padding(8.dp).align(Alignment.BottomStart), color = theme.badgeFill, shape = RoundedCornerShape(12.dp)) {
+            Text("${radius / 1000} KM", color = theme.badgeText, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
         }
     }
 }

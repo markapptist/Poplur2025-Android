@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
@@ -42,6 +41,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import com.apptists.poplur2025.ui.CubeSkin
+import com.apptists.poplur2025.ui.holdMenuAssetPath
+import com.apptists.poplur2025.ui.usePerItemTint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -131,11 +136,123 @@ class CubeMenuWheelController(
     }
 }
 
+// ── Skin-derived menu colors ──────────────────────────────────────────────────
+
+private data class MenuSkinColors(
+    val panelMidTint: Color,
+    val borderDim: Color,
+    val borderBright: Color,
+    val tileBgAccent: Color,
+    val tileBorderA: Color,
+    val tileBorderB: Color,
+    val tileBorderC: Color
+)
+
+private fun menuSkinColors(skin: CubeSkin): MenuSkinColors = when (skin) {
+    CubeSkin.Gold -> MenuSkinColors(
+        panelMidTint = Color(0.18f, 0.12f, 0.02f, 1f),
+        borderDim    = Color(0.50f, 0.35f, 0.05f, 0.60f),
+        borderBright = Color(0.95f, 0.78f, 0.18f, 0.82f),
+        tileBgAccent = Color(0.22f, 0.14f, 0.03f, 0.96f),
+        tileBorderA  = Color(0.70f, 0.50f, 0.10f, 1f),
+        tileBorderB  = Color(0.95f, 0.78f, 0.18f, 1f),
+        tileBorderC  = Color(0.80f, 0.60f, 0.12f, 1f)
+    )
+    CubeSkin.Chocolate -> MenuSkinColors(
+        panelMidTint = Color(0.20f, 0.10f, 0.03f, 1f),
+        borderDim    = Color(0.50f, 0.28f, 0.06f, 0.60f),
+        borderBright = Color(0.72f, 0.40f, 0.08f, 0.82f),
+        tileBgAccent = Color(0.25f, 0.12f, 0.03f, 0.96f),
+        tileBorderA  = Color(0.55f, 0.30f, 0.06f, 1f),
+        tileBorderB  = Color(0.72f, 0.40f, 0.08f, 1f),
+        tileBorderC  = Color(0.60f, 0.34f, 0.07f, 1f)
+    )
+    CubeSkin.Camo -> MenuSkinColors(
+        panelMidTint = Color(0.10f, 0.16f, 0.05f, 1f),
+        borderDim    = Color(0.28f, 0.40f, 0.12f, 0.60f),
+        borderBright = Color(0.48f, 0.62f, 0.22f, 0.82f),
+        tileBgAccent = Color(0.12f, 0.18f, 0.06f, 0.96f),
+        tileBorderA  = Color(0.34f, 0.48f, 0.15f, 1f),
+        tileBorderB  = Color(0.48f, 0.62f, 0.22f, 1f),
+        tileBorderC  = Color(0.38f, 0.52f, 0.18f, 1f)
+    )
+    CubeSkin.Ice -> MenuSkinColors(
+        panelMidTint = Color(0.06f, 0.14f, 0.28f, 1f),
+        borderDim    = Color(0.40f, 0.62f, 0.80f, 0.60f),
+        borderBright = Color(0.55f, 0.88f, 1.00f, 0.82f),
+        tileBgAccent = Color(0.06f, 0.16f, 0.30f, 0.96f),
+        tileBorderA  = Color(0.45f, 0.72f, 0.92f, 1f),
+        tileBorderB  = Color(0.55f, 0.88f, 1.00f, 1f),
+        tileBorderC  = Color(0.50f, 0.80f, 0.96f, 1f)
+    )
+    CubeSkin.Space -> MenuSkinColors(
+        panelMidTint = Color(0.06f, 0.04f, 0.18f, 1f),
+        borderDim    = Color(0.30f, 0.24f, 0.60f, 0.60f),
+        borderBright = Color(0.55f, 0.42f, 1.00f, 0.82f),
+        tileBgAccent = Color(0.08f, 0.05f, 0.22f, 0.96f),
+        tileBorderA  = Color(0.40f, 0.30f, 0.80f, 1f),
+        tileBorderB  = Color(0.55f, 0.42f, 1.00f, 1f),
+        tileBorderC  = Color(0.46f, 0.36f, 0.88f, 1f)
+    )
+    CubeSkin.Carbon -> MenuSkinColors(  // Sparkle Pink
+        panelMidTint = Color(0.25f, 0.08f, 0.18f, 1f),
+        borderDim    = Color(0.70f, 0.20f, 0.50f, 0.60f),
+        borderBright = Color(1.00f, 0.35f, 0.72f, 0.82f),
+        tileBgAccent = Color(0.28f, 0.08f, 0.18f, 0.96f),
+        tileBorderA  = Color(0.80f, 0.25f, 0.60f, 1f),
+        tileBorderB  = Color(1.00f, 0.35f, 0.72f, 1f),
+        tileBorderC  = Color(0.86f, 0.28f, 0.65f, 1f)
+    )
+    CubeSkin.Toy, CubeSkin.Rainbow -> MenuSkinColors(  // neutral panel; tiles use per-item accent
+        panelMidTint = Color(0.05f, 0.05f, 0.08f, 1f),
+        borderDim    = Color(0.30f, 0.30f, 0.40f, 0.40f),
+        borderBright = Color(0.55f, 0.55f, 0.65f, 0.55f),
+        tileBgAccent = Color(0.08f, 0.08f, 0.10f, 0.96f),
+        tileBorderA  = Color(0.40f, 0.40f, 0.50f, 1f),
+        tileBorderB  = Color(0.55f, 0.55f, 0.65f, 1f),
+        tileBorderC  = Color(0.46f, 0.46f, 0.56f, 1f)
+    )
+    else -> MenuSkinColors(  // Default
+        panelMidTint = Color(0.07f, 0.04f, 0.16f, 1f),
+        borderDim    = Color(0.25f, 0.19f, 0.64f, 0.60f),
+        borderBright = Color(1.00f, 0.11f, 0.95f, 0.74f),
+        tileBgAccent = Color(0.21f, 0.03f, 0.31f, 0.96f),
+        tileBorderA  = Color(0.44f, 0.32f, 1.00f, 1f),
+        tileBorderB  = Color(1.00f, 0.12f, 0.95f, 1f),
+        tileBorderC  = Color(0.74f, 0.46f, 1.00f, 1f)
+    )
+}
+
+/** Tile colors derived from a single per-item accent — used by Toy and Rainbow skins. */
+private fun itemTileColors(accent: Color): MenuSkinColors {
+    val r = accent.red; val g = accent.green; val b = accent.blue
+    return MenuSkinColors(
+        panelMidTint = Color(r * 0.05f, g * 0.05f, b * 0.08f, 1f),
+        borderDim    = Color(r * 0.50f, g * 0.50f, b * 0.60f, 0.60f),
+        borderBright = Color(r, g, b, 0.82f),
+        tileBgAccent = Color(r * 0.18f, g * 0.18f, b * 0.22f, 0.96f),
+        tileBorderA  = Color(r * 0.65f, g * 0.65f, b * 0.80f, 1f),
+        tileBorderB  = Color(r, g, b, 1f),
+        tileBorderC  = Color(r * 0.78f, g * 0.78f, b * 0.88f, 1f)
+    )
+}
+
+private fun iconTintForSkin(skin: CubeSkin): Color = when (skin) {
+    CubeSkin.Gold -> Color(1.00f, 0.95f, 0.60f, 1f)
+    CubeSkin.Chocolate -> Color(0.92f, 0.65f, 0.25f, 1f)
+    CubeSkin.Camo -> Color(0.82f, 0.84f, 0.56f, 1f)
+    CubeSkin.Ice -> Color(0.82f, 0.96f, 1.00f, 1f)
+    else -> Color.White
+}
+
+// ── Overlay ───────────────────────────────────────────────────────────────────
+
 @Composable
 fun BoxScope.CubeMenuWheelOverlay(
     controller: CubeMenuWheelController,
     modifier: Modifier = Modifier,
-    layout: CubeMenuLayout = CubeMenuLayout.Horizontal
+    layout: CubeMenuLayout = CubeMenuLayout.Horizontal,
+    cubeSkin: CubeSkin = CubeSkin.Default
 ) {
     val menuProgress by animateFloatAsState(
         targetValue = if (controller.isVisible) 1f else 0f,
@@ -161,10 +278,13 @@ fun BoxScope.CubeMenuWheelOverlay(
             tickCount = controller.tickCount,
             layout = layout,
             openProgress = menuProgress,
+            cubeSkin = cubeSkin,
             modifier = Modifier.fillMaxSize()
         )
     }
 }
+
+// ── Floating menu tiles ───────────────────────────────────────────────────────
 
 @Composable
 private fun CubeNeonMenu(
@@ -173,15 +293,14 @@ private fun CubeNeonMenu(
     tickCount: Int,
     layout: CubeMenuLayout,
     openProgress: Float,
+    cubeSkin: CubeSkin = CubeSkin.Default,
     modifier: Modifier = Modifier
 ) {
     val visibleItems = visibleMenuItems(items, selectedIndex)
-    val panelShape = RoundedCornerShape(if (layout == CubeMenuLayout.Horizontal) 34.dp else 28.dp)
+    val skinColors = menuSkinColors(cubeSkin)
 
     BoxWithConstraints(modifier) {
         val horizontal = layout == CubeMenuLayout.Horizontal
-        val panelWidth = if (horizontal) minDp(maxWidth - 28.dp, 560.dp) else 176.dp
-        val panelHeight = if (horizontal) 146.dp else minDp(maxHeight - 120.dp, 620.dp)
         val centerX = maxWidth / 2f
         val centerY = if (horizontal) {
             maxHeight - clampDp(maxHeight * 0.24f, 320.dp, 380.dp)
@@ -190,50 +309,7 @@ private fun CubeNeonMenu(
         }
         val horizontalSpacing = clampDp(maxWidth * 0.23f, 86.dp, 112.dp)
         val verticalSpacing = clampDp(maxHeight * 0.11f, 92.dp, 118.dp)
-        val panelScale = 0.78f + openProgress * 0.22f
-
-        Surface(
-            modifier = Modifier
-                .offset(x = centerX - panelWidth / 2f, y = centerY - panelHeight / 2f)
-                .size(width = panelWidth, height = panelHeight)
-                .graphicsLayer {
-                    alpha = openProgress
-                    scaleX = panelScale
-                    scaleY = panelScale
-                    shadowElevation = 24.dp.toPx() * openProgress
-                    shape = panelShape
-                    clip = false
-                },
-            shape = panelShape,
-            color = Color.Transparent,
-            shadowElevation = 24.dp
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.92f),
-                                Color(0xFF110A29),
-                                Color.Black.copy(alpha = 0.95f)
-                            )
-                        ),
-                        panelShape
-                    )
-                    .border(
-                        width = 1.5.dp,
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                Color(0x993E31FF),
-                                Color(0xBDFF1AF2),
-                                Color(0x944F35FF)
-                            )
-                        ),
-                        shape = panelShape
-                    )
-            )
-        }
+        val tileAssetPath = cubeSkin.holdMenuAssetPath
 
         visibleItems.forEach { visibleItem ->
             val selected = visibleItem.index == selectedIndex
@@ -248,6 +324,7 @@ private fun CubeNeonMenu(
                 distance == 2 -> 0.72f
                 else -> 1f
             }
+            val tileColors = if (cubeSkin.usePerItemTint) itemTileColors(visibleItem.item.accent) else skinColors
 
             Box(
                 modifier = Modifier
@@ -266,7 +343,10 @@ private fun CubeNeonMenu(
                     relativeSlot = visibleItem.relativeSlot,
                     selected = selected,
                     tickCount = tickCount,
-                    layout = layout
+                    layout = layout,
+                    cubeSkin = cubeSkin,
+                    skinColors = tileColors,
+                    tileAssetPath = tileAssetPath
                 )
             }
         }
@@ -279,7 +359,10 @@ private fun CubeNeonMenuTile(
     relativeSlot: Int,
     selected: Boolean,
     tickCount: Int,
-    layout: CubeMenuLayout
+    layout: CubeMenuLayout,
+    cubeSkin: CubeSkin,
+    skinColors: MenuSkinColors,
+    tileAssetPath: String? = null
 ) {
     val density = LocalDensity.current
     val impulse = androidx.compose.runtime.remember { Animatable(0f) }
@@ -305,7 +388,9 @@ private fun CubeNeonMenuTile(
     )
     val width = cubeMenuTileWidth(selected, layout)
     val height = cubeMenuTileHeight(selected, layout)
-    val shape = RoundedCornerShape(if (selected) 24.dp else 18.dp)
+    val tileShape = RoundedCornerShape(if (selected) 24.dp else 18.dp)
+    val contentTint = if (cubeSkin.usePerItemTint) item.accent else iconTintForSkin(cubeSkin)
+    val borderAccent = if (cubeSkin.usePerItemTint) item.accent else skinColors.tileBorderB
     val direction = when {
         relativeSlot > 0 -> 1f
         relativeSlot < 0 -> -1f
@@ -313,7 +398,7 @@ private fun CubeNeonMenuTile(
     }
     val idleRotation = (abs(relativeSlot) * 4.5f).coerceAtMost(9f) * direction
 
-    Surface(
+    Box(
         modifier = Modifier
             .size(width = width, height = height)
             .graphicsLayer {
@@ -331,33 +416,64 @@ private fun CubeNeonMenuTile(
                 translationX = if (layout == CubeMenuLayout.Vertical) slotLagPx - impulsePx else 0f
                 scaleX = baseScale * (1f + impulse.value * 0.08f)
                 scaleY = baseScale * (1f - impulse.value * 0.06f)
-            },
-        shape = shape,
-        color = Color.Transparent,
-        shadowElevation = if (selected) 24.dp else 12.dp
+                shadowElevation = if (selected) 24.dp.toPx() else 12.dp.toPx()
+                shape = tileShape
+                clip = false
+            }
     ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (tileAssetPath != null) {
+                AsyncImage(
+                    model = "file:///android_asset/$tileAssetPath",
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(tileShape)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    skinColors.tileBgAccent,
+                                    Color(0.02f, 0.02f, 0.06f, 0.98f)
+                                )
+                            ),
+                            tileShape
+                        )
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = if (selected) 0.32f else 0.20f),
+                                Color.White.copy(alpha = 0.06f),
+                                item.accent.copy(alpha = 0.14f),
+                                Color.Transparent
+                            )
+                        ),
+                        tileShape
+                    )
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xF538084F),
-                            Color(0xFA05050F)
-                        )
-                    ),
-                    shape
-                )
-                .border(
-                    width = if (selected) 3.5.dp else 2.dp,
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFF7052FF),
-                            Color(0xFFFF1EF2),
-                            Color(0xFFBC75FF)
-                        )
-                    ),
-                    shape = shape
+                    .border(
+                        width = if (selected) 3.5.dp else 2.dp,
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = if (selected) 0.52f else 0.28f),
+                                borderAccent.copy(alpha = if (selected) 1.0f else 0.78f),
+                                Color.White.copy(alpha = if (selected) 0.38f else 0.18f),
+                                borderAccent.copy(alpha = if (selected) 0.92f else 0.62f)
+                            )
+                        ),
+                        shape = tileShape
                 )
                 .padding(if (selected) 12.dp else 9.dp),
             contentAlignment = Alignment.Center
@@ -379,12 +495,12 @@ private fun CubeNeonMenuTile(
                 Icon(
                     item.icon,
                     contentDescription = item.label,
-                    tint = Color.White,
+                    tint = contentTint,
                     modifier = Modifier.size(if (selected) 38.dp else 28.dp)
                 )
                 Text(
                     item.label,
-                    color = Color.White,
+                    color = contentTint,
                     fontSize = if (selected) 17.sp else 13.sp,
                     fontWeight = FontWeight.Black,
                     textAlign = TextAlign.Center,
@@ -396,6 +512,8 @@ private fun CubeNeonMenuTile(
         }
     }
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 private data class VisibleCubeMenuItem(
     val index: Int,
@@ -424,20 +542,19 @@ private fun visibleMenuItems(
 }
 
 private fun cubeMenuTileWidth(selected: Boolean, layout: CubeMenuLayout): Dp = when {
-    selected && layout == CubeMenuLayout.Vertical -> 152.dp
-    selected -> 118.dp
-    layout == CubeMenuLayout.Vertical -> 112.dp
-    else -> 88.dp
+    selected && layout == CubeMenuLayout.Vertical -> 166.dp
+    selected -> 132.dp
+    layout == CubeMenuLayout.Vertical -> 124.dp
+    else -> 98.dp
 }
 
 private fun cubeMenuTileHeight(selected: Boolean, layout: CubeMenuLayout): Dp = when {
-    selected && layout == CubeMenuLayout.Vertical -> 116.dp
-    selected -> 118.dp
-    layout == CubeMenuLayout.Vertical -> 96.dp
-    else -> 88.dp
+    selected && layout == CubeMenuLayout.Vertical -> 128.dp
+    selected -> 132.dp
+    layout == CubeMenuLayout.Vertical -> 104.dp
+    else -> 98.dp
 }
 
-private fun minDp(a: Dp, b: Dp): Dp = if (a < b) a else b
 
 private fun clampDp(value: Dp, minimum: Dp, maximum: Dp): Dp {
     return value.coerceAtLeast(minimum).coerceAtMost(maximum)

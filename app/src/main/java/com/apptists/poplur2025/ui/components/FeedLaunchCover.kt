@@ -43,6 +43,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -96,43 +98,64 @@ private val LOADING_PHASES = listOf(
     "preparing AI insights",
 )
 
-private val CONFETTI_PALETTE = listOf(
-    Color(0xFFF54D57.toInt()),
-    Color(0xFFFA7A3B.toInt()),
-    Color(0xFFFFB838.toInt()),
-    Color(0xFFED3366.toInt())
+// Colors exactly match ConfettiAnimationAdapter.CONFETTI_COLORS
+private val CONFETTI_COLORS_ALPHA = listOf(
+    Color(0.96f, 0.30f, 0.34f, 0.92f),
+    Color(0.98f, 0.48f, 0.23f, 0.90f),
+    Color(1.00f, 0.72f, 0.22f, 0.92f),
+    Color(0.93f, 0.20f, 0.40f, 0.86f)
 )
+// Opaque version for burst (alpha controlled separately)
+private val CONFETTI_PALETTE = CONFETTI_COLORS_ALPHA.map { it.copy(alpha = 1f) }
 
-// Built once at process lifetime — zero per-composition allocation.
-private val FIXED_BURST_PARTICLES = buildBurstConfetti(seed = 42, count = 20)
+private enum class LoadingParticleEffect {
+    Confetti,
+    Bubbles,
+    Smoke,
+    Rain,
+    Snow,
+    Sparkle
+}
 
 @Composable
 fun FeedLaunchCover(
     onPopSound: () -> Unit = {},
     showSlowDetails: Boolean = true,
+    skinLogoPath: String = "logo.png",
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val logoBitmap = remember(context) {
+    val logoBitmap = remember(context, skinLogoPath) {
         runCatching {
-            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
-        }.getOrNull()
+            context.assets.open(skinLogoPath).use { BitmapFactory.decodeStream(it).asImageBitmap() }
+        }.getOrElse {
+            runCatching {
+                context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+            }.getOrNull()
+        }
     }
     val shuffledPhases = remember { LOADING_PHASES.shuffled() }
+    val particleSeed = remember { Random.nextInt(1, Int.MAX_VALUE) }
+    val particleEffects = remember(particleSeed) {
+        LoadingParticleEffect.values().toList().shuffled(Random(particleSeed))
+    }
+    val ambientParticles = remember(particleSeed) { buildAmbientParticles(particleSeed, count = 150) }
+    val confettiParticles = remember(particleSeed) { buildRainParticles(particleSeed + 17, count = 110) }
+    val burstParticles = remember(particleSeed) { buildBurstConfetti(particleSeed + 29, count = 30) }
 
-    // InfiniteTransition for rain + rotation — more efficient than while(true)+animateTo
+    // InfiniteTransition for particles + rotation — more efficient than while(true)+animateTo
     // and avoids the 1-billion-ms tween that can confuse Compose's animation scheduler.
     val infiniteTransition = rememberInfiniteTransition(label = "loading")
 
-    // Cycles 0→5 over 5s, looping — drives confetti rain phase offsets in Canvas
-    val rainPhase by infiniteTransition.animateFloat(
+    // Cycles 0→1 over 15s — drives every particle effect from one stable phase.
+    val particlePhase by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = 5f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(5_000, easing = LinearEasing),
+            animation = tween(15_000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "rain"
+        label = "particles"
     )
     val logoRotation by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -149,6 +172,10 @@ fun FeedLaunchCover(
     val burstProgress = remember { Animatable(1f) }
     val loadingProgress = remember { Animatable(0f) }
     var phaseIndex by remember { mutableIntStateOf(0) }
+    var particleEffectIndex by remember { mutableIntStateOf(0) }
+    var burstEffectIndex by remember { mutableIntStateOf(0) }
+    val particleEffect = particleEffects[particleEffectIndex % particleEffects.size]
+    val burstEffect = particleEffects[burstEffectIndex % particleEffects.size]
 
     LaunchedEffect(Unit) {
         logoScale.animateTo(1.16f, animationSpec = tween(420, easing = FastOutSlowInEasing))
@@ -162,6 +189,7 @@ fun FeedLaunchCover(
     LaunchedEffect(popGeneration) {
         if (popGeneration == 0) return@LaunchedEffect
         onPopSound()
+        burstEffectIndex = particleEffectIndex
         logoScale.snapTo(1f)
         logoScale.animateTo(1.42f, animationSpec = tween(90, easing = FastOutSlowInEasing))
         logoScale.animateTo(0.82f, animationSpec = tween(80, easing = FastOutSlowInEasing))
@@ -198,81 +226,31 @@ fun FeedLaunchCover(
         }
     }
 
+    LaunchedEffect(Unit) {
+        delay(900)
+        while (true) {
+            delay(2_400)
+            particleEffectIndex = (particleEffectIndex + 1) % particleEffects.size
+        }
+    }
+
     Box(
         modifier = modifier.fillMaxSize().background(Color.White),
         contentAlignment = Alignment.Center
     ) {
-        // Single Canvas: rain + burst in one draw pass
+        // Single Canvas: ambient particle effect + burst in one draw pass
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val t = rainPhase  // 0..5, cycling
+            drawLoadingParticleEffect(
+                effect = particleEffect,
+                phase = particlePhase,
+                ambientParticles = ambientParticles,
+                confettiParticles = confettiParticles
+            )
 
-            // 20 rain particles
-            repeat(20) { i ->
-                val progress = ((t / 5f + i * 0.05f) % 1f).coerceIn(0f, 1f)
-                val x = ((sin(i * 3.71 + t * 0.15).toFloat() + 1f) / 2f) * size.width
-                val y = -24f + (size.height + 60f) * progress
-                val alpha = if (progress > 0.82f) ((1f - progress) / 0.18f).coerceIn(0f, 1f) else 1f
-                val base = CONFETTI_PALETTE[i % CONFETTI_PALETTE.size].copy(alpha = alpha)
-                val pieceW = (5 + i % 9).dp.toPx()
-                val pieceH = (4 + i % 6).dp.toPx()
-
-                rotate(degrees = progress * (200f + i * 5f), pivot = Offset(x, y)) {
-                    when (i % 6) {
-                        0 -> drawCircle(base, pieceW * 0.42f, Offset(x, y))
-                        3 -> drawRoundRect(
-                            base,
-                            topLeft = Offset(x - 1.5f.dp.toPx(), y - pieceH),
-                            size = Size(3.dp.toPx(), pieceH * 2f),
-                            cornerRadius = CornerRadius(1.dp.toPx())
-                        )
-                        else -> drawRoundRect(
-                            base,
-                            topLeft = Offset(x - pieceW * 0.5f, y - pieceH * 0.4f),
-                            size = Size(pieceW, pieceH),
-                            cornerRadius = CornerRadius(2.dp.toPx())
-                        )
-                    }
-                }
-            }
-
-            // Burst particles (fixed set — never reallocated)
+            // Burst particles match the currently active loading effect.
             val p = burstProgress.value
             if (p < 1f) {
-                FIXED_BURST_PARTICLES.forEach { piece ->
-                    val local = ((p - piece.delay) / (1f - piece.delay)).coerceIn(0f, 1f)
-                    if (local <= 0f || local >= 1f) return@forEach
-
-                    val burstEnd = 0.35f
-                    val bEased = easeOutQ((local / burstEnd).coerceIn(0f, 1f))
-                    val fEased = easeInQ(((local - burstEnd) / (1f - burstEnd)).coerceIn(0f, 1f))
-
-                    val x = size.width * (piece.startXFrac + piece.vxFrac * bEased + piece.vxFrac * 0.06f * fEased)
-                    val y = size.height * (piece.startYFrac - piece.vyFrac * bEased + piece.fallFrac * fEased)
-                    val alpha = if (local > 0.72f) ((1f - local) / 0.28f).coerceIn(0f, 1f) else 1f
-
-                    rotate(
-                        degrees = piece.startRotation + local * piece.spin,
-                        pivot = Offset(x, y)
-                    ) {
-                        val wPx = piece.widthDp.toPx()
-                        val hPx = piece.heightDp.toPx()
-                        when (piece.shapeType) {
-                            1 -> drawCircle(piece.color.copy(alpha = alpha), wPx * 0.48f, Offset(x, y))
-                            2 -> drawRoundRect(
-                                piece.color.copy(alpha = alpha),
-                                topLeft = Offset(x - 1.5f.dp.toPx(), y - hPx),
-                                size = Size(3.dp.toPx(), hPx * 2f),
-                                cornerRadius = CornerRadius(1.dp.toPx())
-                            )
-                            else -> drawRoundRect(
-                                piece.color.copy(alpha = alpha),
-                                topLeft = Offset(x - wPx * 0.5f, y - hPx * 0.5f),
-                                size = Size(wPx, hPx),
-                                cornerRadius = CornerRadius(2.dp.toPx())
-                            )
-                        }
-                    }
-                }
+                drawLoadingBurst(effect = burstEffect, progress = p, particles = burstParticles)
             }
         }
 
@@ -385,3 +363,274 @@ private fun buildBurstConfetti(seed: Int, count: Int = 20): List<BurstConfettiPi
 
 private fun easeOutQ(t: Float): Float = 1f - (1f - t) * (1f - t)
 private fun easeInQ(t: Float): Float = t * t
+
+private data class AmbientParticle(
+    val phaseFrac: Float,
+    val startXFrac: Float,
+    val startYFrac: Float,
+    val driftFrac: Float,
+    val sizeDp: Float,
+    val rotation: Float,
+    val spin: Float,
+    val colorIndex: Int,
+    val alpha: Float
+)
+
+private fun buildAmbientParticles(seed: Int, count: Int): List<AmbientParticle> {
+    val rng = Random(seed * 2_147 + 71)
+    return List(count) {
+        AmbientParticle(
+            phaseFrac = rng.nextFloat(),
+            startXFrac = rng.nextFloat(),
+            startYFrac = rng.nextFloat(),
+            driftFrac = rng.nextFloat() * 2f - 1f,
+            sizeDp = 2f + rng.nextFloat() * 16f,
+            rotation = rng.nextFloat() * 360f,
+            spin = rng.nextFloat() * 720f - 360f,
+            colorIndex = rng.nextInt(CONFETTI_PALETTE.size),
+            alpha = 0.42f + rng.nextFloat() * 0.50f
+        )
+    }
+}
+
+private fun DrawScope.drawLoadingParticleEffect(
+    effect: LoadingParticleEffect,
+    phase: Float,
+    ambientParticles: List<AmbientParticle>,
+    confettiParticles: List<RainParticle>
+) {
+    when (effect) {
+        LoadingParticleEffect.Confetti -> drawConfettiParticles(phase, confettiParticles)
+        LoadingParticleEffect.Bubbles -> drawBubbleParticles(phase, ambientParticles)
+        LoadingParticleEffect.Smoke -> drawSmokeParticles(phase, ambientParticles)
+        LoadingParticleEffect.Rain -> drawRainParticles(phase, ambientParticles)
+        LoadingParticleEffect.Snow -> drawSnowParticles(phase, ambientParticles)
+        LoadingParticleEffect.Sparkle -> drawSparkleParticles(phase, ambientParticles)
+    }
+}
+
+private fun DrawScope.drawConfettiParticles(phase: Float, particles: List<RainParticle>) {
+    particles.forEach { piece ->
+        val progress = ((phase + piece.phaseFrac) % 1f).coerceIn(0f, 1f)
+        val wPx = piece.sizeDp.dp.toPx()
+        val hPx = wPx * 0.36f
+        val x = piece.startXFrac * size.width + piece.driftFrac * size.width * progress
+        val y = -wPx * 2f + (size.height + wPx * 4f) * progress
+        val alpha = (if (progress > 0.88f) ((1f - progress) / 0.12f).coerceIn(0f, 1f) else 1f) * piece.colorAlpha
+        val rotation = piece.startRotation + piece.totalSpin * progress
+
+        rotate(degrees = rotation, pivot = Offset(x, y)) {
+            drawRoundRect(
+                color = piece.color.copy(alpha = alpha),
+                topLeft = Offset(x - wPx * 0.5f, y - hPx * 0.5f),
+                size = Size(wPx, hPx),
+                cornerRadius = CornerRadius(1.5f.dp.toPx())
+            )
+        }
+    }
+}
+
+private fun DrawScope.drawBubbleParticles(phase: Float, particles: List<AmbientParticle>) {
+    particles.take(76).forEach { particle ->
+        val progress = ((phase * 0.70f + particle.phaseFrac) % 1f).coerceIn(0f, 1f)
+        val radius = (particle.sizeDp * 0.86f + 4f).dp.toPx()
+        val wobble = sin(progress * PI * 2f + particle.rotation).toFloat()
+        val x = particle.startXFrac * size.width + wobble * 34.dp.toPx() + particle.driftFrac * 14.dp.toPx()
+        val y = size.height + radius * 2f - (size.height + radius * 4f) * progress
+        val alpha = (1f - progress).coerceIn(0f, 1f) * particle.alpha
+        drawCircle(
+            color = Color(0xFF4AB8FF).copy(alpha = alpha * 0.58f),
+            radius = radius,
+            center = Offset(x, y),
+            style = Stroke(width = 1.45.dp.toPx())
+        )
+        drawCircle(
+            color = Color.White.copy(alpha = alpha * 0.14f),
+            radius = radius * 0.72f,
+            center = Offset(x - radius * 0.18f, y - radius * 0.18f)
+        )
+    }
+}
+
+private fun DrawScope.drawSmokeParticles(phase: Float, particles: List<AmbientParticle>) {
+    particles.take(54).forEach { particle ->
+        val progress = ((phase * 0.40f + particle.phaseFrac) % 1f).coerceIn(0f, 1f)
+        val radius = (particle.sizeDp * 2.4f + 18f).dp.toPx() * (0.42f + progress * 1.55f)
+        val x = particle.startXFrac * size.width + particle.driftFrac * size.width * 0.14f * progress
+        val y = size.height + radius - size.height * 0.72f * progress
+        val alpha = (1f - progress).coerceIn(0f, 1f)
+        drawCircle(
+            color = Color(0xFF5F6370).copy(alpha = alpha * 0.14f * particle.alpha),
+            radius = radius,
+            center = Offset(x, y)
+        )
+    }
+}
+
+private fun DrawScope.drawRainParticles(phase: Float, particles: List<AmbientParticle>) {
+    particles.take(122).forEach { particle ->
+        val progress = ((phase * 1.85f + particle.phaseFrac) % 1f).coerceIn(0f, 1f)
+        val length = (18f + particle.sizeDp).dp.toPx()
+        val x = particle.startXFrac * size.width + particle.driftFrac * 18.dp.toPx()
+        val y = -length + (size.height + length * 2f) * progress
+        val alpha = if (progress > 0.90f) ((1f - progress) / 0.10f).coerceIn(0f, 1f) else 1f
+        drawLine(
+            color = Color(0xFF188CFF).copy(alpha = alpha * 0.58f * particle.alpha),
+            start = Offset(x, y),
+            end = Offset(x + 5.dp.toPx(), y + length),
+            strokeWidth = 1.45.dp.toPx()
+        )
+    }
+}
+
+private fun DrawScope.drawSnowParticles(phase: Float, particles: List<AmbientParticle>) {
+    particles.take(96).forEach { particle ->
+        val progress = ((phase * 0.55f + particle.phaseFrac) % 1f).coerceIn(0f, 1f)
+        val radius = (1.7f + particle.sizeDp * 0.20f).dp.toPx()
+        val sway = sin(progress * PI * 2.0 + particle.rotation).toFloat()
+        val x = particle.startXFrac * size.width + sway * 26.dp.toPx() + particle.driftFrac * 18.dp.toPx()
+        val y = -radius * 2f + (size.height + radius * 4f) * progress
+        val alpha = if (progress > 0.92f) ((1f - progress) / 0.08f).coerceIn(0f, 1f) else 1f
+        drawCircle(
+            color = Color.White.copy(alpha = alpha * 0.82f * particle.alpha),
+            radius = radius,
+            center = Offset(x, y)
+        )
+    }
+}
+
+private fun DrawScope.drawSparkleParticles(phase: Float, particles: List<AmbientParticle>) {
+    particles.take(84).forEach { particle ->
+        val progress = ((phase * 0.95f + particle.phaseFrac) % 1f).coerceIn(0f, 1f)
+        val twinkle = kotlin.math.abs(sin(progress * PI * 2.0).toFloat())
+        val alpha = twinkle * particle.alpha
+        val arm = (2.5f + particle.sizeDp * 0.35f).dp.toPx()
+        val x = particle.startXFrac * size.width
+        val y = particle.startYFrac * size.height
+        val color = CONFETTI_PALETTE[particle.colorIndex].copy(alpha = alpha)
+        rotate(degrees = particle.rotation + particle.spin * progress, pivot = Offset(x, y)) {
+            drawLine(color, Offset(x - arm, y), Offset(x + arm, y), strokeWidth = 1.5.dp.toPx())
+            drawLine(color, Offset(x, y - arm), Offset(x, y + arm), strokeWidth = 1.5.dp.toPx())
+            drawCircle(Color.White.copy(alpha = alpha * 0.24f), arm * 0.38f, Offset(x, y))
+        }
+    }
+}
+
+private fun DrawScope.drawLoadingBurst(
+    effect: LoadingParticleEffect,
+    progress: Float,
+    particles: List<BurstConfettiPiece>
+) {
+    particles.forEach { piece ->
+        val local = ((progress - piece.delay) / (1f - piece.delay)).coerceIn(0f, 1f)
+        if (local <= 0f || local >= 1f) return@forEach
+
+        val burstEnd = 0.35f
+        val bEased = easeOutQ((local / burstEnd).coerceIn(0f, 1f))
+        val fEased = easeInQ(((local - burstEnd) / (1f - burstEnd)).coerceIn(0f, 1f))
+        val x = size.width * (piece.startXFrac + piece.vxFrac * bEased + piece.vxFrac * 0.06f * fEased)
+        val y = size.height * (piece.startYFrac - piece.vyFrac * bEased + piece.fallFrac * fEased)
+        val alpha = if (local > 0.72f) ((1f - local) / 0.28f).coerceIn(0f, 1f) else 1f
+
+        when (effect) {
+            LoadingParticleEffect.Confetti -> drawConfettiBurstPiece(piece, local, x, y, alpha)
+            LoadingParticleEffect.Bubbles -> drawCircle(
+                color = Color(0xFF4AB8FF).copy(alpha = alpha * 0.62f),
+                radius = piece.widthDp.toPx() * (0.8f + local),
+                center = Offset(x, y),
+                style = Stroke(width = 1.5.dp.toPx())
+            )
+            LoadingParticleEffect.Smoke -> drawCircle(
+                color = Color(0xFF5F6370).copy(alpha = alpha * 0.16f),
+                radius = piece.widthDp.toPx() * (1.8f + local * 3.2f),
+                center = Offset(x, y)
+            )
+            LoadingParticleEffect.Rain -> drawLine(
+                color = Color(0xFF188CFF).copy(alpha = alpha * 0.68f),
+                start = Offset(x, y - piece.heightDp.toPx()),
+                end = Offset(x + 5.dp.toPx(), y + piece.heightDp.toPx()),
+                strokeWidth = 1.6.dp.toPx()
+            )
+            LoadingParticleEffect.Snow -> drawCircle(
+                color = Color.White.copy(alpha = alpha * 0.88f),
+                radius = piece.widthDp.toPx() * 0.34f,
+                center = Offset(x, y)
+            )
+            LoadingParticleEffect.Sparkle -> {
+                val arm = piece.widthDp.toPx() * (0.55f + local * 0.35f)
+                val color = piece.color.copy(alpha = alpha)
+                rotate(degrees = piece.startRotation + local * piece.spin, pivot = Offset(x, y)) {
+                    drawLine(color, Offset(x - arm, y), Offset(x + arm, y), strokeWidth = 1.6.dp.toPx())
+                    drawLine(color, Offset(x, y - arm), Offset(x, y + arm), strokeWidth = 1.6.dp.toPx())
+                }
+            }
+        }
+    }
+}
+
+private fun DrawScope.drawConfettiBurstPiece(
+    piece: BurstConfettiPiece,
+    local: Float,
+    x: Float,
+    y: Float,
+    alpha: Float
+) {
+    rotate(
+        degrees = piece.startRotation + local * piece.spin,
+        pivot = Offset(x, y)
+    ) {
+        val wPx = piece.widthDp.toPx()
+        val hPx = piece.heightDp.toPx()
+        when (piece.shapeType) {
+            1 -> drawCircle(piece.color.copy(alpha = alpha), wPx * 0.48f, Offset(x, y))
+            2 -> drawRoundRect(
+                piece.color.copy(alpha = alpha),
+                topLeft = Offset(x - 1.5f.dp.toPx(), y - hPx),
+                size = Size(3.dp.toPx(), hPx * 2f),
+                cornerRadius = CornerRadius(1.dp.toPx())
+            )
+            else -> drawRoundRect(
+                piece.color.copy(alpha = alpha),
+                topLeft = Offset(x - wPx * 0.5f, y - hPx * 0.5f),
+                size = Size(wPx, hPx),
+                cornerRadius = CornerRadius(2.dp.toPx())
+            )
+        }
+    }
+}
+
+// ── Rain confetti — mirrors ConfettiAnimationAdapter exactly ──────────────────
+
+private data class RainParticle(
+    val phaseFrac: Float,      // starting offset within the 0..1 cycle
+    val startXFrac: Float,     // starting x as fraction of screen width
+    val driftFrac: Float,      // total horizontal drift as fraction of screen width over one cycle
+    val sizeDp: Float,         // width in dp; height = sizeDp * 0.36 (matches libGDX rect ratio)
+    val startRotation: Float,  // initial rotation degrees
+    val totalSpin: Float,      // total rotation degrees over one full fall cycle
+    val color: Color,
+    val colorAlpha: Float
+)
+
+private fun buildRainParticles(seed: Int, count: Int): List<RainParticle> {
+    val rng = Random(seed * 4_337 + 13)
+    // Mirror ConfettiAnimationAdapter: size 16–34px, spin ±180 deg/sec, drift ±55 px/sec
+    // At ~2.75x density over a 15s fall cycle:
+    //   size: 16/2.75..34/2.75 ≈ 6–12dp
+    //   totalSpin: ±180 * 15 = ±2700 degrees
+    //   drift: ±(55/2.75)/390 ≈ ±0.05 screen-widths per second × 15s ≈ ±0.77 → clamp ±0.5
+    return List(count) { i ->
+        val colorIdx = rng.nextInt(4)
+        val baseColor = CONFETTI_COLORS_ALPHA[colorIdx]
+        RainParticle(
+            phaseFrac     = i.toFloat() / count.toFloat(),
+            startXFrac    = rng.nextFloat(),
+            driftFrac     = (rng.nextFloat() * 1.0f - 0.5f).coerceIn(-0.5f, 0.5f),
+            sizeDp        = 6f + rng.nextFloat() * 6f,
+            startRotation = rng.nextFloat() * 360f,
+            totalSpin     = rng.nextFloat() * 5400f - 2700f,
+            color         = baseColor.copy(alpha = 1f),
+            colorAlpha    = baseColor.alpha
+        )
+    }
+}

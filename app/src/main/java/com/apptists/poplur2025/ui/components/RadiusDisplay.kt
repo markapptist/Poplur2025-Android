@@ -49,7 +49,7 @@ fun RadiusDisplay(
         animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
         label = "radius-total-pulse"
     )
-    val formattedRadius = NumberFormat.getNumberInstance(Locale.US).format(animatedRadius)
+    val (formattedRadius, displayUnit) = formatRadiusForDisplay(animatedRadius, unit)
     val formattedTotal = NumberFormat.getNumberInstance(Locale.US).format(animatedTotal)
 
     Column(
@@ -72,22 +72,37 @@ fun RadiusDisplay(
                 modifier = Modifier.size(14.dp)
             )
         }
-        ShaderNumberText(
-            text = formattedRadius,
-            color = Color(0xFFD8892B),
-            fontSize = 38.sp,
-            fontWeight = FontWeight.Black,
-            lineHeight = 38.sp,
-            intensity = 1.05f,
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier.graphicsLayer {
                 scaleX = radiusPulse
                 scaleY = radiusPulse
             }
-        )
+        ) {
+            ShaderNumberText(
+                text = formattedRadius,
+                color = Color(0xFFD8892B),
+                fontSize = 40.sp,
+                fontWeight = FontWeight.Black,
+                lineHeight = 40.sp,
+                intensity = 1.05f,
+                autoSize = true
+            )
+            Text(
+                text = displayUnit,
+                color = Color(0xFFD8892B),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Black,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+        }
         HorizontalDivider(
             color = Color(0xFFD8892B),
             thickness = 2.dp,
-            modifier = Modifier.width(70.dp).padding(vertical = 4.dp)
+            modifier = Modifier
+                .width(70.dp)
+                .padding(vertical = 4.dp)
         )
         ShaderNumberText(
             text = formattedTotal,
@@ -96,16 +111,35 @@ fun RadiusDisplay(
             fontWeight = FontWeight.Black,
             lineHeight = 28.sp,
             intensity = 0.72f,
+            autoSize = true,
             modifier = Modifier.graphicsLayer {
                 scaleX = totalPulse
                 scaleY = totalPulse
             }
         )
-        Text(
-            text = unit,
-            color = Color(0xFFD8892B),
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Black
-        )
     }
+}
+
+private fun formatRadiusForDisplay(radius: Int, unit: String): Pair<String, String> {
+    val cleanUnit = unit.trim().ifBlank { "mi" }
+    val currentRadius = radius.coerceAtLeast(0)
+    if (cleanUnit.equals("m", ignoreCase = true) ||
+        cleanUnit.equals("meter", ignoreCase = true) ||
+        cleanUnit.equals("meters", ignoreCase = true)
+    ) {
+        return if (currentRadius >= 1_000) {
+            formatKilometers(currentRadius / 1_000f) to "km"
+        } else {
+            NumberFormat.getNumberInstance(Locale.US).format(currentRadius) to "m"
+        }
+    }
+
+    return NumberFormat.getNumberInstance(Locale.US).format(currentRadius) to cleanUnit
+}
+
+private fun formatKilometers(kilometers: Float): String {
+    if (kilometers >= 100f) {
+        return NumberFormat.getNumberInstance(Locale.US).format(kilometers.toInt())
+    }
+    return String.format(Locale.US, "%.1f", kilometers).removeSuffix(".0")
 }

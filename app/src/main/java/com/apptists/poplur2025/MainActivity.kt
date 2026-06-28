@@ -135,14 +135,8 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                     .replace(cubeContainerId, fragment)
                     .commitNowAllowingStateLoss()
             } else {
-                if (lastCubeSkin != config.cubeSkin) {
-                    lastCubeSkin = config.cubeSkin
-                    supportFragmentManager.beginTransaction()
-                        .replace(cubeContainerId, createCubeFragment(config))
-                        .commitNowAllowingStateLoss()
-                } else {
-                    applyCubeConfig(existing, config)
-                }
+                lastCubeSkin = config.cubeSkin
+                applyCubeConfig(existing, config)
             }
             container.requestLayout()
         }
@@ -208,7 +202,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
     }
 }
 
-private const val CUBE_OVERLAY_SIZE_DP = 230f
+private const val CUBE_OVERLAY_SIZE_DP = 280f
 private const val CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP = 174f
 
 object PoplurVolumeEvents {

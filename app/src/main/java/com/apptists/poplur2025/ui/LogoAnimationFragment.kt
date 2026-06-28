@@ -24,7 +24,7 @@ class LogoAnimationFragment : AndroidFragmentApplication() {
             r = 8; g = 8; b = 8; a = 8
         }
         
-        adapter = LogoAnimationAdapter()
+        adapter = LogoAnimationAdapter(GdxState.selectedCubeSkin.logoAssetPath)
         val view = initializeForView(adapter!!, config)
         
         view.setBackgroundColor(0)

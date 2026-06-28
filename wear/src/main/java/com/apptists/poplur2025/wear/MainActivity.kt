@@ -319,9 +319,11 @@ private fun RadiusWatchScreen(store: WatchRadiusStore) {
                         .fillMaxWidth()
                         .height(h * 0.60f)
                 ) {
-                    // Globe (54%)
-                    GdxGlobeView(
+                    // Globe (54%) - Vector version matching recent iOS update
+                    VectorGlobeView(
+                        phase = globePhase,
                         trend = store.trend,
+                        arrowPhase = arrowPhase,
                         modifier = Modifier
                             .width(w * 0.54f)
                             .fillMaxHeight()
@@ -558,58 +560,122 @@ private val continentBlobs = listOf(
 )
 
 @Composable
-private fun GdxGlobeView(
+private fun VectorGlobeView(
+    phase: Float,
     trend: RadiusTrend,
+    arrowPhase: Float,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val activity = remember(context) {
-        var ctx = context
-        while (ctx is android.content.ContextWrapper) {
-            if (ctx is FragmentActivity) break
-            ctx = ctx.baseContext
-        }
-        ctx as FragmentActivity
-    }
-    val containerId = remember { View.generateViewId() }
-
     Box(modifier = modifier) {
-        AndroidView(
-            factory = { context ->
-                FrameLayout(context).apply {
-                    id = containerId
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val r = size.minDimension / 2f * 0.88f
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+
+            // 1. Atmosphere Glow
+            drawCircle(
+                color = LcdGreen.copy(alpha = 0.12f),
+                radius = r * 1.12f,
+                center = Offset(cx, cy)
+            )
+
+            // 2. Globe Body
+            clipPath(Path().apply {
+                addOval(Rect(cx - r, cy - r, cx + r, cy + r))
+            }) {
+                // Ocean / Dark side
+                drawRect(color = Color.Black, size = size)
+
+                // Grid lines (latitudes)
+                val gridAlpha = 0.18f
+                for (i in -3..3) {
+                    val latY = cy + (i / 4f) * r
+                    val latR = sqrt(max(0f, r * r - (latY - cy) * (latY - cy)))
+                    drawOval(
+                        color = LcdGreen.copy(alpha = gridAlpha),
+                        topLeft = Offset(cx - latR, latY - (1.dp.toPx() / 2f)),
+                        size = Size(latR * 2f, 1.dp.toPx())
                     )
                 }
-            },
-            update = { frameLayout ->
-                val fragmentManager = activity.supportFragmentManager
-                if (!fragmentManager.isStateSaved && fragmentManager.findFragmentById(containerId) == null) {
-                    fragmentManager.beginTransaction()
-                        .replace(containerId, GlobeGdxFragment())
-                        .commitAllowingStateLoss()
-                }
-            },
-            modifier = Modifier.fillMaxSize()
-        )
 
-        // Overlay the trend arrow on top of the GDX view
+                // Continents (Vector Blobs)
+                // Use a slightly faster rotation for the stylized look
+                val rotation = phase * 2f * Math.PI.toFloat()
+                continentBlobs.forEach { blob ->
+                    val lonBase = blob[0]
+                    val latBase = blob[1]
+                    val lonHalf = blob[2]
+                    val latHalf = blob[3]
+
+                    // Wrap longitude with rotation
+                    var lon = (lonBase + rotation) % (2f * Math.PI.toFloat())
+                    if (lon < -Math.PI) lon += 2f * Math.PI.toFloat()
+                    if (lon > Math.PI) lon -= 2f * Math.PI.toFloat()
+
+                    // Project 3D -> 2D
+                    // We simplify: x = cos(lat)*sin(lon), y = sin(lat), z = cos(lat)*cos(lon)
+                    val cosLat = cos(latBase)
+                    val sinLat = sin(latBase)
+                    val x3d = cosLat * sin(lon)
+                    val y3d = sinLat
+                    val z3d = cosLat * cos(lon)
+
+                    // Only draw if on the front half
+                    if (z3d > -0.2f) {
+                        val x2d = cx + x3d * r
+                        val y2d = cy - y3d * r
+                        
+                        // Fade at edges of the sphere
+                        val edgeFade = (z3d + 0.2f).coerceIn(0f, 1f)
+                        
+                        // Draw blob as a soft neon rectangle (stylized)
+                        drawRect(
+                            color = LcdGreen.copy(alpha = edgeFade * 0.85f),
+                            topLeft = Offset(x2d - lonHalf * r, y2d - latHalf * r),
+                            size = Size(lonHalf * 2f * r, latHalf * 2f * r)
+                        )
+                    }
+                }
+
+                // Scanning Line (Horizontal sweep)
+                val scanY = cy + cos(phase * 2f * Math.PI.toFloat()) * r
+                drawLine(
+                    color = LcdGreen.copy(alpha = 0.25f),
+                    start = Offset(cx - r, scanY),
+                    end = Offset(cx + r, scanY),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+
+            // 3. Globe Rim
+            drawCircle(
+                color = LcdGreen.copy(alpha = 0.5f),
+                radius = r,
+                center = Offset(cx, cy),
+                style = Stroke(width = 1.dp.toPx())
+            )
+        }
+
+        // Overlay the trend arrow on top
         TrendOverlay(
             trend = trend,
+            phase = arrowPhase,
             modifier = Modifier.fillMaxSize()
         )
     }
 }
 
 @Composable
-private fun TrendOverlay(trend: RadiusTrend, modifier: Modifier = Modifier) {
+private fun TrendOverlay(trend: RadiusTrend, phase: Float, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
         val cx = w * 0.50f
-        val arrowCY = h * 0.85f
+        
+        // Bounce animation matching iOS settle/overshoot feel
+        val bounce = sin(phase * 2f * Math.PI.toFloat()) * 2.5.dp.toPx()
+        val arrowCY = h * 0.85f + bounce
+
         val arrowW  = w * 0.35f
         val arrowH2 = h * 0.10f
         val al = cx - arrowW / 2f
@@ -645,7 +711,7 @@ private fun TrendOverlay(trend: RadiusTrend, modifier: Modifier = Modifier) {
             RadiusTrend.Stable -> {
                 val dashW = arrowW * 0.70f
                 drawLine(
-                    color       = LcdGreen.copy(alpha = 0.75f),
+                    color       = LcdYellow.copy(alpha = 0.85f),
                     start       = Offset(cx - dashW / 2f, arrowCY),
                     end         = Offset(cx + dashW / 2f, arrowCY),
                     strokeWidth = 2.5f

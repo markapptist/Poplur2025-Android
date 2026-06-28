@@ -75,7 +75,7 @@ class CombinedGdxAdapter(
 
     // 0.65 = iOS SCNBox half-size (width 1.3 / 2). Geometry is unit size; transform
     // scale is the only multiplier, so cubeScale == world half-extent directly.
-    var cubeScale: Float = 0.65f
+    var cubeScale: Float = 0.48f
         set(value) {
             if (field != value) {
                 field = value
@@ -139,7 +139,9 @@ class CombinedGdxAdapter(
             longPressSent = false
             longPressStarted = false
             Gdx.graphics.setContinuousRendering(true)
-            startBounceTo(-90f * targetIndex)
+            val canonicalYaw = -90f * targetIndex
+            val nearestYaw = canonicalYaw + ((currentYawDegrees - canonicalYaw) / 360f).roundToInt() * 360f
+            startBounceTo(nearestYaw)
             Gdx.graphics.requestRendering()
         }
     }
@@ -240,12 +242,14 @@ class CombinedGdxAdapter(
 
             Gdx.input.inputProcessor = object : InputAdapter() {
                 override fun touchDown(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
+                    if (pointer != 0) return false  // single-touch only — prevents multi-finger twists
                     if (!isInsideCubeTouchTarget(screenX.toFloat(), screenY.toFloat())) return false
                     dragging = true; isVerticalSwipe = false; isSwipeTriggered = false; isRotation = false; longPressSent = false; longPressStarted = false; bouncePhase = BouncePhase.Idle; downX = screenX.toFloat(); downY = screenY.toFloat(); lastX = screenX.toFloat(); touchStartMillis = System.currentTimeMillis()
                     if (peekPhase != PeekPhase.Idle) { peekPitchDegrees = 0f; peekPhase = PeekPhase.Idle; nextPeekSeconds = peekIntervalSeconds }
                     return true
                 }
                 override fun touchDragged(screenX: Int, screenY: Int, pointer: Int): Boolean {
+                    if (pointer != 0) return false  // single-touch only
                     if (!dragging) return true
                     val dx = screenX.toFloat() - downX; val dy = screenY.toFloat() - downY
                     if (abs(dx) > 10f || abs(dy) > 10f) longPressSent = true
@@ -256,11 +260,12 @@ class CombinedGdxAdapter(
                         isSwipeTriggered = true; appInstance?.postRunnable { onVerticalSwipe?.invoke(dy < 0) }
                     }
                     if (isRotation) {
-                        val deltaX = screenX.toFloat() - lastX; currentYawDegrees += deltaX * 0.8f; targetYawDegrees = currentYawDegrees
+                        val deltaX = screenX.toFloat() - lastX; currentYawDegrees += deltaX * 0.5f; targetYawDegrees = currentYawDegrees
                     }
                     lastX = screenX.toFloat(); return true
                 }
                 override fun touchUp(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
+                    if (pointer != 0) return false  // single-touch only
                     dragging = false
                     if (longPressStarted) {
                         longPressStarted = false
@@ -273,7 +278,9 @@ class CombinedGdxAdapter(
                         return true
                     }
                     val snappedIndex = snappedTabIndex(currentYawDegrees)
-                    startBounceTo(-90f * snappedIndex)
+                    val canonicalYaw = -90f * snappedIndex
+                    val nearestYaw = canonicalYaw + ((currentYawDegrees - canonicalYaw) / 360f).roundToInt() * 360f
+                    startBounceTo(nearestYaw)
                     if (isRotation || abs(screenX - downX) > 15f) appInstance?.postRunnable { onTabSelected(snappedIndex) }
                     return true
                 }
@@ -293,8 +300,7 @@ class CombinedGdxAdapter(
 
     private fun cubeTouchCenterY(): Float {
         val h = lastHeight.coerceAtLeast(1).toFloat()
-        if (lastHeight < 700) return h / 2f
-        return h * 0.73f
+        return h / 2f
     }
 
     private fun isInsideCubeTouchTarget(x: Float, y: Float): Boolean {
@@ -325,8 +331,7 @@ class CombinedGdxAdapter(
         clearTextureCacheIfNeeded()
 
         val cameraTitle = if (currentIconTitle == "Record") "Camera" else currentIconTitle.ifBlank { "Camera" }
-        // Face order mirrors iOS SceneKit orientation for Android's yaw direction:
-        // +Z Map, +X Camera, -Z Feed, -X Profile, +Y decorative, -Y decorative.
+        // Face order matches iOS SceneKit: +Z Map (0°), +X Camera (90°), -Z Feed (180°), -X Profile (270°).
         val titles = listOf("Map", cameraTitle, "Feed", profileIconTitle, "TopFork", "BottomP")
 
         titles.forEachIndexed { index, title ->
@@ -357,8 +362,7 @@ class CombinedGdxAdapter(
 
     private fun rebuildSkinTextures() {
         val path = skin.assetPath
-        val fileExists = path != null && Gdx.files.internal(path).exists()
-        if (fileExists && path != null) {
+        if (path != null && Gdx.files.internal(path).exists()) {
             try {
                 rebuildSkinTexturesFromFile(path)
                 return
@@ -367,7 +371,7 @@ class CombinedGdxAdapter(
             }
         }
         // No asset file — generate solid-color face textures from the skin's theme color
-        val color = skin.gdxColor ?: return
+        val color = skin.gdxColor ?: Color.GRAY
         rebuildSkinTexturesFromColor(color)
     }
 
@@ -375,22 +379,36 @@ class CombinedGdxAdapter(
         val fullPixmap = Pixmap(Gdx.files.internal(path))
         val tileW = fullPixmap.width / 4
         val tileH = fullPixmap.height / 3
-        val coords = listOf(1 to 1, 2 to 1, 3 to 1, 0 to 1, 1 to 0, 1 to 2)
-        skinFaceTextures.forEach { it?.dispose() }
+        // Cubemap cross layout (col, row) per face index — matches iOS exactly.
+        // Face order: 0=front(+Z)=Map, 1=right(+X)=Camera, 2=back(-Z)=Feed, 3=left(-X)=Profile, 4=top, 5=bottom.
+        // Cross layout: (0,1)=Feed, (1,1)=Profile, (2,1)=Map, (3,1)=Camera, (1,0)=top, (1,2)=bottom.
+        val coords = listOf(2 to 1, 3 to 1, 0 to 1, 1 to 1, 1 to 0, 1 to 2)
+        
+        val newTextures = arrayOfNulls<Texture>(6)
+        val newMaterials = arrayOfNulls<Material>(6)
+
         coords.forEachIndexed { i, (col, row) ->
-            val p = Pixmap(tileW, tileH, fullPixmap.format)
+            val p = Pixmap(tileW, tileH, Pixmap.Format.RGBA8888)
             p.drawPixmap(fullPixmap, 0, 0, col * tileW, row * tileH, tileW, tileH)
+
             makeDrawnPixelsOpaque(p)
             val tex = Texture(p)
             tex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
-            skinFaceTextures[i] = tex
+            tex.setWrap(Texture.TextureWrap.ClampToEdge, Texture.TextureWrap.ClampToEdge)
+            newTextures[i] = tex
             p.dispose()
-            skinMaterials[i] = Material(
+            newMaterials[i] = Material(
                 TextureAttribute.createDiffuse(tex),
                 ColorAttribute.createDiffuse(Color.WHITE),
                 BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, 1f),
                 FloatAttribute.createAlphaTest(0.04f)
             )
+        }
+        
+        skinFaceTextures.forEach { it?.dispose() }
+        repeat(6) { i ->
+            skinFaceTextures[i] = newTextures[i]
+            skinMaterials[i] = newMaterials[i]
         }
         fullPixmap.dispose()
         modelDirty = true
@@ -398,7 +416,9 @@ class CombinedGdxAdapter(
 
     private fun rebuildSkinTexturesFromColor(baseColor: Color) {
         val size = 256
-        skinFaceTextures.forEach { it?.dispose() }
+        val newTextures = arrayOfNulls<Texture>(6)
+        val newMaterials = arrayOfNulls<Material>(6)
+        
         repeat(6) { i ->
             val p = Pixmap(size, size, Pixmap.Format.RGBA8888)
             // Gradient from lighter top-left to darker bottom-right
@@ -414,14 +434,22 @@ class CombinedGdxAdapter(
             }
             val tex = Texture(p)
             tex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
-            skinFaceTextures[i] = tex
+            tex.setWrap(Texture.TextureWrap.ClampToEdge, Texture.TextureWrap.ClampToEdge)
+            newTextures[i] = tex
             p.dispose()
-            skinMaterials[i] = Material(
+            newMaterials[i] = Material(
                 TextureAttribute.createDiffuse(tex),
                 ColorAttribute.createDiffuse(Color.WHITE),
                 BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, 1f),
                 FloatAttribute.createAlphaTest(0.04f)
             )
+        }
+        
+        // Update arrays and dispose old textures
+        skinFaceTextures.forEach { it?.dispose() }
+        repeat(6) { i ->
+            skinFaceTextures[i] = newTextures[i]
+            skinMaterials[i] = newMaterials[i]
         }
         modelDirty = true
     }
@@ -969,9 +997,9 @@ class CombinedGdxAdapter(
         sr.color = bgColor
         sr.filledRoundRect(innerPad, innerPad, size - innerPad * 2f, size - innerPad * 2f, (r - innerPad).coerceAtLeast(4f))
 
-        // Soft radial glow behind icon (simulates iOS emission mask luminosity)
+        // Soft radial glow behind icon — cy chosen so content (icon+gap+label) is vertically centered
         val cx = size / 2f
-        val cy = size * 0.63f
+        val cy = size * 0.605f
         val isize = 108f
         for (i in 14 downTo 1) {
             val frac = i.toFloat() / 14f
@@ -1119,21 +1147,20 @@ class CombinedGdxAdapter(
             }
             if (displayTitle.isNotEmpty()) {
                 val l = GlyphLayout(f, displayTitle)
-                f.draw(batch, displayTitle, (size - l.width) / 2f, size * 0.305f)
+                f.draw(batch, displayTitle, (size - l.width) / 2f, size * 0.280f)
             }
         }
         batch.end()
 
-        val pixmap = Pixmap.createFromFrameBuffer(0, 0, size, size)
-        fbo.end()
-        val upright = Pixmap(size, size, Pixmap.Format.RGBA8888)
-        for (y in 0 until size) upright.drawPixmap(pixmap, 0, size - y - 1, size, 1, 0, y, size, 1)
-        makeDrawnPixelsOpaque(upright)
-        val tex = Texture(upright)
-        tex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
-        pixmap.dispose(); upright.dispose(); fbo.dispose()
-        return tex
-    }
+            val pixmap = Pixmap.createFromFrameBuffer(0, 0, size, size)
+            fbo.end()
+            makeDrawnPixelsOpaque(pixmap)
+            val tex = Texture(pixmap)
+            tex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
+            tex.setWrap(Texture.TextureWrap.ClampToEdge, Texture.TextureWrap.ClampToEdge)
+            pixmap.dispose(); fbo.dispose()
+            return tex
+        }
 
     private fun makeDrawnPixelsOpaque(pixmap: Pixmap) {
         for (y in 0 until pixmap.height) {
@@ -1241,8 +1268,7 @@ class CombinedGdxAdapter(
             } else {
                 instance?.let { cube ->
                 cube.transform.setToTranslation(cubeSceneX(), cubeSceneY() + kotlin.math.sin(time * 3.9f) * 0.035f, 0f)
-                    .rotate(Vector3.Y, currentYawDegrees)
-                    .rotate(Vector3.X, peekPitchDegrees)
+                    .rotate(Vector3.Y, currentYawDegrees + GdxState.tiltYawOffset)
                     .scale(cubeTransformScale(), cubeTransformScale(), cubeTransformScale())
                 modelBatch?.begin(camera); modelBatch?.render(cube, environment); modelBatch?.end()
                 }
@@ -1253,37 +1279,9 @@ class CombinedGdxAdapter(
     }
 
     private fun updatePeekAnimation(delta: Float) {
-        if (peekPhase == PeekPhase.Idle) {
-            nextPeekSeconds -= delta
-            if (nextPeekSeconds <= 0f && bouncePhase == BouncePhase.Idle && !dragging) {
-                peekPhase = PeekPhase.TiltIn
-                peekPhaseTime = 0f
-            }
-            return
-        }
-        peekPhaseTime += delta
-        val tiltDur = 0.45f; val holdDur = 2.0f; val returnDur = 0.45f
-        when (peekPhase) {
-            PeekPhase.TiltIn -> {
-                val p = (peekPhaseTime / tiltDur).coerceIn(0f, 1f)
-                peekPitchDegrees = Interpolation.sine.apply(0f, -90f, p)
-                if (peekPhaseTime >= tiltDur) { peekPhase = PeekPhase.Hold; peekPhaseTime = 0f }
-            }
-            PeekPhase.Hold -> {
-                peekPitchDegrees = -90f
-                if (peekPhaseTime >= holdDur) { peekPhase = PeekPhase.TiltOut; peekPhaseTime = 0f }
-            }
-            PeekPhase.TiltOut -> {
-                val p = (peekPhaseTime / returnDur).coerceIn(0f, 1f)
-                peekPitchDegrees = Interpolation.sine.apply(-90f, 0f, p)
-                if (peekPhaseTime >= returnDur) {
-                    peekPitchDegrees = 0f
-                    peekPhase = PeekPhase.Idle
-                    nextPeekSeconds = peekIntervalSeconds
-                }
-            }
-            PeekPhase.Idle -> {}
-        }
+        // Peek animation disabled — cube only rotates on Y axis
+        peekPitchDegrees = 0f
+        peekPhase = PeekPhase.Idle
     }
 
     override fun dispose() {
@@ -1303,6 +1301,6 @@ class CombinedGdxAdapter(
     private enum class BouncePhase { Idle, Overshoot, Settle }
 
     private fun cameraDistance(): Float {
-        return 5f
+        return 6.0f
     }
 }

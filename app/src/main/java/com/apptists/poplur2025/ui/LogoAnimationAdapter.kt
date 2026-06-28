@@ -8,7 +8,7 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.math.Interpolation
 import android.util.Log
 
-class LogoAnimationAdapter : ApplicationAdapter() {
+class LogoAnimationAdapter(private val logoAssetPath: String = "logo.png") : ApplicationAdapter() {
     private var spriteBatch: SpriteBatch? = null
     private var logoTexture: Texture? = null
     private var logoScale = 0f
@@ -21,7 +21,8 @@ class LogoAnimationAdapter : ApplicationAdapter() {
             Log.d("LogoAnimationAdapter", "create() started")
             spriteBatch = SpriteBatch()
             try {
-                logoTexture = Texture(Gdx.files.internal("logo.png"))
+                val path = if (Gdx.files.internal(logoAssetPath).exists()) logoAssetPath else "logo.png"
+                logoTexture = Texture(Gdx.files.internal(path))
                 logoTexture?.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
             } catch (e: Exception) {
                 Log.e("LogoAnimationAdapter", "Failed to load logo.png", e)

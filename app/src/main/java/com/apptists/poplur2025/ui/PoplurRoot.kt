@@ -82,6 +82,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.call.CallSessionManager
+import com.apptists.poplur2025.data.AIVideoService
+import com.apptists.poplur2025.data.AIVideoStyle
 import com.apptists.poplur2025.data.AppTab
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.PoplurLanguage
@@ -99,6 +101,10 @@ import com.apptists.poplur2025.ui.components.FeedLaunchCover
 import com.apptists.poplur2025.ui.components.PoplurVolumeBars
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.PoplurRadioPrewarm
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FirebaseFirestore
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.random.Random
@@ -126,6 +132,8 @@ fun PoplurRoot(
     var previousTab by remember { mutableStateOf<AppTab?>(null) }
     var currentPostIndex by remember { mutableIntStateOf(0) }
     var feedTvGuideRequest by remember { mutableIntStateOf(0) }
+    var feedTargetChannelQuery by remember { mutableStateOf("") }
+    var feedTargetChannelToken by remember { mutableIntStateOf(0) }
     var feedNewsRequest by remember { mutableIntStateOf(0) }
     var feedLikeRequest by remember { mutableIntStateOf(0) }
     var feedOpenProfileRequest by remember { mutableIntStateOf(0) }
@@ -155,6 +163,15 @@ fun PoplurRoot(
             }.getOrDefault(CubeMenuLayout.Horizontal)
         )
     }
+    var isDarkMode by rememberSaveable {
+        mutableStateOf(settingsPrefs.getBoolean("dark_mode", true))
+    }
+    var profileAvatarIs3D by rememberSaveable {
+        mutableStateOf(settingsPrefs.getBoolean("profile_avatar_3d", false))
+    }
+    var tiltControlEnabled by rememberSaveable {
+        mutableStateOf(settingsPrefs.getBoolean("tilt_control_enabled", false))
+    }
     var showAppInitializationCover by remember { mutableStateOf(true) }
     var showSlowInitializationDetails by remember { mutableStateOf(false) }
     var feedInteractionTick by remember { mutableIntStateOf(0) }
@@ -162,6 +179,7 @@ fun PoplurRoot(
     var channelObjectPopToken by remember { mutableIntStateOf(0) }
     var channelObjectId by remember { mutableStateOf("star") }
     var selectedProfile by remember { mutableStateOf(UserProfile()) }
+    var currentUserProfile by remember { mutableStateOf(UserProfile()) }
     var cameraPhotoTrigger by remember { mutableIntStateOf(0) }
     var cameraRecordTrigger by remember { mutableIntStateOf(0) }
     var cameraLiveTrigger by remember { mutableIntStateOf(0) }
@@ -177,25 +195,38 @@ fun PoplurRoot(
     var profileCubeMenuCommand by remember { mutableStateOf<ProfileCubeMenuCommand?>(null) }
     var profileCubeCommittedIconTitle by remember { mutableStateOf<String?>(null) }
     var profilePanelIconTitle by remember { mutableStateOf<String?>(null) }
+    var profileSortOrder by remember { mutableStateOf<PoplurAIProfileSortOrder?>(null) }
+    var profileSortToken by remember { mutableIntStateOf(0) }
+    var profileWakeTutorialPulse by remember { mutableIntStateOf(0) }
+    var hasSeenProfileWakeTutorial by rememberSaveable {
+        mutableStateOf(settingsPrefs.getBoolean("profile_hey_poplur_tutorial_seen", false))
+    }
     var phoneColorwaySelected by remember { mutableStateOf<Color?>(null) }
     
     var capturedMediaUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var isCapturedVideo by remember { mutableStateOf(false) }
     var capturePostStep by remember { mutableStateOf(CapturePostStep.Preview) }
+    var postCaptureCreationMode by remember { mutableStateOf(PostCaptureCreationMode.Original) }
     var captureFlowOrigin by remember { mutableStateOf(CaptureFlowOrigin.CameraFirst) }
     var pendingCaptureLocation by remember { mutableStateOf<CaptureMapPoint?>(null) }
     var selectedCaptureFilterId by remember { mutableStateOf("original") }
     var selectedCaptureTrimSeconds by remember { mutableFloatStateOf(10f) }
+    var selectedCaptureMusicUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var selectedCaptureChannel by remember { mutableStateOf<com.apptists.poplur2025.ui.screens.PostCaptureChannelOption?>(null) }
     var capturedAdBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var capturedAdVideoUrl by remember { mutableStateOf<String?>(null) }
     var capturedAdMeta by remember { mutableStateOf<com.apptists.poplur2025.data.TVStyleMetadata?>(null) }
+
+    // AI Video Studio state
+    var aiVideoPrompt by remember { mutableStateOf("") }
+    var aiVideoStyle by remember { mutableStateOf(AIVideoStyle.PoplurTV) }
+    var aiVideoLocationName by remember { mutableStateOf("") }
+
     val persistentCubeHost = context as? PersistentCubeOverlayHost
 
-    SideEffect {
-        if (showAppInitializationCover || !isCubeSurfaceReady || isSignedIn != true) {
-            persistentCubeHost?.hidePersistentCubeOverlay()
-        }
+    val shouldHideCube = showAppInitializationCover || !isCubeSurfaceReady || isSignedIn != true
+    LaunchedEffect(shouldHideCube) {
+        if (shouldHideCube) persistentCubeHost?.hidePersistentCubeOverlay()
     }
 
     LaunchedEffect(preferredLanguageCode) {
@@ -212,7 +243,75 @@ fun PoplurRoot(
     LaunchedEffect(cubeMenuLayout) {
         settingsPrefs.edit().putString("cube_menu_layout", cubeMenuLayout.name).apply()
     }
-    
+    LaunchedEffect(isDarkMode) {
+        settingsPrefs.edit().putBoolean("dark_mode", isDarkMode).apply()
+    }
+    LaunchedEffect(profileAvatarIs3D) {
+        settingsPrefs.edit().putBoolean("profile_avatar_3d", profileAvatarIs3D).apply()
+    }
+    LaunchedEffect(tiltControlEnabled) {
+        settingsPrefs.edit().putBoolean("tilt_control_enabled", tiltControlEnabled).apply()
+    }
+
+    // --- Tab and Swipe Actions ---
+    val onTabChange: (Int) -> Unit = { index ->
+        val newTab = when (index) {
+            0 -> AppTab.Map
+            1 -> AppTab.CreateEntry
+            2 -> AppTab.Feed
+            3 -> AppTab.Profile
+            else -> AppTab.Feed
+        }
+        if (tab != newTab) {
+            previousTab = tab
+            tab = newTab
+        }
+    }
+
+    // Accelerometer tilt control - tab snap + cube lean
+    val currentTiltTabChange by rememberUpdatedState(onTabChange)
+    val currentTab by rememberUpdatedState(tab)
+    DisposableEffect(tiltControlEnabled) {
+        if (!tiltControlEnabled) {
+            GdxState.tiltYawOffset = 0f
+            return@DisposableEffect onDispose {}
+        }
+        val sensorManager = appContext.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+        val accel = sensorManager?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)
+        if (sensorManager == null || accel == null) return@DisposableEffect onDispose {}
+
+        val lastSnapMs = java.util.concurrent.atomic.AtomicLong(0L)
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+
+        val listener = object : android.hardware.SensorEventListener {
+            override fun onSensorChanged(event: android.hardware.SensorEvent) {
+                val x = event.values[0] // positive = tilt left, negative = tilt right (portrait)
+                // Lean: max ~15° at 45° device tilt, clamped so it doesn't rotate too far
+                GdxState.tiltYawOffset = (-x * 0.55f).coerceIn(-15f, 15f)
+
+                val absX = kotlin.math.abs(x)
+                val threshold = 4.5f
+                val cooldownMs = 1500L
+                val now = System.currentTimeMillis()
+                if (absX < threshold || now - lastSnapMs.get() < cooldownMs) return
+                lastSnapMs.set(now)
+
+                // x > 0 = tilted left, x < 0 = tilted right.
+                val direction = if (x > 0f) -1 else 1
+                val tabOrder = listOf(AppTab.Map, AppTab.CreateEntry, AppTab.Feed, AppTab.Profile)
+                val currentIndex = tabOrder.indexOf(currentTab).takeIf { it >= 0 } ?: 2
+                val newIndex = (currentIndex + direction + tabOrder.size) % tabOrder.size
+                handler.post { currentTiltTabChange(newIndex) }
+            }
+            override fun onAccuracyChanged(sensor: android.hardware.Sensor, accuracy: Int) {}
+        }
+        sensorManager.registerListener(listener, accel, android.hardware.SensorManager.SENSOR_DELAY_GAME)
+        onDispose {
+            sensorManager.unregisterListener(listener)
+            GdxState.tiltYawOffset = 0f
+        }
+    }
+
     // --- Volume State ---
     var deviceVolumeFraction by remember(appContext) { mutableFloatStateOf(readDeviceMusicVolumeFraction(appContext)) }
     var showVolumeBars by remember { mutableStateOf(false) }
@@ -323,6 +422,85 @@ fun PoplurRoot(
         }
     }
 
+    LaunchedEffect(isSignedIn) {
+        if (isSignedIn != true) {
+            currentUserProfile = UserProfile()
+            return@LaunchedEffect
+        }
+
+        val firebaseUser = FirebaseAuth.getInstance().currentUser ?: return@LaunchedEffect
+        val defaultProfile = UserProfile()
+        val fallbackUsername = firebaseUser.email
+            ?.substringBefore("@")
+            ?.takeIf { it.isNotBlank() }
+            ?: defaultProfile.username
+        val fallbackProfile = defaultProfile.copy(
+            id = firebaseUser.uid,
+            username = fallbackUsername,
+            displayName = firebaseUser.displayName?.takeIf { it.isNotBlank() }
+                ?: fallbackUsername.toDisplayNameFallback(),
+            avatarUrl = firebaseUser.photoUrl?.toString()
+        )
+
+        currentUserProfile = fallbackProfile
+        if (selectedProfile.id == defaultProfile.id || selectedProfile.id == firebaseUser.uid) {
+            selectedProfile = fallbackProfile
+        }
+
+        val db = FirebaseFirestore.getInstance()
+        db.collection("users")
+            .document(firebaseUser.uid)
+            .get()
+            .addOnSuccessListener { document ->
+                val docRadius = document.numberValue("radius", "totalRadius", "totalRadiusMeters")
+                val docPosts = document.numberValue("posts", "postCount")
+                val profileFromDocument = currentUserProfile.copy(
+                    id = firebaseUser.uid,
+                    username = document.getString("username")
+                        ?: document.getString("handle")
+                        ?: currentUserProfile.username,
+                    displayName = document.getString("displayName")
+                        ?: document.getString("name")
+                        ?: currentUserProfile.displayName,
+                    bio = document.getString("bio") ?: currentUserProfile.bio,
+                    avatarUrl = document.getString("avatarUrl")
+                        ?: document.getString("photoURL")
+                        ?: currentUserProfile.avatarUrl,
+                    radius = docRadius ?: currentUserProfile.radius,
+                    followers = document.numberValue("followers", "followerCount") ?: currentUserProfile.followers,
+                    posts = docPosts ?: currentUserProfile.posts
+                )
+                currentUserProfile = profileFromDocument
+                if (selectedProfile.id == defaultProfile.id || selectedProfile.id == firebaseUser.uid) {
+                    selectedProfile = profileFromDocument
+                }
+            }
+            .addOnFailureListener { error ->
+                android.util.Log.w("PoplurRoot", "Could not load current user profile", error)
+            }
+
+        db.collection("posts")
+            .whereEqualTo("userID", firebaseUser.uid)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val uniqueDocuments = snapshot.documents.distinctBy { it.id }
+                val totalRadius = uniqueDocuments.sumOf { document ->
+                    document.numberValue("radius") ?: 0
+                }
+                val profileWithRadius = currentUserProfile.copy(
+                    radius = totalRadius.coerceAtLeast(0),
+                    posts = uniqueDocuments.size
+                )
+                currentUserProfile = profileWithRadius
+                if (selectedProfile.id == defaultProfile.id || selectedProfile.id == firebaseUser.uid) {
+                    selectedProfile = profileWithRadius
+                }
+            }
+            .addOnFailureListener { error ->
+                android.util.Log.w("PoplurRoot", "Could not load current radius", error)
+            }
+    }
+
     LaunchedEffect(isSignedIn, showAppInitializationCover) {
         if (isSignedIn == true && !showAppInitializationCover) {
             isCubeSurfaceReady = true
@@ -426,32 +604,14 @@ fun PoplurRoot(
         )
     }
 
-    val profileCubePreviewIconTitle = if (cubeMenuWheelController.isVisible) {
-        cubeMenuWheelController.selectedItem?.label
-    } else {
-        null
-    }
-    
-    val profileCubeIconTitle = profileCubePreviewIconTitle
-        ?: profileCubeCommittedIconTitle
-        ?: profilePanelIconTitle
-        ?: "Profile"
-
-    // --- Tab and Swipe Actions ---
-    val onTabChange: (Int) -> Unit = { index ->
-        val newTab = when (index) {
-            0 -> AppTab.Map
-            1 -> AppTab.Camera
-            2 -> AppTab.Feed
-            3 -> AppTab.Profile
-            else -> AppTab.Feed
-        }
-        if (tab != newTab) {
-            previousTab = tab
-            tab = newTab
+    val profileCubeIconTitle by remember {
+        derivedStateOf {
+            val preview = if (cubeMenuWheelController.isVisible) cubeMenuWheelController.selectedItem?.label else null
+            preview ?: profileCubeCommittedIconTitle ?: profilePanelIconTitle ?: "Profile"
         }
     }
 
+    // --- Swipe Actions ---
     val onVerticalSwipe: (Boolean) -> Unit = { isUp ->
         if (tab == AppTab.Feed) {
             feedInteractionTick++
@@ -471,6 +631,100 @@ fun PoplurRoot(
         }
         profileCubeCommandId += 1
         profileCubeMenuCommand = ProfileCubeMenuCommand(profileCubeCommandId, action)
+    }
+
+    val openPoplurAIPage: (String) -> Unit = { rawPage ->
+        val page = rawPage.lowercase(Locale.US)
+        when {
+            "tv" in page -> {
+                previousTab = tab
+                tab = AppTab.Feed
+                feedTvGuideRequest++
+            }
+            "message" in page || "mail" in page || "dm" in page -> {
+                profileCubeCommittedIconTitle = "Mail"
+                previousTab = AppTab.Profile
+                tab = AppTab.Messages
+            }
+            "setting" in page -> {
+                profileCubeCommittedIconTitle = "Settings"
+                previousTab = AppTab.Profile
+                tab = AppTab.Settings
+            }
+            "stat" in page || "analytic" in page -> {
+                previousTab = tab
+                tab = AppTab.Profile
+                sendProfileCubeCommand(ProfileCubeMenuAction.Stats)
+            }
+            "camera" in page || "record" in page -> {
+                previousTab = tab
+                tab = AppTab.Camera
+            }
+            "map" in page -> {
+                previousTab = tab
+                tab = AppTab.Map
+            }
+            "profile" in page -> {
+                previousTab = tab
+                tab = AppTab.Profile
+            }
+            "feed" in page -> {
+                previousTab = tab
+                tab = AppTab.Feed
+            }
+        }
+    }
+
+    val handlePoplurAICommand: (PoplurAICommand) -> Unit = { command ->
+        when (command) {
+            is PoplurAICommand.OpenTab -> {
+                previousTab = tab
+                tab = command.tab
+            }
+            is PoplurAICommand.OpenPage -> openPoplurAIPage(command.page)
+            is PoplurAICommand.GoToChannel -> {
+                previousTab = tab
+                tab = AppTab.Feed
+                feedTargetChannelQuery = command.query
+                feedTargetChannelToken++
+            }
+            is PoplurAICommand.PostToLocation -> {
+                previousTab = tab
+                tab = AppTab.Map
+                pendingCaptureLocation = null
+                capturedMediaUri = null
+                captureFlowOrigin = CaptureFlowOrigin.MapFirst
+                capturePostStep = CapturePostStep.Preview
+                scope.launch { mapViewModel.triggerPostToMap(command.location) }
+            }
+            is PoplurAICommand.Camera -> {
+                previousTab = tab
+                tab = AppTab.Camera
+                when (command.mode) {
+                    PoplurAICameraMode.Open -> Unit
+                    PoplurAICameraMode.Photo -> cameraPhotoTrigger++
+                    PoplurAICameraMode.Video -> cameraRecordTrigger++
+                }
+            }
+            is PoplurAICommand.SetTourActive -> {
+                previousTab = tab
+                tab = AppTab.Map
+                mapViewModel.setTourPaused(!command.active)
+            }
+            PoplurAICommand.Logout -> authViewModel.signOut()
+            is PoplurAICommand.SortPosts -> {
+                previousTab = tab
+                tab = AppTab.Profile
+                profileSortOrder = command.order
+                profileSortToken++
+            }
+            PoplurAICommand.ShowAnalytics -> {
+                previousTab = tab
+                tab = AppTab.Profile
+                sendProfileCubeCommand(ProfileCubeMenuAction.Stats)
+            }
+            is PoplurAICommand.Unknown -> Unit
+        }
     }
 
     val onLongPressCube: () -> Unit = {
@@ -655,13 +909,16 @@ fun PoplurRoot(
             } else {
                 cubeMenuWheelController.beginHold(profileMenuItems)
             }
-        } else if (tab == AppTab.Messages || tab == AppTab.Settings || tab == AppTab.CubeDebug || tab == AppTab.CapturedOutput) {
+        } else if (tab == AppTab.Messages || tab == AppTab.Settings || tab == AppTab.CubeDebug || tab == AppTab.CapturedOutput ||
+            tab == AppTab.CreateEntry || tab == AppTab.AIVideoStudio || tab == AppTab.AIVideoProgress) {
             cubeMenuWheelController.beginHold(listOf(backItem))
         }
     }
 
     val onLongPressEndCube: () -> Unit = {
-        if (tab == AppTab.Feed || tab == AppTab.Camera || tab == AppTab.Profile || tab == AppTab.Map) {
+        if (tab == AppTab.Feed || tab == AppTab.Camera || tab == AppTab.Profile || tab == AppTab.Map ||
+            tab == AppTab.Messages || tab == AppTab.Settings || tab == AppTab.CubeDebug || tab == AppTab.CapturedOutput ||
+            tab == AppTab.CreateEntry || tab == AppTab.AIVideoStudio || tab == AppTab.AIVideoProgress) {
             if (tab == AppTab.Profile) {
                 profileCubeCommittedIconTitle = cubeMenuWheelController.selectedItem?.label
             }
@@ -679,7 +936,7 @@ fun PoplurRoot(
     val currentOnLongPressCube by rememberUpdatedState(onLongPressCube)
     val currentOnLongPressEndCube by rememberUpdatedState(onLongPressEndCube)
     val currentOnTapCube by rememberUpdatedState(onTapCube)
-    val currentOnTabChange by rememberUpdatedState(onTabChange)
+    val currentCubeTabChange by rememberUpdatedState(onTabChange)
 
     // --- Side Effects ---
     LaunchedEffect(tab) {
@@ -725,6 +982,8 @@ fun PoplurRoot(
                             currentPostIndex = currentPostIndex,
                             isVisible = isAppVisible,
                             tvGuideRequestToken = feedTvGuideRequest,
+                            targetChannelQuery = feedTargetChannelQuery,
+                            targetChannelToken = feedTargetChannelToken,
                             timelineToggleRequestToken = feedNewsRequest,
                             likeRequestToken = feedLikeRequest,
                             openProfileRequestToken = feedOpenProfileRequest,
@@ -733,6 +992,7 @@ fun PoplurRoot(
                             preferredLanguage = preferredLanguage,
                             closedCaptionsEnabled = closedCaptionsEnabled,
                             homeChromeInactive = isFeedChromeAsleep || showFeedCommentComposer,
+                            cubeSkin = selectedCubeSkin,
                             onOpenUser = { profile ->
                                 selectedProfile = profile
                                 previousTab = tab
@@ -773,12 +1033,27 @@ fun PoplurRoot(
                             },
                             onPhoneCallVisibilityChanged = { isPhoneCallScreenVisible = it },
                             onColorwaySelected = { color -> phoneColorwaySelected = color },
-                            forcedColorway = phoneColorwaySelected
+                            forcedColorway = phoneColorwaySelected,
+                            avatarIs3D = profileAvatarIs3D,
+                            cubeSkin = selectedCubeSkin,
+                            assistantSortOrder = profileSortOrder,
+                            assistantSortToken = profileSortToken,
+                            showHeyPoplurTutorial = !hasSeenProfileWakeTutorial,
+                            onHeyPoplurTutorialShown = {
+                                if (!hasSeenProfileWakeTutorial) {
+                                    hasSeenProfileWakeTutorial = true
+                                    settingsPrefs.edit()
+                                        .putBoolean("profile_hey_poplur_tutorial_seen", true)
+                                        .apply()
+                                }
+                            },
+                            onRequestAssistantTutorialPulse = { profileWakeTutorialPulse++ }
                         )
                         AppTab.Map -> MapScreen(
                             isVisible = isAppVisible,
                             mapViewModel = mapViewModel,
                             isSelectingPostLocation = capturedMediaUri != null && capturePostStep == CapturePostStep.Location,
+                            cubeSkin = selectedCubeSkin,
                             onCaptureLocationConfirmed = { point ->
                                 pendingCaptureLocation = CaptureMapPoint(point.latitude(), point.longitude())
                                 capturePostStep = CapturePostStep.Edit
@@ -794,11 +1069,63 @@ fun PoplurRoot(
                                 tab = AppTab.Camera
                             }
                         )
+                        AppTab.CreateEntry -> com.apptists.poplur2025.ui.screens.CreateEntryScreen(
+                            onOriginalContent = {
+                                postCaptureCreationMode = PostCaptureCreationMode.Original
+                                capturePostStep = CapturePostStep.Preview
+                                tab = AppTab.CapturedOutput
+                            },
+                            onPoplurAI = {
+                                aiVideoPrompt = ""
+                                aiVideoStyle = AIVideoStyle.PoplurTV
+                                aiVideoLocationName = ""
+                                AIVideoService.reset()
+                                tab = AppTab.AIVideoStudio
+                            },
+                            onBack = {
+                                tab = AppTab.Camera
+                            }
+                        )
+                        AppTab.AIVideoStudio -> com.apptists.poplur2025.ui.screens.AIVideoStudioScreen(
+                            initialPrompt = aiVideoPrompt,
+                            initialStyle = aiVideoStyle,
+                            onBack = {
+                                tab = previousTab ?: AppTab.CreateEntry
+                            },
+                            onGenerate = { prompt, style, locationName ->
+                                aiVideoPrompt = prompt
+                                aiVideoStyle = style
+                                aiVideoLocationName = locationName
+                                previousTab = AppTab.AIVideoStudio
+                                tab = AppTab.AIVideoProgress
+                                scope.launch {
+                                    AIVideoService.generate(prompt, style, locationName)
+                                }
+                            }
+                        )
+                        AppTab.AIVideoProgress -> com.apptists.poplur2025.ui.screens.AIVideoProgressScreen(
+                            onBack = {
+                                tab = previousTab ?: AppTab.AIVideoStudio
+                            },
+                            onPostClip = { uri, isVideo ->
+                                capturedMediaUri = uri
+                                isCapturedVideo = isVideo
+                                captureFlowOrigin = CaptureFlowOrigin.CameraFirst
+                                capturePostStep = CapturePostStep.Channel
+                                postCaptureCreationMode = PostCaptureCreationMode.PoplurAI
+                                selectedCaptureFilterId = "original"
+                                selectedCaptureTrimSeconds = 0f
+                                selectedCaptureMusicUri = null
+                                previousTab = AppTab.AIVideoProgress
+                                tab = AppTab.CapturedOutput
+                            }
+                        )
                         AppTab.Camera -> CameraScreen(
                             photoTrigger = cameraPhotoTrigger,
                             recordTrigger = cameraRecordTrigger,
                             liveTrigger = cameraLiveTrigger,
                             filtersTrigger = cameraFiltersTrigger,
+                            currentUserProfile = currentUserProfile,
                             onFiltersToggle = { filtersVisible = it },
                             onObjectDetected = { channelObjectPopToken++ },
                             onMediaCaptured = { uri, isVideo ->
@@ -808,8 +1135,14 @@ fun PoplurRoot(
                                     captureFlowOrigin = CaptureFlowOrigin.CameraFirst
                                 }
                                 capturePostStep = CapturePostStep.Preview
+                                postCaptureCreationMode = PostCaptureCreationMode.Original
                                 selectedCaptureFilterId = "original"
                                 selectedCaptureTrimSeconds = 10f
+                                selectedCaptureMusicUri = null
+                                selectedCaptureChannel = null
+                                capturedAdBitmap = null
+                                capturedAdVideoUrl = null
+                                capturedAdMeta = null
                                 tab = AppTab.CapturedOutput
                             }
                         )
@@ -817,11 +1150,39 @@ fun PoplurRoot(
                             val uri = capturedMediaUri
                             if (uri != null) {
                                 when (capturePostStep) {
+                                    CapturePostStep.CreateChoice -> CapturedOutputScreen(
+                                        uri = uri,
+                                        isVideo = isCapturedVideo,
+                                        filterId = selectedCaptureFilterId,
+                                        onBack = {
+                                            capturePostStep = CapturePostStep.Edit
+                                        },
+                                        showCreationOptions = true,
+                                        onUseOriginal = {
+                                            postCaptureCreationMode = PostCaptureCreationMode.Original
+                                            capturedAdBitmap = null
+                                            capturedAdVideoUrl = null
+                                            capturedAdMeta = null
+                                            capturePostStep = CapturePostStep.Channel
+                                        },
+                                        onUsePoplurAI = {
+                                            postCaptureCreationMode = PostCaptureCreationMode.PoplurAI
+                                            capturePostStep = CapturePostStep.AdDescribe
+                                        }
+                                    )
                                     CapturePostStep.Preview -> CapturedOutputScreen(
                                         uri = uri,
                                         isVideo = isCapturedVideo,
-                                        onBack = { tab = AppTab.Camera },
-                                        continueLabel = if (pendingCaptureLocation == null) "Location" else "Filters",
+                                        onBack = {
+                                            capturedMediaUri = null
+                                            pendingCaptureLocation = null
+                                            captureFlowOrigin = CaptureFlowOrigin.CameraFirst
+                                            capturePostStep = CapturePostStep.Preview
+                                            postCaptureCreationMode = PostCaptureCreationMode.Original
+                                            selectedCaptureMusicUri = null
+                                            tab = AppTab.Camera
+                                        },
+                                        continueLabel = "Keep",
                                         onContinue = {
                                             if (pendingCaptureLocation == null) {
                                                 capturePostStep = CapturePostStep.Location
@@ -839,54 +1200,68 @@ fun PoplurRoot(
                                         isVideo = isCapturedVideo,
                                         selectedFilterId = selectedCaptureFilterId,
                                         trimSeconds = selectedCaptureTrimSeconds,
+                                        selectedMusicUri = selectedCaptureMusicUri,
                                         onFilterSelected = { selectedCaptureFilterId = it },
                                         onTrimSecondsChanged = { selectedCaptureTrimSeconds = it },
+                                        onMusicSelected = { selectedCaptureMusicUri = it },
                                         onBack = { capturePostStep = CapturePostStep.Preview },
-                                        onNext = { capturePostStep = CapturePostStep.Channel }
+                                        onNext = { capturePostStep = CapturePostStep.CreateChoice }
                                     )
                                     CapturePostStep.Channel -> CapturedChannelScreen(
                                         uri = uri,
                                         isVideo = isCapturedVideo,
                                         filterId = selectedCaptureFilterId,
                                         trimSeconds = if (isCapturedVideo) selectedCaptureTrimSeconds else null,
-                                        onBack = { capturePostStep = CapturePostStep.Edit },
-                                        onGenerateAd = { channel ->
-                                            selectedCaptureChannel = channel
-                                            capturePostStep = CapturePostStep.AdDescribe
+                                        knownMetadata = if (postCaptureCreationMode == PostCaptureCreationMode.PoplurAI) capturedAdMeta else null,
+                                        musicUri = if (postCaptureCreationMode == PostCaptureCreationMode.Original) selectedCaptureMusicUri else null,
+                                        isPoplurAIOutput = postCaptureCreationMode == PostCaptureCreationMode.PoplurAI,
+                                        onBack = {
+                                            capturePostStep = if (
+                                                postCaptureCreationMode == PostCaptureCreationMode.PoplurAI &&
+                                                (capturedAdBitmap != null || capturedAdVideoUrl != null)
+                                            ) {
+                                                CapturePostStep.AdPreview
+                                            } else {
+                                                CapturePostStep.Edit
+                                            }
                                         },
-                                        onPosted = { channel, meta ->
+                                        onPosted = { channel, meta, outputUri, outputIsVideo ->
                                             val point = pendingCaptureLocation ?: CaptureMapPoint(0.0, 0.0)
                                             DemoPostStore.addUserPost(
-                                                uri = uri.toString(),
-                                                isVideo = isCapturedVideo,
+                                                uri = outputUri.toString(),
+                                                isVideo = outputIsVideo,
                                                 latitude = point.latitude,
                                                 longitude = point.longitude,
                                                 channelId = channel.id,
                                                 channelTitle = channel.title,
                                                 filterId = selectedCaptureFilterId,
-                                                trimSeconds = if (isCapturedVideo) selectedCaptureTrimSeconds else null,
+                                                trimSeconds = if (outputIsVideo && postCaptureCreationMode == PostCaptureCreationMode.Original) selectedCaptureTrimSeconds else null,
                                                 tvMetadata = meta
                                             )
                                             capturedMediaUri = null
+                                            capturedAdBitmap = null
+                                            capturedAdVideoUrl = null
+                                            capturedAdMeta = null
                                             pendingCaptureLocation = null
                                             captureFlowOrigin = CaptureFlowOrigin.CameraFirst
                                             capturePostStep = CapturePostStep.Preview
+                                            postCaptureCreationMode = PostCaptureCreationMode.Original
                                             selectedCaptureFilterId = "original"
                                             selectedCaptureTrimSeconds = 10f
+                                            selectedCaptureMusicUri = null
+                                            selectedCaptureChannel = null
                                             selectedProfile = UserProfile()
                                             currentPostIndex = 0
                                             tab = AppTab.Profile
                                         }
                                     )
                                     CapturePostStep.AdDescribe -> {
-                                        val channel = selectedCaptureChannel ?: com.apptists.poplur2025.ui.screens.postCaptureChannels.first()
                                         val loc = pendingCaptureLocation
                                         com.apptists.poplur2025.ui.screens.DescribeAdScreen(
                                             uri = uri,
                                             isVideo = isCapturedVideo,
-                                            selectedChannel = channel,
                                             coordinate = loc?.let { Pair(it.latitude, it.longitude) },
-                                            onBack = { capturePostStep = CapturePostStep.Channel },
+                                            onBack = { capturePostStep = CapturePostStep.CreateChoice },
                                             onAdGenerated = { bitmap, videoUrl, meta ->
                                                 capturedAdBitmap = bitmap
                                                 capturedAdVideoUrl = videoUrl
@@ -899,39 +1274,20 @@ fun PoplurRoot(
                                         val bitmap = capturedAdBitmap
                                         val videoUrl = capturedAdVideoUrl
                                         val meta = capturedAdMeta
-                                        val channel = selectedCaptureChannel ?: com.apptists.poplur2025.ui.screens.postCaptureChannels.first()
                                         if ((bitmap != null || videoUrl != null) && meta != null) {
                                             com.apptists.poplur2025.ui.screens.AdPreviewScreen(
                                                 adBitmap = bitmap,
                                                 adVideoUrl = videoUrl,
-                                                selectedChannel = channel,
+                                                selectedChannel = com.apptists.poplur2025.ui.screens.postCaptureChannels.first(),
                                                 meta = meta,
                                                 onBack = { capturePostStep = CapturePostStep.AdDescribe },
                                                 onBroadcast = { outputUri, outputIsVideo ->
-                                                    val point = pendingCaptureLocation ?: CaptureMapPoint(0.0, 0.0)
-                                                    DemoPostStore.addUserPost(
-                                                        uri = outputUri.toString(),
-                                                        isVideo = outputIsVideo,
-                                                        latitude = point.latitude,
-                                                        longitude = point.longitude,
-                                                        channelId = channel.id,
-                                                        channelTitle = channel.title,
-                                                        filterId = "original",
-                                                        trimSeconds = null,
-                                                        tvMetadata = meta
-                                                    )
-                                                    capturedMediaUri = null
-                                                    capturedAdBitmap = null
-                                                    capturedAdVideoUrl = null
-                                                    capturedAdMeta = null
-                                                    pendingCaptureLocation = null
-                                                    captureFlowOrigin = CaptureFlowOrigin.CameraFirst
-                                                    capturePostStep = CapturePostStep.Preview
+                                                    capturedMediaUri = outputUri
+                                                    isCapturedVideo = outputIsVideo
                                                     selectedCaptureFilterId = "original"
                                                     selectedCaptureTrimSeconds = 10f
-                                                    selectedProfile = UserProfile()
-                                                    currentPostIndex = 0
-                                                    tab = AppTab.Profile
+                                                    selectedCaptureMusicUri = null
+                                                    capturePostStep = CapturePostStep.Channel
                                                 }
                                             )
                                         } else {
@@ -941,6 +1297,7 @@ fun PoplurRoot(
                                 }
                             } else {
                                 capturePostStep = CapturePostStep.Preview
+                                postCaptureCreationMode = PostCaptureCreationMode.Original
                                 tab = AppTab.Camera
                             }
                         }
@@ -973,7 +1330,13 @@ fun PoplurRoot(
                             selectedCubeSkin = selectedCubeSkin,
                             onCubeSkinChange = { selectedCubeSkin = it },
                             cubeMenuLayout = cubeMenuLayout,
-                            onCubeMenuLayoutChange = { cubeMenuLayout = it }
+                            onCubeMenuLayoutChange = { cubeMenuLayout = it },
+                            isDarkMode = isDarkMode,
+                            onDarkModeChange = { isDarkMode = it },
+                            profileAvatarIs3D = profileAvatarIs3D,
+                            onProfileAvatarIs3DChange = { profileAvatarIs3D = it },
+                            tiltControlEnabled = tiltControlEnabled,
+                            onTiltControlChange = { tiltControlEnabled = it }
                         )
                         AppTab.CubeDebug -> CubeDevelopmentScreen(onBack = { tab = AppTab.Settings })
                     }
@@ -984,6 +1347,7 @@ fun PoplurRoot(
             FeedLaunchCover(
                 onPopSound = playPopSound,
                 showSlowDetails = showSlowInitializationDetails,
+                skinLogoPath = selectedCubeSkin.logoAssetPath,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -1021,7 +1385,8 @@ fun PoplurRoot(
         CubeMenuWheelOverlay(
             controller = cubeMenuWheelController,
             modifier = Modifier.zIndex(300f),
-            layout = cubeMenuLayout
+            layout = cubeMenuLayout,
+            cubeSkin = selectedCubeSkin
         )
 
         if (isCubeSurfaceReady && !showAppInitializationCover) {
@@ -1035,11 +1400,21 @@ fun PoplurRoot(
                 onLongPress = { currentOnLongPressCube() },
                 onLongPressEnd = { currentOnLongPressEndCube() },
                 onTap = { currentOnTapCube() },
-                onTabSelected = { index -> if (!isPhoneActive) currentOnTabChange(index) },
+                onTabSelected = { index -> if (!isPhoneActive) currentCubeTabChange(index) },
                 channelObjectId = channelObjectId,
                 channelObjectPopToken = channelObjectPopToken
             )
         }
+
+        PoplurAIAssistantOverlay(
+            enabled = isSignedIn == true && !showAppInitializationCover,
+            accent = selectedCubeSkin.uiTheme().accent,
+            tutorialPulseToken = profileWakeTutorialPulse,
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(500f),
+            onCommand = handlePoplurAICommand
+        )
 
     }
 }
@@ -1246,21 +1621,42 @@ private fun saveBitmapToCache(context: android.content.Context, bitmap: android.
     return file.toURI().toString()
 }
 
+private fun String.toDisplayNameFallback(): String =
+    split('.', '_', '-', ' ')
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { part ->
+            part.replaceFirstChar { char ->
+                if (char.isLowerCase()) char.titlecase(Locale.US) else char.toString()
+            }
+        }
+        .ifBlank { UserProfile().displayName }
+
+private fun DocumentSnapshot.numberValue(vararg keys: String): Int? =
+    keys.firstNotNullOfOrNull { key ->
+        getLong(key)?.toInt() ?: getDouble(key)?.toInt()
+    }
+
 private fun AppTab.cubeTabIndex(): Int = when (this) {
     AppTab.Map -> 0
-    AppTab.Camera -> 1
+    AppTab.Camera, AppTab.CreateEntry, AppTab.CapturedOutput, AppTab.AIVideoStudio, AppTab.AIVideoProgress -> 1
     AppTab.Feed -> 2
     AppTab.Profile -> 3
     else -> 2
 }
 
 private enum class CapturePostStep {
+    CreateChoice,
     Preview,
     Location,
     Edit,
     Channel,
     AdDescribe,
     AdPreview
+}
+
+private enum class PostCaptureCreationMode {
+    Original,
+    PoplurAI
 }
 
 private enum class CaptureFlowOrigin {

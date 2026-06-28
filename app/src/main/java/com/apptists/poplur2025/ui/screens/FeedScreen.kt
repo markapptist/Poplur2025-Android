@@ -51,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -64,6 +65,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -74,6 +76,8 @@ import androidx.compose.ui.zIndex
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
 import com.apptists.poplur2025.R
@@ -87,15 +91,19 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.apptists.poplur2025.data.DemoPostStore
 
 import com.apptists.poplur2025.data.Post
 import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.ShaderNumberText
+import com.apptists.poplur2025.ui.components.ThemedSkinPlate
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.UserInfoOverlay
 import com.apptists.poplur2025.ui.components.poplurRadiusDisplayModifier
+import com.apptists.poplur2025.ui.CubeSkin
+import com.apptists.poplur2025.ui.uiTheme
 import com.google.android.gms.ads.nativead.MediaView
 import com.google.android.gms.ads.nativead.NativeAd
 import com.google.android.gms.ads.nativead.NativeAdView
@@ -109,6 +117,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 import com.apptists.poplur2025.data.PoplurLanguage
+import com.apptists.poplur2025.data.FeedBumperService
 import java.util.Locale
 
 private enum class FeedChannelStepDirection {
@@ -121,6 +130,8 @@ fun FeedScreen(
     currentPostIndex: Int,
     isVisible: Boolean = true,
     tvGuideRequestToken: Int = 0,
+    targetChannelQuery: String = "",
+    targetChannelToken: Int = 0,
     timelineToggleRequestToken: Int = 0,
     likeRequestToken: Int = 0,
     openProfileRequestToken: Int = 0,
@@ -129,6 +140,7 @@ fun FeedScreen(
     preferredLanguage: PoplurLanguage = PoplurLanguage.English,
     closedCaptionsEnabled: Boolean = true,
     homeChromeInactive: Boolean = false,
+    cubeSkin: CubeSkin = CubeSkin.Default,
     onOpenUser: (UserProfile) -> Unit = {},
     onTvGuideVisibilityChanged: (Boolean) -> Unit = {},
     onChannelObjectPop: (String) -> Unit = {},
@@ -280,6 +292,18 @@ fun FeedScreen(
         onIndexChange(targetIndex)
     }
 
+    fun jumpToChannel(query: String) {
+        val targetChannel = feedChannelForQuery(query) ?: return
+        onUserInteraction()
+        showCommentCredits = false
+        playFeedPop()
+        tvTransitionChannelNumber = targetChannel.number
+        tvTransitionChannelCategory = targetChannel.category
+        tvTransitionChannelIconResId = targetChannel.iconResId
+        tvTransitionToken += 1
+        onIndexChange(feedIndexForChannelNumber(currentPostIndex, targetChannel.number))
+    }
+
     fun advanceToNextPost() {
         showCommentCredits = false
         when (val s = currentSlot) {
@@ -296,6 +320,14 @@ fun FeedScreen(
         }
         tvTransitionToken += 1
         onIndexChange(currentPostIndex + 1)
+    }
+
+    LaunchedEffect(targetChannelToken) {
+        if (targetChannelToken > 0 && targetChannelQuery.isNotBlank()) {
+            showTvGuide = false
+            showTimelineView = false
+            jumpToChannel(targetChannelQuery)
+        }
     }
 
     LaunchedEffect(likeRequestToken) {
@@ -358,6 +390,15 @@ fun FeedScreen(
             playFeedPop()
             onChannelObjectPop(randomChannelCubeObject(currentChannelForObject))
             delay(2_000L)
+        }
+    }
+
+    val isBumperActive by FeedBumperService.isActive.collectAsState()
+
+    LaunchedEffect(currentSlot.feedSlotId) {
+        val slot = currentSlot
+        if (slot is FeedSlot.PostSlot) {
+            FeedBumperService.prefetch(slot.post, slot.channelCategory, slot.feedSlotId, context)
         }
     }
 
@@ -502,6 +543,7 @@ fun FeedScreen(
 
         if (!showingTimelineSide && !showTvGuide) {
             FeedChannelStepperOverlay(
+                cubeSkin = cubeSkin,
                 activeDirection = channelButtonPopDirection,
                 onUp = { changeChannel(FeedChannelStepDirection.Up) },
                 onDown = { changeChannel(FeedChannelStepDirection.Down) },
@@ -621,6 +663,40 @@ fun FeedScreen(
                     showTvGuide = false
                 }
             )
+        }
+
+        // Feed bumper "UP NEXT" overlay — shown while TTS commercial plays
+        androidx.compose.animation.AnimatedVisibility(
+            visible = isBumperActive && !showTvGuide && !showingTimelineSide,
+            enter = fadeIn(tween(220)) + slideInVertically { -it / 2 },
+            exit = fadeOut(tween(350)) + slideOutVertically { -it / 2 },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 10.dp)
+                .zIndex(95f)
+        ) {
+            val channelName = when (val slot = currentSlot) {
+                is FeedSlot.PostSlot -> slot.channelCategory
+                is FeedSlot.AdSlot -> "AD"
+            }
+            Row(
+                modifier = Modifier
+                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(999.dp))
+                    .border(1.dp, Color(0xFFFF3838).copy(alpha = 0.55f), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 16.dp, vertical = 7.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("▶", color = Color(0xFFFF3838), fontSize = 12.sp, fontWeight = FontWeight.Black)
+                Text(
+                    "UP NEXT  ·  $channelName".uppercase(),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.2.sp
+                )
+            }
         }
     }
 }
@@ -1231,38 +1307,28 @@ private fun Modifier.feedSwipeDetector(
 
 @Composable
 private fun FeedChannelStepperOverlay(
+    cubeSkin: CubeSkin,
     activeDirection: FeedChannelStepDirection?,
     onUp: () -> Unit,
     onDown: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier.width(78.dp),
+        modifier = modifier.width(82.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         FeedChannelImageButton(
+            cubeSkin = cubeSkin,
             direction = FeedChannelStepDirection.Up,
             activeDirection = activeDirection,
             onClick = onUp
         )
 
-        Image(
-            painter = painterResource(
-                if (activeDirection != null) R.drawable.feed_channel_ch_pressed
-                else R.drawable.feed_channel_ch_unpressed
-            ),
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .width(66.dp)
-                .height(34.dp)
-                .graphicsLayer {
-                    alpha = if (activeDirection != null) 1f else 0.94f
-                }
-        )
+        FeedChannelCenterButton(cubeSkin = cubeSkin, isActive = activeDirection != null)
 
         FeedChannelImageButton(
+            cubeSkin = cubeSkin,
             direction = FeedChannelStepDirection.Down,
             activeDirection = activeDirection,
             onClick = onDown
@@ -1272,11 +1338,13 @@ private fun FeedChannelStepperOverlay(
 
 @Composable
 private fun FeedChannelImageButton(
+    cubeSkin: CubeSkin,
     direction: FeedChannelStepDirection,
     activeDirection: FeedChannelStepDirection?,
     onClick: () -> Unit
 ) {
     val isActive = activeDirection == direction
+    val theme = cubeSkin.uiTheme()
     val scale by animateFloatAsState(
         targetValue = if (isActive) 1.22f else 1f,
         animationSpec = spring(
@@ -1290,35 +1358,92 @@ private fun FeedChannelImageButton(
         animationSpec = tween(150, easing = FastOutSlowInEasing),
         label = "feed-channel-step-glow"
     )
-    val imageRes = when (direction) {
-        FeedChannelStepDirection.Up -> if (isActive) {
-            R.drawable.feed_channel_up_pressed
-        } else {
-            R.drawable.feed_channel_up_unpressed
-        }
-        FeedChannelStepDirection.Down -> if (isActive) {
-            R.drawable.feed_channel_down_pressed
-        } else {
-            R.drawable.feed_channel_down_unpressed
-        }
+    val icon = when (direction) {
+        FeedChannelStepDirection.Up -> Icons.Filled.KeyboardArrowUp
+        FeedChannelStepDirection.Down -> Icons.Filled.KeyboardArrowDown
+    }
+    val cornerRadius = when (cubeSkin) {
+        CubeSkin.Toy -> 13.dp
+        CubeSkin.Ice -> 16.dp
+        CubeSkin.Camo, CubeSkin.Chocolate, CubeSkin.Gold -> 10.dp
+        else -> 17.dp
+    }
+    val tint = when (cubeSkin) {
+        CubeSkin.Toy -> if (direction == FeedChannelStepDirection.Up) Color(0xFF084CAC) else Color(0xFFE6262B)
+        CubeSkin.Rainbow, CubeSkin.Default -> Color.White
+        else -> theme.primaryText
     }
 
-    Box(
+    ThemedSkinPlate(
+        skin = cubeSkin,
+        active = isActive,
+        cornerRadius = cornerRadius,
         modifier = Modifier
             .size(76.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
             }
-            .shadow((6f + glowAlpha * 10f).dp, RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
+            .shadow((6f + glowAlpha * 12f).dp, RoundedCornerShape(cornerRadius))
+            .clickable(onClick = onClick)
     ) {
-        Image(
-            painter = painterResource(imageRes),
+        Icon(
+            imageVector = icon,
             contentDescription = if (direction == FeedChannelStepDirection.Up) "Channel up" else "Channel down",
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize()
+            tint = tint,
+            modifier = Modifier
+                .size(54.dp)
+                .graphicsLayer {
+                    shadowElevation = if (isActive) 14f else 7f
+                    alpha = if (isActive) 1f else 0.9f
+                }
+        )
+    }
+}
+
+@Composable
+private fun FeedChannelCenterButton(
+    cubeSkin: CubeSkin,
+    isActive: Boolean
+) {
+    val theme = cubeSkin.uiTheme()
+    val scale by animateFloatAsState(
+        targetValue = if (isActive) 1.08f else 1f,
+        animationSpec = tween(140, easing = FastOutSlowInEasing),
+        label = "feed-channel-ch-scale"
+    )
+    ThemedSkinPlate(
+        skin = cubeSkin,
+        active = isActive,
+        cornerRadius = when (cubeSkin) {
+            CubeSkin.Camo, CubeSkin.Chocolate, CubeSkin.Gold -> 8.dp
+            CubeSkin.Toy -> 10.dp
+            else -> 13.dp
+        },
+        modifier = Modifier
+            .width(66.dp)
+            .height(38.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+    ) {
+        Text(
+            text = "CH",
+            color = when (cubeSkin) {
+                CubeSkin.Toy -> Color(0xFFE6262B)
+                CubeSkin.Rainbow, CubeSkin.Default -> Color.White
+                else -> theme.primaryText
+            },
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Black,
+            style = TextStyle(
+                shadow = Shadow(
+                    color = theme.shadow,
+                    offset = Offset(0f, 2f),
+                    blurRadius = if (isActive) 14f else 8f
+                )
+            )
         )
     }
 }
@@ -1725,7 +1850,7 @@ private fun NewspaperArticleVisual(
             )
         } else {
             AsyncImage(
-                model = osmTileUrl(lat, lon, mapZoom),
+                model = mapTileUrl(lat, lon, mapZoom),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.matchParentSize()
@@ -2214,12 +2339,12 @@ private object NewspaperContentGen {
 private fun ClosedFloatingPointRange<Double>.random(): Double =
     start + Math.random() * (endInclusive - start)
 
-private fun osmTileUrl(lat: Double, lon: Double, zoom: Int = 12): String {
+private fun mapTileUrl(lat: Double, lon: Double, zoom: Int = 12): String {
     val n = 1 shl zoom
     val x = ((lon + 180.0) / 360.0 * n).toInt().coerceIn(0, n - 1)
     val latRad = Math.toRadians(lat)
     val y = ((1.0 - Math.log(Math.tan(latRad) + 1.0 / Math.cos(latRad)) / Math.PI) / 2.0 * n).toInt().coerceIn(0, n - 1)
-    return "https://tile.openstreetmap.org/$zoom/$x/$y.png"
+    return "https://a.basemaps.cartocdn.com/dark_matter_nolabels/$zoom/$x/$y.png"
 }
 
 @Composable
@@ -2845,6 +2970,34 @@ private fun adjacentChannelFeedIndex(currentIndex: Int, direction: FeedChannelSt
         candidate += step
     }
     return currentIndex + step
+}
+
+private fun feedChannelForQuery(query: String): FeedChannel? {
+    val normalized = query
+        .trim()
+        .lowercase(Locale.US)
+        .replace("modeling", "modelling")
+    if (normalized.isBlank()) return null
+
+    return FEED_CHANNELS.firstOrNull { channel ->
+        val category = channel.category.lowercase(Locale.US)
+        normalized == category ||
+            normalized == channel.number.toString() ||
+            normalized.contains(category) ||
+            normalized.contains(channel.number.toString())
+    }
+}
+
+private fun feedIndexForChannelNumber(currentIndex: Int, channelNumber: Int): Int {
+    var candidate = currentIndex
+    repeat(AD_FREQUENCY * FEED_CHANNELS.size * 4) {
+        val slot = resolveFeedSlot(candidate)
+        if (slot is FeedSlot.PostSlot && slot.channelNumber == channelNumber) {
+            return candidate
+        }
+        candidate += 1
+    }
+    return currentIndex
 }
 
 private fun resolveFeedSlot(index: Int): FeedSlot {
