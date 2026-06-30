@@ -20,7 +20,7 @@ object PoplurGameService {
 You are a game configuration generator for Poplur, a social media app with mini-games.
 Return ONLY a valid JSON object (no markdown, no explanation, no code block) with exactly these fields:
 {
-  "game": one of: pop_runner, stella_blast, zyla_quest, rex_hoops,
+  "game": "stella_blast",
   "character": one of: pop, zyla, blip, rex, stella, glitch,
   "gameName": short catchy game name string,
   "theme": environment theme name (e.g. "Neon City", "Jungle", "Space Station"),
@@ -33,6 +33,8 @@ Return ONLY a valid JSON object (no markdown, no explanation, no code block) wit
   "enemyType": string describing enemy type,
   "specialMechanic": string describing the special mechanic
 }
+Generate a polished arcade-shooter session that feels closer to a real console game than a toy mini-game.
+Use stella_blast, choose cinematic space/neon colors, and make the mechanics sound skill-based.
 """.trimIndent()
 
     suspend fun generateConfig(userPrompt: String = "Generate a fun random game config"): PoplurGameConfig =

@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.apptists.poplur2025.ui.CubeSkin
+import com.apptists.poplur2025.ui.AppIconThemeManager
 import com.apptists.poplur2025.ui.appIconResId
 import com.apptists.poplur2025.ui.components.CubeMenuLayout
 import com.apptists.poplur2025.ui.skinBackdropBrush
@@ -52,7 +53,7 @@ fun SettingsScreen(
     closedCaptionsEnabled: Boolean = true,
     onPreferredLanguageChange: (PoplurLanguage) -> Unit = {},
     onClosedCaptionsChange: (Boolean) -> Unit = {},
-    selectedCubeSkin: CubeSkin = CubeSkin.Default,
+    selectedCubeSkin: CubeSkin = CubeSkin.Gold,
     onCubeSkinChange: (CubeSkin) -> Unit = {},
     cubeMenuLayout: CubeMenuLayout = CubeMenuLayout.Horizontal,
     onCubeMenuLayoutChange: (CubeMenuLayout) -> Unit = {},
@@ -217,7 +218,10 @@ private fun SettingsTab(
         DesignButton(
             text = "Apply ${previewSkin.label} Skin",
             containerColor = if (selectedCubeSkin == previewSkin) theme.secondaryText.copy(alpha = 0.42f) else previewSkin.uiTheme().accent,
-            onClick = { onCubeSkinChange(previewSkin) }
+            onClick = {
+                onCubeSkinChange(previewSkin)
+                AppIconThemeManager.apply(ctx, previewSkin)
+            }
         )
 
         SettingsActionRow("Email Address") {}

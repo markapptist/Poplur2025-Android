@@ -49,6 +49,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BrightnessLow
@@ -81,9 +83,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -92,6 +96,7 @@ import androidx.core.content.ContextCompat
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
+import android.util.Log
 import coil.compose.AsyncImage
 import com.apptists.poplur2025.data.AdGenerationService
 import com.apptists.poplur2025.data.DemoPostStore
@@ -105,6 +110,8 @@ import com.apptists.poplur2025.data.TVStyleMetadata
 import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.MusicSearchSheet
+import com.apptists.poplur2025.ui.components.PoplurCounterLayout
+import com.apptists.poplur2025.ui.components.ShaderIcon
 import com.apptists.poplur2025.ui.components.ShaderNumberText
 import com.apptists.poplur2025.ui.components.PoplurText
 import com.apptists.poplur2025.ui.components.poplurCountdownDisplayModifier
@@ -700,10 +707,11 @@ fun CameraScreen(
                 .align(Alignment.TopStart),
             colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Transparent)
         ) {
-            Icon(
+            ShaderIcon(
                 if (torchEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
                 "Toggle Flash",
-                tint = if (torchEnabled) Color.Yellow else Color.White
+                tint = if (torchEnabled) Color.Yellow else Color.White,
+                modifier = Modifier.size(28.dp)
             )
         }
 
@@ -716,7 +724,12 @@ fun CameraScreen(
                 .align(Alignment.TopEnd),
             colors = IconButtonDefaults.iconButtonColors(containerColor = Color.Transparent)
         ) {
-            Icon(Icons.Default.FlipCameraAndroid, "Switch Camera", tint = Color.White)
+            ShaderIcon(
+                Icons.Default.FlipCameraAndroid,
+                "Switch Camera",
+                tint = Color.White,
+                modifier = Modifier.size(28.dp)
+            )
         }
 
         if (recording) {
@@ -783,7 +796,7 @@ fun CameraScreen(
                     onClick = { photoPickerLauncher.launch("*/*") }
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.PhotoLibrary, "Gallery", tint = Color.White, modifier = Modifier.size(32.dp))
+                        ShaderIcon(Icons.Default.PhotoLibrary, "Gallery", tint = Color.White, modifier = Modifier.size(32.dp))
                     }
                 }
             } else {
@@ -861,12 +874,13 @@ private fun RecordingTimerBadge(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier,
+        modifier = modifier.height(PoplurCounterLayout.counterHeight),
         horizontalAlignment = Alignment.Start
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.height(PoplurCounterLayout.labelHeight)
         ) {
             PoplurText(
                 "RECORDING",
@@ -883,36 +897,55 @@ private fun RecordingTimerBadge(
             )
         }
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(PoplurCounterLayout.labelToNumeratorSpacing))
 
         Column(
-            modifier = Modifier.width(92.dp),
+            modifier = Modifier.width(PoplurCounterLayout.separatorWidth),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            ShaderNumberText(
-                secondsRemaining.coerceAtLeast(0).toString(),
-                color = Color.Red,
-                fontSize = 40.sp,
-                fontWeight = FontWeight.Black,
-                lineHeight = 40.sp,
-                intensity = 1.18f,
-                autoSize = true
-            )
+            Box(
+                modifier = Modifier
+                    .width(PoplurCounterLayout.separatorWidth)
+                    .height(PoplurCounterLayout.numeratorHeight),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                ShaderNumberText(
+                    secondsRemaining.coerceAtLeast(0).toString(),
+                    color = Color.Red,
+                    fontSize = 40.sp,
+                    fontWeight = FontWeight.Black,
+                    lineHeight = 40.sp,
+                    intensity = 1.18f,
+                    autoSize = true
+                )
+            }
+            Spacer(Modifier.height(PoplurCounterLayout.numeratorToSeparatorSpacing))
+
             HorizontalDivider(
                 color = Color.White,
-                thickness = 2.dp,
-                modifier = Modifier.width(70.dp).padding(vertical = 4.dp)
+                thickness = PoplurCounterLayout.separatorHeight,
+                modifier = Modifier.width(PoplurCounterLayout.separatorWidth)
             )
-            ShaderNumberText(
-                "seconds",
-                color = Color.White.copy(alpha = 0.92f),
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Black,
-                lineHeight = 26.sp,
-                intensity = 0.55f,
-                autoSize = true
-            )
+            Spacer(Modifier.height(PoplurCounterLayout.separatorToDenominatorSpacing))
+
+            Box(
+                modifier = Modifier
+                    .width(PoplurCounterLayout.separatorWidth)
+                    .height(PoplurCounterLayout.denominatorHeight),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                ShaderNumberText(
+                    "seconds",
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Black,
+                    lineHeight = 26.sp,
+                    intensity = 0.55f,
+                    autoSize = true
+                )
+            }
         }
+        Spacer(Modifier.weight(1f))
     }
 }
 
@@ -1027,7 +1060,7 @@ private fun LiveLocationPickerSheet(
                         .background(Color.Red.copy(alpha = 0.22f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
+                    ShaderIcon(
                         Icons.Default.LocationOn,
                         contentDescription = null,
                         tint = Color(0xFFFF3333),
@@ -1050,7 +1083,7 @@ private fun LiveLocationPickerSheet(
                     )
                 }
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    ShaderIcon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(24.dp))
                 }
             }
 
@@ -1067,7 +1100,7 @@ private fun LiveLocationPickerSheet(
                             .padding(horizontal = 13.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
+                        ShaderIcon(
                             Icons.Default.LocationOn,
                             contentDescription = null,
                             tint = Color(0xFF4DFF58),
@@ -1180,7 +1213,7 @@ fun CapturedOutputScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.clickable { onBack() }
                     ) {
-                        Icon(
+                        ShaderIcon(
                             Icons.Default.Close,
                             contentDescription = "Retake",
                             tint = Color.White,
@@ -1198,7 +1231,7 @@ fun CapturedOutputScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.clickable { onContinue() }
                     ) {
-                        Icon(
+                        ShaderIcon(
                             imageVector = Icons.Default.Add,
                             contentDescription = continueLabel,
                             tint = Color(0xFFFF3838),
@@ -1282,7 +1315,7 @@ fun CapturedMediaEditorScreen(
                 color = Color.Black.copy(alpha = 0.58f),
                 contentColor = Color.White
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(22.dp))
+                ShaderIcon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(22.dp))
             }
             Spacer(Modifier.height(12.dp))
             PoplurText("Edit capture", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
@@ -1421,7 +1454,7 @@ fun CapturedChannelScreen(
                 color = Color.Black.copy(alpha = 0.58f),
                 contentColor = Color.White
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(22.dp))
+                ShaderIcon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(22.dp))
             }
             Spacer(Modifier.height(12.dp))
             PoplurText("Choose channel", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
@@ -1733,10 +1766,12 @@ fun DescribeAdScreen(
     onAdGenerated: (android.graphics.Bitmap?, String?, TVStyleMetadata) -> Unit
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     var promptText by remember { mutableStateOf("") }
     var isGenerating by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var generationStatus by remember { mutableStateOf("Starting Poplur AI...") }
+    var generationError by remember { mutableStateOf<String?>(null) }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Column(
@@ -1744,6 +1779,7 @@ fun DescribeAdScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 22.dp)
         ) {
@@ -1755,7 +1791,7 @@ fun DescribeAdScreen(
                     color = Color.White.copy(alpha = 0.12f),
                     contentColor = Color.White
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(20.dp))
+                    ShaderIcon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(20.dp))
                 }
                 Spacer(Modifier.width(14.dp))
                 Column {
@@ -1786,20 +1822,28 @@ fun DescribeAdScreen(
 
             AdPromptField(
                 value = promptText,
-                onValueChange = { promptText = it.take(500) }
+                onValueChange = { promptText = it.take(500) },
+                onDone = { focusManager.clearFocus() }
             )
 
-            Spacer(Modifier.height(20.dp))
-            errorMessage?.let {
-                PoplurText(it, color = Color(0xFFFF5555), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(10.dp))
+            generationError?.let { error ->
+                Spacer(Modifier.height(12.dp))
+                PoplurText(
+                    error,
+                    color = Color(0xFFFF5C5C),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
 
+            Spacer(Modifier.height(20.dp))
             Button(
                 enabled = !isGenerating && promptText.isNotBlank(),
                 onClick = {
+                    focusManager.clearFocus()
                     isGenerating = true
-                    errorMessage = null
+                    generationError = null
+                    generationStatus = "Analyzing your capture..."
                     scope.launch {
                         try {
                             val meta = runCatching { TVStyleAnalyzer.analyze(context, uri, isVideo) }
@@ -1811,7 +1855,6 @@ fun DescribeAdScreen(
                                 userPrompt = promptText.trim()
                             )
 
-                            // Decode captured frame for face-preserving generation
                             val faceBitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                 if (isVideo) {
                                     val retriever = MediaMetadataRetriever()
@@ -1826,31 +1869,56 @@ fun DescribeAdScreen(
                                 }
                             }
 
-                            if (faceBitmap != null) {
-                                if (isVideo) {
-                                    val videoUrl = FaceAdGenerationService.generateVideo(faceBitmap, prompt)
+                            if (isVideo) {
+                                val faceVideoUrl = if (faceBitmap != null) {
+                                    runGenerationAttempt(
+                                        status = "Animating your capture with Poplur AI",
+                                        updateStatus = { generationStatus = it }
+                                    ) {
+                                        FaceAdGenerationService.generateVideo(faceBitmap, prompt)
+                                    }.getOrNull()
+                                } else null
+
+                                val videoUrl = faceVideoUrl ?: runGenerationAttempt(
+                                    status = "Building a fresh Poplur AI video",
+                                    updateStatus = { generationStatus = it }
+                                ) {
+                                    VideoAdGenerationService.generate(prompt)
+                                }.getOrNull()
+
+                                if (videoUrl != null) {
                                     onAdGenerated(null, videoUrl, meta)
                                 } else {
-                                    val adBitmap = FaceAdGenerationService.generateImage(faceBitmap, prompt)
-                                    onAdGenerated(adBitmap, null, meta)
+                                    generationStatus = "Video AI is busy. Creating a Poplur poster ad..."
+                                    val poster = generateImageFallback(
+                                        faceBitmap = faceBitmap,
+                                        prompt = prompt,
+                                        updateStatus = { generationStatus = it }
+                                    )
+                                    if (poster != null) {
+                                        onAdGenerated(poster, null, meta)
+                                    } else {
+                                        generationError = "Poplur AI could not finish this one. Check connection and tap Generate again."
+                                    }
                                 }
-                            } else if (isVideo) {
-                                val videoUrl = VideoAdGenerationService.generate(prompt)
-                                onAdGenerated(null, videoUrl, meta)
                             } else {
-                                val bitmap = AdGenerationService.generate(prompt)
-                                onAdGenerated(bitmap, null, meta)
+                                val adBitmap = generateImageFallback(
+                                    faceBitmap = faceBitmap,
+                                    prompt = prompt,
+                                    updateStatus = { generationStatus = it }
+                                )
+                                if (adBitmap != null) {
+                                    onAdGenerated(adBitmap, null, meta)
+                                } else {
+                                    generationError = "Poplur AI could not finish this one. Check connection and tap Generate again."
+                                }
                             }
-                        } catch (e: com.apptists.poplur2025.data.TVAnalyzerError.NoAPIKey) {
-                            errorMessage = "Claude API key missing."
-                        } catch (e: com.apptists.poplur2025.data.TVAnalyzerError.HttpError) {
-                            errorMessage = "AI analysis failed (HTTP ${e.code}) — check your API key."
-                        } catch (e: com.apptists.poplur2025.data.TVAnalyzerError.ParseError) {
-                            errorMessage = "AI response couldn't be parsed — try again."
                         } catch (e: Exception) {
-                            errorMessage = "Generation failed — check your internet connection and try again."
+                            Log.w("PoplurAI", "Generation pipeline failed", e)
+                            generationError = "Poplur AI could not finish this one. Check connection and tap Generate again."
                         } finally {
                             isGenerating = false
+                            generationStatus = "Starting Poplur AI..."
                         }
                     }
                 },
@@ -1861,7 +1929,7 @@ fun DescribeAdScreen(
                 if (isGenerating) {
                     CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(10.dp))
-                    PoplurText("Generating…", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
+                    PoplurText(generationStatus, fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
                 } else {
                     PoplurText("✦ Generate Poplur AI", fontWeight = FontWeight.Black, modifier = Modifier.padding(vertical = 8.dp))
                 }
@@ -1871,8 +1939,52 @@ fun DescribeAdScreen(
     }
 }
 
+private suspend fun <T> runGenerationAttempt(
+    status: String,
+    attempts: Int = 2,
+    updateStatus: (String) -> Unit = {},
+    block: suspend () -> T
+): Result<T> {
+    var lastError: Throwable? = null
+    repeat(attempts) { index ->
+        val attempt = index + 1
+        updateStatus(if (attempts > 1) "$status ($attempt/$attempts)" else status)
+        try {
+            return Result.success(block())
+        } catch (t: Throwable) {
+            lastError = t
+            Log.w("PoplurAI", "$status attempt $attempt failed", t)
+            if (attempt < attempts) delay(900)
+        }
+    }
+    return Result.failure(lastError ?: IllegalStateException("Generation failed"))
+}
+
+private suspend fun generateImageFallback(
+    faceBitmap: android.graphics.Bitmap?,
+    prompt: String,
+    updateStatus: (String) -> Unit = {}
+): android.graphics.Bitmap? {
+    if (faceBitmap != null) {
+        runGenerationAttempt(
+            status = "Creating your face-aware Poplur AI ad",
+            updateStatus = updateStatus
+        ) {
+            FaceAdGenerationService.generateImage(faceBitmap, prompt)
+        }.getOrNull()?.let { return it }
+    }
+
+    return runGenerationAttempt(
+        status = "Creating a fresh Poplur AI ad",
+        attempts = 3,
+        updateStatus = updateStatus
+    ) {
+        AdGenerationService.generate(prompt)
+    }.getOrNull()
+}
+
 @Composable
-private fun AdPromptField(value: String, onValueChange: (String) -> Unit) {
+private fun AdPromptField(value: String, onValueChange: (String) -> Unit, onDone: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(18.dp),
         color = Color.White.copy(alpha = 0.08f)
@@ -1891,6 +2003,8 @@ private fun AdPromptField(value: String, onValueChange: (String) -> Unit) {
                 androidx.compose.foundation.text.BasicTextField(
                     value = value,
                     onValueChange = onValueChange,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { onDone() }),
                     textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold),
                     decorationBox = { inner ->
                         if (value.isEmpty()) {
@@ -1907,6 +2021,17 @@ private fun AdPromptField(value: String, onValueChange: (String) -> Unit) {
                         .fillMaxWidth()
                         .heightIn(min = 86.dp)
                 )
+                TextButton(
+                    onClick = onDone,
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    PoplurText(
+                        "Done",
+                        color = Color.White.copy(alpha = 0.76f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
             }
         }
     }
@@ -2029,7 +2154,7 @@ fun AdPreviewScreen(
                 color = Color.Black.copy(alpha = 0.58f),
                 contentColor = Color.White
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(22.dp))
+                ShaderIcon(Icons.Default.Close, contentDescription = "Back", modifier = Modifier.padding(10.dp).size(22.dp))
             }
         }
 
@@ -2359,7 +2484,7 @@ private fun ScanningOverlay() {
                         }
                     }
                 }
-                Icon(
+                ShaderIcon(
                     Icons.Default.Add, // reuse icon slot — we just want a placeholder center mark
                     contentDescription = null,
                     tint = Color.White,
@@ -2433,7 +2558,7 @@ private fun ArFilterSelector(
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.6f))
                     ) {
-                        Icon(
+                        ShaderIcon(
                             filter.iconVector,
                             contentDescription = filter.label,
                             tint = Color.White,

@@ -9,7 +9,7 @@ plugins {
 val natives by configurations.creating
 
 android { namespace = "com.apptists.poplur2025"
-    compileSdk = 36;
+    compileSdk = 35;
     defaultConfig { applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "1.0" }
     
     signingConfigs {
@@ -33,6 +33,7 @@ android { namespace = "com.apptists.poplur2025"
     androidResources {
         noCompress += listOf(
             "tflite", "pb", "emd", "tfl",
+            "glb", "gltf",
             "models_bundled/**",
             "mlkit_odt_localizer/**",
             "mlkit_odt_default_classifier/**"
@@ -113,6 +114,7 @@ dependencies {
     implementation("com.badlogicgames.gdx:gdx:1.13.1")
     implementation("com.badlogicgames.gdx:gdx-backend-android:1.13.1")
     implementation("com.badlogicgames.gdx:gdx-bullet:1.13.1")
+    implementation("com.github.mgsx-dev.gdx-gltf:gltf:2.3.0")
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-armeabi-v7a")
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-arm64-v8a")
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-x86")

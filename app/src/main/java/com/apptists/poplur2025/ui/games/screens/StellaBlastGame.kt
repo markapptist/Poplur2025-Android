@@ -2,6 +2,7 @@ package com.apptists.poplur2025.ui.games.screens
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +68,7 @@ fun StellaBlastGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
     var restartKey by remember { mutableIntStateOf(0) }
     var isGameOver by remember { mutableStateOf(false) }
     var spawnTimer by remember { mutableFloatStateOf(0f) }
+    var fireTimer by remember { mutableFloatStateOf(0f) }
 
     fun fire() {
         if (!isGameOver) {
@@ -81,6 +83,7 @@ fun StellaBlastGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
         score = 0
         shields = 3
         spawnTimer = 0f
+        fireTimer = 0f
         isGameOver = false
         restartKey++
     }
@@ -94,6 +97,12 @@ fun StellaBlastGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
             lastTime = now
 
             spawnTimer += dt
+            fireTimer += dt
+            if (fireTimer >= 0.26f) {
+                fireTimer = 0f
+                fire()
+            }
+
             val spawnEvery = (0.92f - score * 0.003f).coerceAtLeast(0.34f)
             if (spawnTimer >= spawnEvery) {
                 spawnTimer = 0f
@@ -151,12 +160,22 @@ fun StellaBlastGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
         }
     }
 
+    val shipPath = remember { Path() }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF050713))
             .pointerInput(restartKey, isGameOver) {
                 detectTapGestures { fire() }
+            }
+            .pointerInput(restartKey, isGameOver) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    if (!isGameOver) {
+                        shipX = (shipX + dragAmount.x / size.width.toFloat()).coerceIn(0.08f, 0.92f)
+                    }
+                }
             }
     ) {
         Canvas(Modifier.fillMaxSize()) {
@@ -192,14 +211,15 @@ fun StellaBlastGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
             }
 
             val shipCenter = Offset(w * shipX, h * 0.84f)
-            val ship = Path().apply {
+            shipPath.reset()
+            shipPath.apply {
                 moveTo(shipCenter.x, shipCenter.y - h * 0.055f)
                 lineTo(shipCenter.x - w * 0.052f, shipCenter.y + h * 0.052f)
                 lineTo(shipCenter.x, shipCenter.y + h * 0.020f)
                 lineTo(shipCenter.x + w * 0.052f, shipCenter.y + h * 0.052f)
                 close()
             }
-            drawPath(ship, shipColor)
+            drawPath(shipPath, shipColor)
             drawCircle(accentColor.copy(alpha = 0.72f), w * 0.018f, shipCenter + Offset(0f, h * 0.02f))
         }
 

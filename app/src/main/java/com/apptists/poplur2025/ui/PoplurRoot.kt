@@ -115,11 +115,14 @@ import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.random.Random
 
+private const val GOLD_CUBE_MODEL_ROLLOUT_PREF = "gold_cube_model_rollout_applied"
+
 @Composable
 fun PoplurRoot(
     authViewModel: AuthViewModel = viewModel(),
     mapViewModel: MapViewModel = viewModel()
 ) {
+    android.util.Log.d("PoplurRoot", "Composing PoplurRoot...")
     BackHandler {}
 
     val context = LocalContext.current
@@ -154,9 +157,14 @@ fun PoplurRoot(
     }
     val preferredLanguage = PoplurLanguage.fromCode(preferredLanguageCode)
     var selectedCubeSkin by rememberSaveable {
+        val storedSkinId = settingsPrefs.getString("selected_cube_skin", null)
+        val hasAppliedGoldModelRollout = settingsPrefs.getBoolean(GOLD_CUBE_MODEL_ROLLOUT_PREF, false)
         mutableStateOf(
-            CubeSkin.entries.find { it.id == settingsPrefs.getString("selected_cube_skin", CubeSkin.Default.id) }
-                ?: CubeSkin.Default
+            if (!hasAppliedGoldModelRollout) {
+                CubeSkin.Gold
+            } else {
+                CubeSkin.entries.find { it.id == (storedSkinId ?: CubeSkin.Gold.id) } ?: CubeSkin.Gold
+            }
         )
     }
     var cubeMenuLayout by rememberSaveable {
@@ -209,6 +217,7 @@ fun PoplurRoot(
         mutableStateOf(settingsPrefs.getBoolean("profile_hey_poplur_tutorial_seen", false))
     }
     var phoneColorwaySelected by remember { mutableStateOf<Color?>(null) }
+    var showGames by remember { mutableStateOf(false) }
     
     var capturedMediaUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var isCapturedVideo by remember { mutableStateOf(false) }
@@ -245,8 +254,10 @@ fun PoplurRoot(
     }
 
     LaunchedEffect(selectedCubeSkin) {
-        settingsPrefs.edit().putString("selected_cube_skin", selectedCubeSkin.id).apply()
-        AppIconThemeManager.apply(appContext, selectedCubeSkin)
+        settingsPrefs.edit()
+            .putString("selected_cube_skin", selectedCubeSkin.id)
+            .putBoolean(GOLD_CUBE_MODEL_ROLLOUT_PREF, true)
+            .apply()
     }
     LaunchedEffect(cubeMenuLayout) {
         settingsPrefs.edit().putString("cube_menu_layout", cubeMenuLayout.name).apply()
@@ -510,11 +521,9 @@ fun PoplurRoot(
     }
 
     LaunchedEffect(isSignedIn, showAppInitializationCover) {
-        if (isSignedIn == true && !showAppInitializationCover) {
-            isCubeSurfaceReady = true
-        } else {
-            isCubeSurfaceReady = false
-        }
+        val ready = isSignedIn == true && !showAppInitializationCover
+        android.util.Log.d("PoplurRoot", "Cube Readiness Update: ready=$ready (isSignedIn=$isSignedIn, cover=$showAppInitializationCover)")
+        isCubeSurfaceReady = ready
     }
 
     // Failsafe: Hide the loading cover after 4 seconds no matter what.
@@ -568,7 +577,10 @@ fun PoplurRoot(
 
     // --- Cube Menu Controller ---
     val cubeMenuWheelController = remember(scope) {
-        CubeMenuWheelController(scope = scope, onTick = playPopSound)
+        CubeMenuWheelController(scope = scope) {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            playPopSound()
+        }
     }
     
     val backItem = CubeMenuWheelItem(
@@ -614,8 +626,53 @@ fun PoplurRoot(
 
     val profileCubeIconTitle by remember {
         derivedStateOf {
-            val preview = if (cubeMenuWheelController.isVisible) cubeMenuWheelController.selectedItem?.label else null
+            val preview = if (tab in profileCubeTabs && cubeMenuWheelController.isVisible) {
+                cubeMenuWheelController.selectedItem?.label
+            } else {
+                null
+            }
             preview ?: profileCubeCommittedIconTitle ?: profilePanelIconTitle ?: "Profile"
+        }
+    }
+
+    val mapCubeFaceTitle by remember {
+        derivedStateOf {
+            if (tab == AppTab.Map && cubeMenuWheelController.isVisible) {
+                cubeMenuWheelController.selectedItem?.label ?: "Map"
+            } else {
+                "Map"
+            }
+        }
+    }
+
+    val cameraCubeFaceTitle by remember {
+        derivedStateOf {
+            if (tab in cameraCubeTabs && cubeMenuWheelController.isVisible) {
+                cubeMenuWheelController.selectedItem?.label ?: "Camera"
+            } else {
+                when (tab) {
+                    AppTab.CreateEntry -> "Create"
+                    AppTab.CapturedOutput -> "Preview"
+                    AppTab.AIVideoStudio -> "Poplur AI"
+                    AppTab.AIVideoProgress -> "Generating"
+                    AppTab.Camera -> "Camera"
+                    else -> "Camera"
+                }
+            }
+        }
+    }
+
+    val feedCubeFaceTitle by remember {
+        derivedStateOf {
+            if (tab == AppTab.Feed && cubeMenuWheelController.isVisible) {
+                cubeMenuWheelController.selectedItem?.label ?: "Feed"
+            } else if (tab == AppTab.Feed && showFeedCommentComposer) {
+                "Comment"
+            } else if (tab == AppTab.Feed && isFeedTvGuideVisible) {
+                "TV Guide"
+            } else {
+                "Feed"
+            }
         }
     }
 
@@ -873,6 +930,12 @@ fun PoplurRoot(
                         secondaryIcon = Icons.Default.Visibility,
                         accent = if (cameraObjectDetectionEnabled) Color(0xFF4DFF58) else Color(0xFFFF8C1A),
                         onSelected = { cameraObjectDetectionEnabled = !cameraObjectDetectionEnabled }
+                    ),
+                    CubeMenuWheelItem(
+                        label = "Games",
+                        icon = Icons.Default.SportsEsports,
+                        accent = Color(0xFFAA44FF),
+                        onSelected = { showGames = true }
                     )
                 )
             )
@@ -946,6 +1009,10 @@ fun PoplurRoot(
             }
             cubeMenuWheelController.endHold(activateSelected = true)
         }
+    }
+
+    val onLongPressMoveCube: (Float, Float) -> Unit = { deltaX, deltaY ->
+        cubeMenuWheelController.scrub(deltaX = deltaX, deltaY = deltaY, layout = cubeMenuLayout)
     }
 
     val onTapCube: () -> Unit = {
@@ -1391,22 +1458,6 @@ fun PoplurRoot(
         }
         // ──────────────────────────────────────────
 
-        val volumeOverlay: @Composable BoxScope.() -> Unit = {
-            AnimatedVisibility(
-                visible = showVolumeBars,
-                enter = fadeIn(animationSpec = tween(120)) + scaleIn(initialScale = 0.94f, animationSpec = tween(120)),
-                exit = fadeOut(animationSpec = tween(180)),
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 14.dp)
-                    .zIndex(120f)
-            ) {
-                PoplurVolumeBars(volumeFraction = deviceVolumeFraction)
-            }
-        }
-
-        volumeOverlay()
-
         CubeMenuWheelOverlay(
             controller = cubeMenuWheelController,
             modifier = Modifier.zIndex(300f),
@@ -1418,11 +1469,15 @@ fun PoplurRoot(
             PersistentCubeOverlay(
                 modifier = Modifier.zIndex(200f),
                 selectedTabIndex = tab.cubeTabIndex(),
+                mapCubeFaceTitle = mapCubeFaceTitle,
+                cameraCubeFaceTitle = cameraCubeFaceTitle,
+                feedCubeFaceTitle = feedCubeFaceTitle,
                 profileCubeIconTitle = profileCubeIconTitle,
                 cubeSkin = selectedCubeSkin,
                 isInteractive = isSignedIn == true && !showFeedCommentComposer,
                 onVerticalSwipe = { isUp -> if (!isPhoneActive) currentOnVerticalSwipe(isUp) },
                 onLongPress = { currentOnLongPressCube() },
+                onLongPressMove = { deltaX, deltaY -> onLongPressMoveCube(deltaX, deltaY) },
                 onLongPressEnd = { currentOnLongPressEndCube() },
                 onTap = { currentOnTapCube() },
                 onTabSelected = { index -> if (!isPhoneActive) currentCubeTabChange(index) },
@@ -1440,6 +1495,26 @@ fun PoplurRoot(
                 .zIndex(500f),
             onCommand = handlePoplurAICommand
         )
+
+        // Games full-screen overlay (above all other overlays)
+        if (showGames) {
+            Box(Modifier.fillMaxSize().zIndex(800f)) {
+                GameLaunchScreen(onDismiss = { showGames = false })
+            }
+        }
+
+        // Volume meter — rendered last so it sits above everything, including the games screen
+        AnimatedVisibility(
+            visible = showVolumeBars,
+            enter = fadeIn(animationSpec = tween(120)) + scaleIn(initialScale = 0.94f, animationSpec = tween(120)),
+            exit = fadeOut(animationSpec = tween(180)),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 14.dp)
+                .zIndex(9000f)
+        ) {
+            PoplurVolumeBars(volumeFraction = deviceVolumeFraction)
+        }
 
     }
 }
@@ -1660,6 +1735,21 @@ private fun DocumentSnapshot.numberValue(vararg keys: String): Int? =
     keys.firstNotNullOfOrNull { key ->
         getLong(key)?.toInt() ?: getDouble(key)?.toInt()
     }
+
+private val cameraCubeTabs = setOf(
+    AppTab.Camera,
+    AppTab.CreateEntry,
+    AppTab.CapturedOutput,
+    AppTab.AIVideoStudio,
+    AppTab.AIVideoProgress
+)
+
+private val profileCubeTabs = setOf(
+    AppTab.Profile,
+    AppTab.Messages,
+    AppTab.Settings,
+    AppTab.CubeDebug
+)
 
 private fun AppTab.cubeTabIndex(): Int = when (this) {
     AppTab.Map -> 0

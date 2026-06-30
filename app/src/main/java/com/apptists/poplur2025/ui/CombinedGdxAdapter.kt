@@ -21,6 +21,7 @@ import com.badlogic.gdx.graphics.g3d.attributes.BlendingAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.FloatAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.TextureAttribute
+import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder
 import com.badlogic.gdx.graphics.g3d.utils.MeshPartBuilder
 import com.badlogic.gdx.graphics.glutils.FrameBuffer
@@ -38,6 +39,7 @@ class CombinedGdxAdapter(
     private val initialTabIndex: Int = 2,
     private val onVerticalSwipe: ((Boolean) -> Unit)? = null,
     private val onLongPress: (() -> Unit)? = null,
+    private val onLongPressMove: ((Float, Float) -> Unit)? = null,
     private val onLongPressEnd: (() -> Unit)? = null,
     private val onTap: (() -> Unit)? = null,
     private val onTabSelected: (Int) -> Unit
@@ -57,7 +59,7 @@ class CombinedGdxAdapter(
     private val skinFaceTextures = arrayOfNulls<Texture>(6)
     private val skinMaterials = arrayOfNulls<Material>(6)
 
-    var skin: CubeSkin = CubeSkin.Default
+    var skin: CubeSkin = CubeSkin.Gold
         set(value) {
             if (field != value) {
                 field = value
@@ -101,10 +103,31 @@ class CombinedGdxAdapter(
             }
         }
 
+    var mapIconTitle: String = "Map"
+        set(value) {
+            val v = value.ifBlank { "Map" }
+            if (field != v) {
+                field = v
+                texturesDirty = true
+                modelDirty = true
+            }
+        }
+
     var currentIconTitle: String = "Camera"
         set(value) {
-            if (field != value) {
-                field = value
+            val v = normalizeCameraTitle(value)
+            if (field != v) {
+                field = v
+                texturesDirty = true
+                modelDirty = true
+            }
+        }
+
+    var feedIconTitle: String = "Feed"
+        set(value) {
+            val v = value.ifBlank { "Feed" }
+            if (field != v) {
+                field = v
                 texturesDirty = true
                 modelDirty = true
             }
@@ -119,6 +142,25 @@ class CombinedGdxAdapter(
                 modelDirty = true
             }
         }
+
+    fun setFaceTitles(
+        mapTitle: String,
+        cameraTitle: String,
+        feedTitle: String,
+        profileTitle: String
+    ) {
+        mapIconTitle = mapTitle
+        currentIconTitle = cameraTitle
+        feedIconTitle = feedTitle
+        profileIconTitle = profileTitle
+    }
+
+    private fun normalizeCameraTitle(title: String): String {
+        return when (title.ifBlank { "Camera" }) {
+            "Record" -> "Camera"
+            else -> title.ifBlank { "Camera" }
+        }
+    }
 
     var yawDegrees: Float = -90f * initialTabIndex
         set(value) {
@@ -174,6 +216,7 @@ class CombinedGdxAdapter(
     private var downX = 0f
     private var downY = 0f
     private var lastX = 0f
+    private var lastY = 0f
     private var touchStartMillis = 0L
     private var time = 0f
     private val cubeTouchRadiusPx = 150f
@@ -238,13 +281,14 @@ class CombinedGdxAdapter(
 
             environment = Environment().apply {
                 set(ColorAttribute(ColorAttribute.AmbientLight, 1f, 1f, 1f, 1f))
+                add(DirectionalLight().set(0.95f, 0.90f, 0.82f, -0.45f, -0.62f, -0.78f))
             }
 
             Gdx.input.inputProcessor = object : InputAdapter() {
                 override fun touchDown(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
                     if (pointer != 0) return false  // single-touch only — prevents multi-finger twists
                     if (!isInsideCubeTouchTarget(screenX.toFloat(), screenY.toFloat())) return false
-                    dragging = true; isVerticalSwipe = false; isSwipeTriggered = false; isRotation = false; longPressSent = false; longPressStarted = false; bouncePhase = BouncePhase.Idle; downX = screenX.toFloat(); downY = screenY.toFloat(); lastX = screenX.toFloat(); touchStartMillis = System.currentTimeMillis()
+                    dragging = true; isVerticalSwipe = false; isSwipeTriggered = false; isRotation = false; longPressSent = false; longPressStarted = false; bouncePhase = BouncePhase.Idle; downX = screenX.toFloat(); downY = screenY.toFloat(); lastX = screenX.toFloat(); lastY = screenY.toFloat(); touchStartMillis = System.currentTimeMillis()
                     if (peekPhase != PeekPhase.Idle) { peekPitchDegrees = 0f; peekPhase = PeekPhase.Idle; nextPeekSeconds = peekIntervalSeconds }
                     return true
                 }
@@ -252,7 +296,15 @@ class CombinedGdxAdapter(
                     if (pointer != 0) return false  // single-touch only
                     if (!dragging) return true
                     val dx = screenX.toFloat() - downX; val dy = screenY.toFloat() - downY
-                    if (abs(dx) > 10f || abs(dy) > 10f) longPressSent = true
+                    val deltaX = screenX.toFloat() - lastX
+                    val deltaY = screenY.toFloat() - lastY
+                    if (longPressStarted) {
+                        appInstance?.postRunnable { onLongPressMove?.invoke(deltaX, deltaY) }
+                        lastX = screenX.toFloat()
+                        lastY = screenY.toFloat()
+                        return true
+                    }
+                    if (abs(dx) > 48f || abs(dy) > 48f) longPressSent = true
                     if (!isVerticalSwipe && !isRotation) {
                         if (abs(dy) > 15f && abs(dy) > abs(dx) * 1.5f) isVerticalSwipe = true else if (abs(dx) > 15f) isRotation = true
                     }
@@ -260,9 +312,9 @@ class CombinedGdxAdapter(
                         isSwipeTriggered = true; appInstance?.postRunnable { onVerticalSwipe?.invoke(dy < 0) }
                     }
                     if (isRotation) {
-                        val deltaX = screenX.toFloat() - lastX; currentYawDegrees += deltaX * 0.5f; targetYawDegrees = currentYawDegrees
+                        currentYawDegrees += deltaX * 0.5f; targetYawDegrees = currentYawDegrees
                     }
-                    lastX = screenX.toFloat(); return true
+                    lastX = screenX.toFloat(); lastY = screenY.toFloat(); return true
                 }
                 override fun touchUp(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
                     if (pointer != 0) return false  // single-touch only
@@ -270,6 +322,7 @@ class CombinedGdxAdapter(
                     if (longPressStarted) {
                         longPressStarted = false
                         appInstance?.postRunnable { onLongPressEnd?.invoke() }
+                        return true
                     }
                     if (isVerticalSwipe && !isSwipeTriggered) appInstance?.postRunnable { onVerticalSwipe?.invoke((screenY - downY) < 0) }
                     val moved = abs(screenX - downX) > 15f || abs(screenY - downY) > 15f
@@ -330,9 +383,15 @@ class CombinedGdxAdapter(
         }
         clearTextureCacheIfNeeded()
 
-        val cameraTitle = if (currentIconTitle == "Record") "Camera" else currentIconTitle.ifBlank { "Camera" }
         // Face order matches iOS SceneKit: +Z Map (0°), +X Camera (90°), -Z Feed (180°), -X Profile (270°).
-        val titles = listOf("Map", cameraTitle, "Feed", profileIconTitle, "TopFork", "BottomP")
+        val titles = listOf(
+            mapIconTitle.ifBlank { "Map" },
+            normalizeCameraTitle(currentIconTitle),
+            feedIconTitle.ifBlank { "Feed" },
+            profileIconTitle.ifBlank { "Profile" },
+            "TopFork",
+            "BottomP"
+        )
 
         titles.forEachIndexed { index, title ->
             if (currentTitles[index] != title) {
@@ -361,18 +420,39 @@ class CombinedGdxAdapter(
     }
 
     private fun rebuildSkinTextures() {
-        val path = skin.assetPath
-        if (path != null && Gdx.files.internal(path).exists()) {
-            try {
-                rebuildSkinTexturesFromFile(path)
-                return
-            } catch (e: Exception) {
-                Log.e("CombinedGdxAdapter", "Failed to load skin asset: $path, falling back to color", e)
-            }
+        rebuildSkinTexturesWithDynamicIcons()
+    }
+
+    private fun rebuildSkinTexturesWithDynamicIcons() {
+        val titles = listOf(
+            mapIconTitle.ifBlank { "Map" },
+            normalizeCameraTitle(currentIconTitle),
+            feedIconTitle.ifBlank { "Feed" },
+            profileIconTitle.ifBlank { "Profile" },
+            "TopFork",
+            "BottomP"
+        )
+        val newTextures = arrayOfNulls<Texture>(6)
+        val newMaterials = arrayOfNulls<Material>(6)
+
+        titles.forEachIndexed { index, title ->
+            val tex = createFaceTexture(title, skin, index)
+            newTextures[index] = tex
+            newMaterials[index] = Material(
+                TextureAttribute.createDiffuse(tex),
+                ColorAttribute.createDiffuse(Color.WHITE),
+                BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, opacity),
+                FloatAttribute.createAlphaTest(0.04f)
+            )
+            currentTitles[index] = "${skin.id}:$title"
         }
-        // No asset file — generate solid-color face textures from the skin's theme color
-        val color = skin.gdxColor ?: Color.GRAY
-        rebuildSkinTexturesFromColor(color)
+
+        skinFaceTextures.forEach { it?.dispose() }
+        repeat(6) { i ->
+            skinFaceTextures[i] = newTextures[i]
+            skinMaterials[i] = newMaterials[i]
+        }
+        modelDirty = true
     }
 
     private fun rebuildSkinTexturesFromFile(path: String) {
@@ -469,6 +549,7 @@ class CombinedGdxAdapter(
 
     private fun rebuildModel() {
         val oldModel = model
+
         if (skin != CubeSkin.Default) {
             val nonNullSkinMaterials = skinMaterials.filterNotNull()
             if (nonNullSkinMaterials.size == 6) {
@@ -946,7 +1027,69 @@ class CombinedGdxAdapter(
         Star
     }
 
-    private fun createFaceTexture(title: String): Texture {
+    private fun skinBaseColor(skinOverride: CubeSkin?): Color {
+        return skinOverride?.gdxColor?.let { Color(it) } ?: Color(0.04f, 0.03f, 0.10f, 1f)
+    }
+
+    private fun skinBorderColor(skinOverride: CubeSkin?): Color {
+        return skinOverride?.gdxColor?.let {
+            Color(
+                (it.r + 0.18f).coerceAtMost(1f),
+                (it.g + 0.18f).coerceAtMost(1f),
+                (it.b + 0.18f).coerceAtMost(1f),
+                1f
+            )
+        } ?: Color(0.55f, 0.30f, 1.0f, 1f)
+    }
+
+    private fun skinIconColor(skinOverride: CubeSkin?): Color {
+        return when (skinOverride) {
+            CubeSkin.Gold -> Color(1.00f, 0.95f, 0.60f, 1f)
+            CubeSkin.Chocolate -> Color(0.92f, 0.65f, 0.25f, 1f)
+            CubeSkin.Camo -> Color(0.82f, 0.84f, 0.56f, 1f)
+            CubeSkin.Ice -> Color(0.82f, 0.96f, 1.00f, 1f)
+            else -> Color.WHITE
+        }
+    }
+
+    private fun drawSkinFaceBackground(
+        sr: ShapeRenderer,
+        size: Float,
+        cornerRadius: Float,
+        baseColor: Color,
+        skinOverride: CubeSkin?
+    ) {
+        sr.color = if (skinOverride == null) {
+            baseColor
+        } else {
+            Color(
+                (baseColor.r * 0.48f).coerceIn(0f, 1f),
+                (baseColor.g * 0.48f).coerceIn(0f, 1f),
+                (baseColor.b * 0.48f).coerceIn(0f, 1f),
+                1f
+            )
+        }
+        sr.filledRoundRect(0f, 0f, size, size, cornerRadius)
+
+        if (skinOverride == null) return
+
+        val pad = size * 0.045f
+        sr.color = Color(
+            (baseColor.r * 1.32f).coerceIn(0f, 1f),
+            (baseColor.g * 1.32f).coerceIn(0f, 1f),
+            (baseColor.b * 1.32f).coerceIn(0f, 1f),
+            0.92f
+        )
+        sr.filledRoundRect(pad, pad, size - pad * 2f, size - pad * 2f, (cornerRadius - pad).coerceAtLeast(8f))
+
+        sr.color = Color(1f, 1f, 1f, if (skinOverride == CubeSkin.Ice) 0.30f else 0.14f)
+        sr.rectLine(size * 0.18f, size * 0.82f, size * 0.78f, size * 0.20f, size * 0.018f)
+
+        sr.color = Color(0f, 0f, 0f, if (skinOverride == CubeSkin.Toy || skinOverride == CubeSkin.Ice) 0.10f else 0.24f)
+        sr.filledRoundRect(size * 0.08f, size * 0.08f, size * 0.84f, size * 0.22f, cornerRadius * 0.45f)
+    }
+
+    private fun createFaceTexture(title: String, skinOverride: CubeSkin? = null, faceIndex: Int? = null): Texture {
         val size = 384
         val displayTitle = when (title) {
             "Record" -> "Camera"
@@ -962,6 +1105,7 @@ class CombinedGdxAdapter(
         val projection = Matrix4().setToOrtho2D(0f, 0f, size.toFloat(), size.toFloat())
         val sr = shapeRenderer ?: ShapeRenderer().also { shapeRenderer = it; it.setAutoShapeType(true) }
         val batch = textureBatch ?: SpriteBatch().also { textureBatch = it }
+        val skinBackground = createSkinFaceBackgroundTexture(skinOverride, faceIndex, size)
 
         fbo.begin()
         Gdx.gl.glViewport(0, 0, size, size)
@@ -969,33 +1113,46 @@ class CombinedGdxAdapter(
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
         Gdx.gl.glEnable(GL20.GL_BLEND)
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA)
+        batch.projectionMatrix = projection
+        skinBackground?.let { background ->
+            batch.begin()
+            batch.draw(background, 0f, 0f, size.toFloat(), size.toFloat())
+            batch.end()
+        }
         sr.projectionMatrix = projection
         sr.begin(ShapeRenderer.ShapeType.Filled)
 
-        // Near-black background — matches iOS dark neon cube face
-        val bgR = 0.04f; val bgG = 0.03f; val bgB = 0.10f
-        val bgColor = Color(bgR, bgG, bgB, 1f)
+        val bgColor = skinBaseColor(skinOverride)
+        val borderColor = skinBorderColor(skinOverride)
+        val iconColor = skinIconColor(skinOverride)
         val pad = 0f
         val r = cornerRadius
-        sr.color = bgColor
-        sr.filledRoundRect(pad, pad, size - pad * 2, size - pad * 2, r)
-
-        // Purple neon border glow (18 passes, inward from edge — matches iOS emission mask)
-        val borderR = 0.55f; val borderG = 0.30f; val borderB = 1.0f
-        for (i in 18 downTo 1) {
-            val inset = i.toFloat() * 1.8f
-            val alpha = (1f - i.toFloat() / 18f) * 0.55f
-            sr.color = Color(borderR, borderG, borderB, alpha)
-            sr.filledRoundRect(inset, inset, size - inset * 2f, size - inset * 2f, (r - inset).coerceAtLeast(4f))
+        if (skinBackground == null) {
+            drawSkinFaceBackground(sr, size.toFloat(), r, bgColor, skinOverride)
         }
-        // Crisp inner border
-        val crisp = 5f
-        sr.color = Color(0.76f, 0.55f, 1.0f, 0.92f)
-        sr.filledRoundRect(crisp, crisp, size - crisp * 2f, size - crisp * 2f, (r - crisp).coerceAtLeast(4f))
-        // Re-fill interior with background so only border is left
-        val innerPad = crisp + 2.5f
-        sr.color = bgColor
-        sr.filledRoundRect(innerPad, innerPad, size - innerPad * 2f, size - innerPad * 2f, (r - innerPad).coerceAtLeast(4f))
+
+        if (skinBackground == null) {
+            // Skin-matched neon border glow (18 passes, inward from edge).
+            for (i in 18 downTo 1) {
+                val inset = i.toFloat() * 1.8f
+                val alpha = (1f - i.toFloat() / 18f) * 0.55f
+                sr.color = Color(borderColor.r, borderColor.g, borderColor.b, alpha)
+                sr.filledRoundRect(inset, inset, size - inset * 2f, size - inset * 2f, (r - inset).coerceAtLeast(4f))
+            }
+            // Crisp inner border
+            val crisp = 5f
+            sr.color = Color(
+                (borderColor.r + 0.22f).coerceAtMost(1f),
+                (borderColor.g + 0.22f).coerceAtMost(1f),
+                (borderColor.b + 0.22f).coerceAtMost(1f),
+                0.92f
+            )
+            sr.filledRoundRect(crisp, crisp, size - crisp * 2f, size - crisp * 2f, (r - crisp).coerceAtLeast(4f))
+            // Re-fill interior with background so only border is left
+            val innerPad = crisp + 2.5f
+            sr.color = bgColor
+            sr.filledRoundRect(innerPad, innerPad, size - innerPad * 2f, size - innerPad * 2f, (r - innerPad).coerceAtLeast(4f))
+        }
 
         // Soft radial glow behind icon — cy chosen so content (icon+gap+label) is vertically centered
         val cx = size / 2f
@@ -1003,14 +1160,14 @@ class CombinedGdxAdapter(
         val isize = 108f
         for (i in 14 downTo 1) {
             val frac = i.toFloat() / 14f
-            sr.color = Color(1f, 1f, 1f, 0.018f * frac)
+            sr.color = Color(iconColor.r, iconColor.g, iconColor.b, 0.018f * frac)
             sr.circle(cx, cy, isize * 0.55f + i * 9f, 44)
         }
 
-        // Icon: pure white — simulates iOS emission mask glow over dark face
-        sr.color = Color(1f, 1f, 1f, 1f)
+        // Icon: dynamically drawn so skin cubemap artwork never locks in stale symbols.
+        sr.color = iconColor
         when (title) {
-            "Camera", "Record" -> {
+            "Camera", "Record", "Create", "Photo", "Post Here" -> {
                 // camera.fill: rounded-rect body + viewfinder bump + lens circle
                 val bodyW = isize * 0.74f; val bodyH = isize * 0.48f
                 val bodyX = cx - bodyW / 2f; val bodyY = cy - bodyH / 2f - isize * 0.04f
@@ -1021,12 +1178,17 @@ class CombinedGdxAdapter(
                 // Lens: cutout (dark) then lens ring
                 sr.color = bgColor
                 sr.circle(cx, cy - isize * 0.04f, isize * 0.20f, 36)
-                sr.color = Color(1f, 1f, 1f, 1f)
+                sr.color = iconColor
                 sr.circle(cx, cy - isize * 0.04f, isize * 0.16f, 36)
                 sr.color = bgColor
                 sr.circle(cx, cy - isize * 0.04f, isize * 0.08f, 28)
+                if (title == "Create" || title == "Post Here") {
+                    sr.color = iconColor
+                    sr.rectLine(cx + isize * 0.24f, cy + isize * 0.18f, cx + isize * 0.24f, cy + isize * 0.38f, isize * 0.055f)
+                    sr.rectLine(cx + isize * 0.14f, cy + isize * 0.28f, cx + isize * 0.34f, cy + isize * 0.28f, isize * 0.055f)
+                }
             }
-            "Feed" -> {
+            "Feed", "TV Guide" -> {
                 // tv.fill: TV screen rectangle + antenna/stand
                 val tvW = isize * 0.68f; val tvH = isize * 0.50f
                 val tvX = cx - tvW / 2f; val tvY = cy - tvH / 2f
@@ -1035,20 +1197,26 @@ class CombinedGdxAdapter(
                 val bezel = isize * 0.075f
                 sr.color = bgColor
                 sr.filledRoundRect(tvX + bezel, tvY + bezel, tvW - bezel * 2f, tvH - bezel * 2f, isize * 0.04f)
-                sr.color = Color(1f, 1f, 1f, 1f)
+                sr.color = iconColor
                 // Stand base under TV
                 val standW = isize * 0.24f; val standH = isize * 0.07f
                 sr.rect(cx - standW / 2f, tvY - standH, standW, standH)
                 // Feet
                 sr.rect(cx - standW / 2f, tvY - standH - isize * 0.04f, isize * 0.06f, isize * 0.04f)
                 sr.rect(cx + standW / 2f - isize * 0.06f, tvY - standH - isize * 0.04f, isize * 0.06f, isize * 0.04f)
+                if (title == "TV Guide") {
+                    repeat(3) { row ->
+                        val y = tvY + tvH - bezel * 1.8f - row * isize * 0.11f
+                        sr.rect(tvX + bezel * 1.55f, y, tvW - bezel * 3.1f, isize * 0.035f)
+                    }
+                }
             }
             "Profile" -> {
                 // person.circle: ring with person silhouette inside
                 sr.circle(cx, cy, isize * 0.38f, 44)
                 sr.color = bgColor
                 sr.circle(cx, cy, isize * 0.29f, 44)
-                sr.color = Color(1f, 1f, 1f, 1f)
+                sr.color = iconColor
                 sr.circle(cx, cy + isize * 0.12f, isize * 0.11f, 32)
                 sr.filledRoundRect(cx - isize * 0.18f, cy - isize * 0.20f, isize * 0.36f, isize * 0.20f, isize * 0.11f)
             }
@@ -1059,6 +1227,117 @@ class CombinedGdxAdapter(
                 sr.rect(cx - pw * 1.5f - gap, cy - shortH / 2f, pw, shortH)
                 sr.rect(cx - pw / 2f, cy - tallH / 2f, pw, tallH)
                 sr.rect(cx + pw / 2f + gap, cy - shortH / 2f, pw, shortH)
+            }
+            "2D Map", "3D Map" -> {
+                val pw = isize * 0.20f; val gap = isize * 0.035f
+                sr.rect(cx - pw * 1.5f - gap, cy - isize * 0.22f, pw, isize * 0.44f)
+                sr.rect(cx - pw / 2f, cy - isize * 0.30f, pw, isize * 0.60f)
+                sr.rect(cx + pw / 2f + gap, cy - isize * 0.22f, pw, isize * 0.44f)
+                if (title == "3D Map") {
+                    sr.rectLine(cx - isize * 0.26f, cy + isize * 0.34f, cx + isize * 0.22f, cy + isize * 0.34f, isize * 0.045f)
+                    sr.rectLine(cx + isize * 0.22f, cy + isize * 0.34f, cx + isize * 0.36f, cy + isize * 0.20f, isize * 0.045f)
+                }
+            }
+            "Search", "Detect On", "Detect Off" -> {
+                val ring = isize * 0.26f
+                sr.circle(cx - isize * 0.06f, cy + isize * 0.05f, ring, 44)
+                sr.color = bgColor
+                sr.circle(cx - isize * 0.06f, cy + isize * 0.05f, ring * 0.70f, 44)
+                sr.color = iconColor
+                sr.rectLine(cx + isize * 0.14f, cy - isize * 0.15f, cx + isize * 0.36f, cy - isize * 0.36f, isize * 0.10f)
+                if (title.startsWith("Detect")) {
+                    sr.circle(cx - isize * 0.06f, cy + isize * 0.05f, isize * 0.065f, 20)
+                }
+            }
+            "Location" -> {
+                sr.circle(cx, cy + isize * 0.12f, isize * 0.27f, 44)
+                sr.triangle(cx - isize * 0.20f, cy - isize * 0.02f, cx + isize * 0.20f, cy - isize * 0.02f, cx, cy - isize * 0.40f)
+                sr.color = bgColor
+                sr.circle(cx, cy + isize * 0.12f, isize * 0.11f, 24)
+            }
+            "Start Tour", "Stop Tour" -> {
+                val routeStroke = isize * 0.07f
+                sr.rectLine(cx - isize * 0.34f, cy - isize * 0.20f, cx - isize * 0.08f, cy + isize * 0.16f, routeStroke)
+                sr.rectLine(cx - isize * 0.08f, cy + isize * 0.16f, cx + isize * 0.30f, cy - isize * 0.06f, routeStroke)
+                sr.circle(cx - isize * 0.34f, cy - isize * 0.20f, isize * 0.08f, 20)
+                sr.circle(cx + isize * 0.30f, cy - isize * 0.06f, isize * 0.08f, 20)
+                if (title == "Start Tour") {
+                    sr.triangle(cx - isize * 0.03f, cy - isize * 0.40f, cx - isize * 0.03f, cy - isize * 0.18f, cx + isize * 0.16f, cy - isize * 0.29f)
+                } else {
+                    sr.rect(cx - isize * 0.10f, cy - isize * 0.39f, isize * 0.20f, isize * 0.20f)
+                }
+            }
+            "Video" -> {
+                val bodyW = isize * 0.54f; val bodyH = isize * 0.42f
+                sr.filledRoundRect(cx - bodyW * 0.58f, cy - bodyH / 2f, bodyW, bodyH, isize * 0.09f)
+                sr.triangle(cx + bodyW * 0.06f, cy + bodyH * 0.24f, cx + bodyW * 0.06f, cy - bodyH * 0.24f, cx + bodyW * 0.44f, cy - bodyH * 0.02f)
+            }
+            "Live" -> {
+                sr.circle(cx, cy, isize * 0.13f, 28)
+                repeat(3) { ring ->
+                    val radius = isize * (0.23f + ring * 0.11f)
+                    sr.rectLine(cx - radius, cy, cx - radius * 0.64f, cy + radius * 0.28f, isize * 0.035f)
+                    sr.rectLine(cx - radius, cy, cx - radius * 0.64f, cy - radius * 0.28f, isize * 0.035f)
+                    sr.rectLine(cx + radius, cy, cx + radius * 0.64f, cy + radius * 0.28f, isize * 0.035f)
+                    sr.rectLine(cx + radius, cy, cx + radius * 0.64f, cy - radius * 0.28f, isize * 0.035f)
+                }
+            }
+            "AR", "Poplur AI", "Generating" -> {
+                fun sparkle(x: Float, y: Float, s: Float) {
+                    sr.rectLine(x, y - s, x, y + s, isize * 0.045f)
+                    sr.rectLine(x - s, y, x + s, y, isize * 0.045f)
+                }
+                sparkle(cx, cy + isize * 0.10f, isize * 0.28f)
+                sparkle(cx - isize * 0.30f, cy - isize * 0.18f, isize * 0.14f)
+                sparkle(cx + isize * 0.28f, cy - isize * 0.24f, isize * 0.12f)
+            }
+            "Games" -> {
+                val bodyW = isize * 0.72f; val bodyH = isize * 0.36f
+                sr.filledRoundRect(cx - bodyW / 2f, cy - bodyH / 2f, bodyW, bodyH, isize * 0.18f)
+                sr.color = bgColor
+                sr.rect(cx - isize * 0.24f, cy - isize * 0.03f, isize * 0.18f, isize * 0.06f)
+                sr.rect(cx - isize * 0.18f, cy - isize * 0.09f, isize * 0.06f, isize * 0.18f)
+                sr.circle(cx + isize * 0.18f, cy + isize * 0.05f, isize * 0.045f, 18)
+                sr.circle(cx + isize * 0.28f, cy - isize * 0.05f, isize * 0.045f, 18)
+            }
+            "Preview" -> {
+                sr.triangle(cx - isize * 0.22f, cy + isize * 0.32f, cx - isize * 0.22f, cy - isize * 0.32f, cx + isize * 0.34f, cy)
+            }
+            "Like" -> {
+                sr.circle(cx - isize * 0.14f, cy + isize * 0.13f, isize * 0.18f, 32)
+                sr.circle(cx + isize * 0.14f, cy + isize * 0.13f, isize * 0.18f, 32)
+                sr.triangle(cx - isize * 0.31f, cy + isize * 0.08f, cx + isize * 0.31f, cy + isize * 0.08f, cx, cy - isize * 0.34f)
+            }
+            "Comment", "Message", "Add Message" -> {
+                val bw = isize * 0.72f; val bh = isize * 0.46f
+                val bx = cx - bw / 2f; val by = cy - bh / 2f + isize * 0.04f
+                sr.filledRoundRect(bx, by, bw, bh, isize * 0.12f)
+                sr.triangle(cx - isize * 0.16f, by + isize * 0.02f, cx + isize * 0.02f, by + isize * 0.02f, cx - isize * 0.14f, by - isize * 0.18f)
+                sr.color = bgColor
+                repeat(3) { dot ->
+                    sr.circle(cx - isize * 0.18f + dot * isize * 0.18f, cy + isize * 0.06f, isize * 0.04f, 16)
+                }
+            }
+            "News" -> {
+                val nw = isize * 0.68f; val nh = isize * 0.56f
+                val nx = cx - nw / 2f; val ny = cy - nh / 2f
+                sr.filledRoundRect(nx, ny, nw, nh, isize * 0.04f)
+                sr.color = bgColor
+                sr.rect(nx + isize * 0.08f, ny + nh - isize * 0.18f, nw - isize * 0.16f, isize * 0.055f)
+                repeat(3) { row ->
+                    sr.rect(nx + isize * 0.08f, ny + nh - isize * 0.30f - row * isize * 0.10f, nw - isize * 0.16f, isize * 0.035f)
+                }
+            }
+            "CC On", "CC Off" -> {
+                val bw = isize * 0.70f; val bh = isize * 0.42f
+                sr.filledRoundRect(cx - bw / 2f, cy - bh / 2f, bw, bh, isize * 0.10f)
+                sr.color = bgColor
+                sr.rectLine(cx - isize * 0.22f, cy, cx - isize * 0.05f, cy, isize * 0.06f)
+                sr.rectLine(cx + isize * 0.05f, cy, cx + isize * 0.22f, cy, isize * 0.06f)
+            }
+            "Back" -> {
+                sr.rectLine(cx + isize * 0.28f, cy, cx - isize * 0.28f, cy, isize * 0.10f)
+                sr.triangle(cx - isize * 0.35f, cy, cx - isize * 0.08f, cy + isize * 0.24f, cx - isize * 0.08f, cy - isize * 0.24f)
             }
             "TopFork" -> {
                 val stroke = isize * 0.07f
@@ -1080,7 +1359,7 @@ class CombinedGdxAdapter(
                 sr.circle(cx, cy, isize * 0.39f, 48)
                 sr.color = bgColor
                 sr.circle(cx, cy, isize * 0.29f, 48)
-                sr.color = Color(1f, 1f, 1f, 1f)
+                sr.color = iconColor
             }
             "Mail" -> {
                 val ew = isize * 0.74f; val eh = isize * 0.50f
@@ -1088,7 +1367,7 @@ class CombinedGdxAdapter(
                 sr.rect(el, eb, ew, eh)
                 sr.color = bgColor
                 sr.rect(el + b, eb + b, ew - b * 2, eh - b * 2)
-                sr.color = Color(1f, 1f, 1f, 1f)
+                sr.color = iconColor
                 sr.rectLine(el + b, eb + eh - b, cx, cy + isize * 0.04f, b)
                 sr.rectLine(el + ew - b, eb + eh - b, cx, cy + isize * 0.04f, b)
             }
@@ -1110,7 +1389,7 @@ class CombinedGdxAdapter(
                 sr.circle(cx, cy, isize * 0.35f, 44)
                 sr.color = bgColor
                 sr.circle(cx, cy, isize * 0.35f - stroke, 44)
-                sr.color = Color(1f, 1f, 1f, 1f)
+                sr.color = iconColor
                 sr.rect(cx - isize * 0.03f, cy, isize * 0.06f, isize * 0.34f)
                 sr.rect(cx - isize * 0.03f, cy - isize * 0.03f, isize * 0.34f, isize * 0.06f)
                 sr.circle(cx + isize * 0.31f, cy - isize * 0.03f, isize * 0.07f, 18)
@@ -1140,7 +1419,7 @@ class CombinedGdxAdapter(
         batch.projectionMatrix = projection
         batch.begin()
         font?.let { f ->
-            f.setColor(Color(1f, 1f, 1f, 1f))
+            f.setColor(iconColor)
             if (title == "BottomP") {
                 val pLayout = GlyphLayout(f, "P")
                 f.draw(batch, "P", (size - pLayout.width) / 2f, cy + pLayout.height / 2f)
@@ -1156,11 +1435,83 @@ class CombinedGdxAdapter(
             fbo.end()
             makeDrawnPixelsOpaque(pixmap)
             val tex = Texture(pixmap)
-            tex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
+            tex.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest)
             tex.setWrap(Texture.TextureWrap.ClampToEdge, Texture.TextureWrap.ClampToEdge)
-            pixmap.dispose(); fbo.dispose()
+            pixmap.dispose()
+            skinBackground?.dispose()
+            fbo.dispose()
             return tex
         }
+
+    private fun createSkinFaceBackgroundTexture(skinOverride: CubeSkin?, faceIndex: Int?, size: Int): Texture? {
+        val path = skinOverride?.assetPath ?: return null
+        val index = faceIndex ?: return null
+        return runCatching {
+            val source = Pixmap(Gdx.files.internal(path))
+            val tileW = source.width / 4
+            val tileH = source.height / 3
+            val coords = listOf(2 to 1, 3 to 1, 0 to 1, 1 to 1, 1 to 0, 1 to 2)
+            val (col, row) = coords[index.coerceIn(0, coords.lastIndex)]
+            val tile = Pixmap(tileW, tileH, Pixmap.Format.RGBA8888)
+            tile.drawPixmap(source, 0, 0, col * tileW, row * tileH, tileW, tileH)
+            val content = tileContentBounds(tile, threshold = 20)
+            val result = Pixmap(size, size, Pixmap.Format.RGBA8888)
+            val edgeColor = skinOverride.gdxColor ?: Color(0.04f, 0.03f, 0.10f, 1f)
+            result.setColor(edgeColor)
+            result.fill()
+            result.drawPixmap(
+                tile,
+                0,
+                0,
+                size,
+                size,
+                content.x,
+                content.y,
+                content.width,
+                content.height
+            )
+            makeDrawnPixelsOpaque(result)
+            val texture = Texture(result)
+            texture.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest)
+            texture.setWrap(Texture.TextureWrap.ClampToEdge, Texture.TextureWrap.ClampToEdge)
+            source.dispose()
+            tile.dispose()
+            result.dispose()
+            texture
+        }.getOrNull()
+    }
+
+    private data class PixelBounds(
+        val x: Int,
+        val y: Int,
+        val width: Int,
+        val height: Int
+    )
+
+    private fun tileContentBounds(pixmap: Pixmap, threshold: Int): PixelBounds {
+        var minX = pixmap.width
+        var minY = pixmap.height
+        var maxX = -1
+        var maxY = -1
+        for (y in 0 until pixmap.height) {
+            for (x in 0 until pixmap.width) {
+                val pixel = pixmap.getPixel(x, y)
+                val r = (pixel ushr 24) and 0xFF
+                val g = (pixel ushr 16) and 0xFF
+                val b = (pixel ushr 8) and 0xFF
+                if (r > threshold || g > threshold || b > threshold) {
+                    if (x < minX) minX = x
+                    if (y < minY) minY = y
+                    if (x > maxX) maxX = x
+                    if (y > maxY) maxY = y
+                }
+            }
+        }
+        if (maxX < minX || maxY < minY) {
+            return PixelBounds(0, 0, pixmap.width, pixmap.height)
+        }
+        return PixelBounds(minX, minY, maxX - minX + 1, maxY - minY + 1)
+    }
 
     private fun makeDrawnPixelsOpaque(pixmap: Pixmap) {
         for (y in 0 until pixmap.height) {
@@ -1187,7 +1538,7 @@ class CombinedGdxAdapter(
 
     private fun updateAnimation() {
         if (dragging && !longPressSent && System.currentTimeMillis() - touchStartMillis >= 800L) {
-            longPressSent = true; longPressStarted = true; appInstance?.postRunnable { onLongPress?.invoke() }
+            longPressSent = true; longPressStarted = true; lastX = Gdx.input.x.toFloat(); lastY = Gdx.input.y.toFloat(); appInstance?.postRunnable { onLongPress?.invoke() }
         }
         when (bouncePhase) {
             BouncePhase.Idle -> Unit
@@ -1267,9 +1618,10 @@ class CombinedGdxAdapter(
                 Gdx.graphics.requestRendering()
             } else {
                 instance?.let { cube ->
+                val scale = cubeTransformScale()
                 cube.transform.setToTranslation(cubeSceneX(), cubeSceneY() + kotlin.math.sin(time * 3.9f) * 0.035f, 0f)
                     .rotate(Vector3.Y, currentYawDegrees + GdxState.tiltYawOffset)
-                    .scale(cubeTransformScale(), cubeTransformScale(), cubeTransformScale())
+                    .scale(scale, scale, scale)
                 modelBatch?.begin(camera); modelBatch?.render(cube, environment); modelBatch?.end()
                 }
             }
@@ -1285,7 +1637,9 @@ class CombinedGdxAdapter(
     }
 
     override fun dispose() {
-        modelBatch?.dispose(); model?.dispose(); channelObjectModel?.dispose()
+        modelBatch?.dispose()
+        model?.dispose()
+        channelObjectModel?.dispose()
         // textureCache owns all Texture objects; textures[] just holds references into it.
         textureCache.values.forEach { it.dispose() }
         textureCache.clear()

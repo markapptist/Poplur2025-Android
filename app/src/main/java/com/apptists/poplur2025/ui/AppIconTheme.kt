@@ -35,23 +35,60 @@ val CubeSkin.appIconResId: Int
 
 object AppIconThemeManager {
     private val allAliasNames = CubeSkin.entries.map { it.appIconAliasName }
+    private var lastAppliedSkinId: String? = null
 
     fun apply(context: Context, skin: CubeSkin) {
+        if (lastAppliedSkinId == skin.id) return
+        lastAppliedSkinId = skin.id
+
         val appContext = context.applicationContext
         val packageManager = appContext.packageManager
         val packageName = appContext.packageName
+        val selectedAlias = skin.appIconAliasName
 
-        allAliasNames.forEach { alias ->
-            val state = if (alias == skin.appIconAliasName) {
-                PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-            } else {
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        fun setAliasState(alias: String, state: Int) {
+            val componentName = ComponentName(packageName, "$packageName.$alias")
+            val currentState = runCatching {
+                packageManager.getComponentEnabledSetting(componentName)
+            }.getOrElse {
+                return
             }
-            packageManager.setComponentEnabledSetting(
-                ComponentName(packageName, "$packageName.$alias"),
-                state,
-                PackageManager.DONT_KILL_APP
-            )
+
+            val isDefaultAlias = alias == "IconDefaultAlias"
+            
+            // Determine if the component is effectively correct based on its manifest default
+            val isCorrectIfDefault = if (isDefaultAlias) {
+                state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            } else {
+                state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            }
+
+            val needsUpdate = if (currentState == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) {
+                !isCorrectIfDefault
+            } else {
+                currentState != state
+            }
+
+            if (needsUpdate) {
+                runCatching {
+                    packageManager.setComponentEnabledSetting(
+                        componentName,
+                        state,
+                        PackageManager.DONT_KILL_APP
+                    )
+                }
+            }
         }
+
+        setAliasState(selectedAlias, PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
+
+        allAliasNames
+            .filterNot { it == selectedAlias }
+            .forEach { alias ->
+                setAliasState(
+                    alias,
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                )
+            }
     }
 }

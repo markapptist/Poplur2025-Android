@@ -23,18 +23,18 @@ data class PoplurGameConfig(
 ) {
     companion object {
         val Fallback = PoplurGameConfig(
-            game = PoplurGameType.SideScroller,
-            character = "pop",
-            gameName = "Pop's City Run",
-            theme = "Neon City",
-            skyColor = "#1A1A2E",
-            groundColor = "#16213E",
-            accentColor = "#E94560",
+            game = PoplurGameType.ArcadeShooter,
+            character = "stella",
+            gameName = "Stella Starfall",
+            theme = "Space",
+            skyColor = "#050713",
+            groundColor = "#111B3D",
+            accentColor = "#00F5FF",
             difficulty = "medium",
             speed = 280f,
-            powerUps = listOf("star", "shield"),
-            enemyType = "robo_blob",
-            specialMechanic = "double_jump"
+            powerUps = listOf("triple shot", "shield"),
+            enemyType = "neon drones",
+            specialMechanic = "drag-to-fly auto fire"
         )
     }
 }

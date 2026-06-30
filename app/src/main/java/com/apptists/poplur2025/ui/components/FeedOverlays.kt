@@ -168,7 +168,7 @@ fun TrendingDisplay(
     )
 
     Column(
-        modifier = modifier,
+        modifier = modifier.height(PoplurCounterLayout.counterHeight),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         ShaderNumberText(
@@ -176,21 +176,34 @@ fun TrendingDisplay(
             color = contentColor.copy(alpha = 0.7f),
             letterSpacing = 1.4.sp,
             fontSize = 11.sp,
-            fontWeight = FontWeight.Black
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            modifier = Modifier.height(PoplurCounterLayout.labelHeight)
         )
-        Icon(
-            imageVector = changeIcon,
-            contentDescription = null,
-            tint = changeColor,
+        Spacer(Modifier.height(PoplurCounterLayout.labelToNumeratorSpacing))
+
+        Box(
             modifier = Modifier
-                .size(38.dp)
-                .padding(vertical = 4.dp)
-        )
+                .width(PoplurCounterLayout.separatorWidth)
+                .height(PoplurCounterLayout.numeratorHeight),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Icon(
+                imageVector = changeIcon,
+                contentDescription = null,
+                tint = changeColor,
+                modifier = Modifier.size(38.dp)
+            )
+        }
+        Spacer(Modifier.height(PoplurCounterLayout.numeratorToSeparatorSpacing))
+
         HorizontalDivider(
             color = contentColor,
-            thickness = 2.dp,
-            modifier = Modifier.width(70.dp).padding(vertical = 4.dp)
+            thickness = PoplurCounterLayout.separatorHeight,
+            modifier = Modifier.width(PoplurCounterLayout.separatorWidth)
         )
+        Spacer(Modifier.height(PoplurCounterLayout.separatorToDenominatorSpacing))
+
         ShaderNumberText(
             text = NumberFormat.getNumberInstance(Locale.US).format(animatedPosts),
             color = contentColor,
@@ -200,14 +213,16 @@ fun TrendingDisplay(
             modifier = Modifier.graphicsLayer {
                 scaleX = countPulse
                 scaleY = countPulse
-            }
+            }.height(PoplurCounterLayout.denominatorHeight)
         )
         ShaderNumberText(
             text = "posts",
             color = contentColor,
             fontSize = 14.sp,
-            fontWeight = FontWeight.Black
+            fontWeight = FontWeight.Black,
+            maxLines = 1
         )
+        Spacer(Modifier.weight(1f))
     }
 }
 

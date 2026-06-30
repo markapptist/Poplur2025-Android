@@ -1,7 +1,15 @@
 package com.apptists.poplur2025.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
 
 data class CubeSkinUiTheme(
     val background: Color,
@@ -174,4 +182,161 @@ fun skinBackdropBrush(skin: CubeSkin): Brush {
     return Brush.linearGradient(
         colors = listOf(theme.background, theme.backgroundMid, theme.backgroundDeep)
     )
+}
+
+fun Modifier.skinBackdrop(skin: CubeSkin): Modifier {
+    val theme = skin.uiTheme()
+    return background(skinBackdropBrush(skin)).drawBehind {
+        when (skin) {
+            CubeSkin.Toy -> {
+                drawRect(Color(0xFFFFF4DE).copy(alpha = 0.72f))
+                val cornerSize = Size(72.dp.toPx(), 72.dp.toPx())
+                val corners = listOf(
+                    Offset.Zero to theme.accent,
+                    Offset(size.width - cornerSize.width, 0f) to theme.accent2,
+                    Offset(0f, size.height - cornerSize.height) to theme.accent,
+                    Offset(size.width - cornerSize.width, size.height - cornerSize.height) to theme.accent2
+                )
+                corners.forEach { (offset, color) ->
+                    drawRoundRect(
+                        color = color.copy(alpha = 0.72f),
+                        topLeft = offset,
+                        size = cornerSize,
+                        cornerRadius = CornerRadius(24.dp.toPx(), 24.dp.toPx())
+                    )
+                    drawRoundRect(
+                        color = theme.border.copy(alpha = 0.84f),
+                        topLeft = offset + Offset(7.dp.toPx(), 7.dp.toPx()),
+                        size = Size(cornerSize.width - 14.dp.toPx(), cornerSize.height - 14.dp.toPx()),
+                        cornerRadius = CornerRadius(17.dp.toPx(), 17.dp.toPx()),
+                        style = Stroke(2.dp.toPx())
+                    )
+                }
+                repeat(20) { i ->
+                    val x = ((i * 109) % 997) / 997f * size.width
+                    val y = ((i * 167) % 997) / 997f * size.height
+                    drawCircle(theme.border.copy(alpha = 0.45f), 3.8.dp.toPx(), Offset(x, y))
+                }
+            }
+            CubeSkin.Chocolate -> {
+                val milk = Color(0xFF6A2E0E)
+                val dark = Color(0xFF1F0A02)
+                drawRect(milk.copy(alpha = 0.20f))
+                var x = 0f
+                while (x < size.width + 80.dp.toPx()) {
+                    drawCircle(
+                        Brush.verticalGradient(listOf(milk.copy(alpha = 0.86f), dark.copy(alpha = 0.70f))),
+                        radius = 42.dp.toPx(),
+                        center = Offset(x + 32.dp.toPx(), 42.dp.toPx())
+                    )
+                    drawRoundRect(
+                        brush = Brush.verticalGradient(listOf(milk.copy(alpha = 0.90f), dark.copy(alpha = 0.60f))),
+                        topLeft = Offset(x, -16.dp.toPx()),
+                        size = Size(56.dp.toPx(), 110.dp.toPx()),
+                        cornerRadius = CornerRadius(30.dp.toPx(), 30.dp.toPx())
+                    )
+                    x += 74.dp.toPx()
+                }
+                var row = 190.dp.toPx()
+                while (row < size.height) {
+                    var col = 28.dp.toPx()
+                    while (col < size.width) {
+                        drawRoundRect(
+                            color = Color.Black.copy(alpha = 0.08f),
+                            topLeft = Offset(col, row),
+                            size = Size(90.dp.toPx(), 70.dp.toPx()),
+                            cornerRadius = CornerRadius(16.dp.toPx(), 16.dp.toPx())
+                        )
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = 0.07f),
+                            topLeft = Offset(col, row),
+                            size = Size(90.dp.toPx(), 70.dp.toPx()),
+                            cornerRadius = CornerRadius(16.dp.toPx(), 16.dp.toPx()),
+                            style = Stroke(1.2.dp.toPx())
+                        )
+                        col += 118.dp.toPx()
+                    }
+                    row += 120.dp.toPx()
+                }
+            }
+            CubeSkin.Camo -> {
+                val palette = listOf(
+                    Color(0xFF0D1408),
+                    Color(0xFF263018),
+                    Color(0xFF45431F),
+                    Color(0xFF17220D)
+                )
+                repeat(95) { i ->
+                    val x = ((i * 67) % 991) / 991f * size.width
+                    val y = ((i * 137) % 991) / 991f * size.height
+                    val w = (42 + (i * 17) % 92).dp.toPx()
+                    val h = (24 + (i * 23) % 68).dp.toPx()
+                    drawOval(palette[i % palette.size].copy(alpha = 0.64f), Offset(x - w / 2f, y - h / 2f), Size(w, h))
+                }
+            }
+            CubeSkin.Ice -> {
+                repeat(140) { i ->
+                    val x = ((i * 89) % 1021) / 1021f * size.width
+                    val y = ((i * 193) % 1021) / 1021f * size.height
+                    drawCircle(theme.accent.copy(alpha = 0.34f), (0.8f + ((i * 11) % 5) * 0.32f).dp.toPx(), Offset(x, y))
+                }
+                repeat(34) { i ->
+                    val sx = ((i * 83) % 997) / 997f * size.width
+                    val sy = ((i * 197) % 997) / 997f * size.height
+                    drawLine(theme.accent2.copy(alpha = 0.24f), Offset(sx, sy), Offset(sx + ((i % 7) - 3) * 18.dp.toPx(), sy + (28 + (i * 9) % 76).dp.toPx()), 1.dp.toPx())
+                }
+                drawRoundRect(theme.accent2.copy(alpha = 0.46f), Offset(6.dp.toPx(), 6.dp.toPx()), Size(size.width - 12.dp.toPx(), size.height - 12.dp.toPx()), CornerRadius(32.dp.toPx(), 32.dp.toPx()), style = Stroke(4.dp.toPx()))
+            }
+            CubeSkin.Carbon -> {
+                repeat(160) { i ->
+                    val x = ((i * 89) % 1021) / 1021f * size.width
+                    val y = ((i * 193) % 1021) / 1021f * size.height
+                    drawCircle(theme.accent.copy(alpha = 0.35f), (0.7f + ((i * 11) % 5) * 0.36f).dp.toPx(), Offset(x, y))
+                }
+            }
+            CubeSkin.Rainbow -> {
+                val colors = listOf(Color.Red, Color(0xFFFFA000), Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta)
+                colors.forEachIndexed { index, color ->
+                    drawOval(
+                        color.copy(alpha = 0.18f),
+                        topLeft = Offset(-size.width * 0.25f + index * size.width / 6f, -size.height * 0.12f),
+                        size = Size(size.width * 0.50f, size.height * 1.22f)
+                    )
+                }
+            }
+            CubeSkin.Gold -> {
+                repeat(24) { i ->
+                    val y = i * size.height / 24f
+                    drawLine(Color.White.copy(alpha = if (i % 3 == 0) 0.09f else 0.035f), Offset(-30f, y), Offset(size.width + 30f, y + size.height * 0.18f), 2.dp.toPx())
+                }
+            }
+            CubeSkin.Default, CubeSkin.Space -> {
+                var row = 24.dp.toPx()
+                while (row < size.height + 32.dp.toPx()) {
+                    var col = 20.dp.toPx()
+                    while (col < size.width + 32.dp.toPx()) {
+                        val seed = (row * 13 + col * 7).toInt()
+                        val radius = (3 + seed % 13).dp.toPx()
+                        val x = col + ((seed % 17) - 8).dp.toPx()
+                        val y = row + ((seed % 19) - 9).dp.toPx()
+                        drawCircle(Color.Black.copy(alpha = 0.34f), radius, Offset(x, y))
+                        drawCircle(Color.White.copy(alpha = 0.05f), radius, Offset(x - 1.dp.toPx(), y - 1.dp.toPx()), style = Stroke(1.dp.toPx()))
+                        col += 46.dp.toPx()
+                    }
+                    row += 42.dp.toPx()
+                }
+                repeat(5) { i ->
+                    val x = size.width * (0.18f + i * 0.17f)
+                    drawLine(theme.accent.copy(alpha = 0.12f), Offset(x, -size.height * 0.06f), Offset(x + 95.dp.toPx(), size.height * 0.98f), 18.dp.toPx())
+                }
+            }
+        }
+        drawRoundRect(
+            brush = Brush.linearGradient(listOf(theme.accent.copy(alpha = 0.82f), theme.accent2.copy(alpha = 0.64f), theme.accent.copy(alpha = 0.44f))),
+            topLeft = Offset(10.dp.toPx(), 10.dp.toPx()),
+            size = Size(size.width - 20.dp.toPx(), size.height - 20.dp.toPx()),
+            cornerRadius = CornerRadius(42.dp.toPx(), 42.dp.toPx()),
+            style = Stroke(if (skin == CubeSkin.Toy) 2.dp.toPx() else 1.5.dp.toPx())
+        )
+    }
 }

@@ -12,6 +12,18 @@ object PoplurOverlayPositions {
     val bottomPadding = 48.dp
 }
 
+object PoplurCounterLayout {
+    val counterHeight = 136.dp
+    val labelHeight = 16.dp
+    val labelToNumeratorSpacing = 4.dp
+    val numeratorHeight = 42.dp
+    val numeratorToSeparatorSpacing = 2.dp
+    val separatorWidth = 70.dp
+    val separatorHeight = 2.dp
+    val separatorToDenominatorSpacing = 4.dp
+    val denominatorHeight = 40.dp
+}
+
 fun BoxScope.poplurRadiusDisplayModifier(
     modifier: Modifier = Modifier
 ): Modifier = modifier

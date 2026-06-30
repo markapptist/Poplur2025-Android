@@ -160,6 +160,9 @@ fun RexHoopsGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
         }
     }
 
+    val courtPath = remember { Path() }
+    val arcPath = remember { Path() }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -173,7 +176,8 @@ fun RexHoopsGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
             val h = size.height
 
             // Court floor (trapezoid perspective)
-            val courtPath = Path().apply {
+            courtPath.reset()
+            courtPath.apply {
                 moveTo(w * 0.05f, h * 0.95f)
                 lineTo(w * 0.95f, h * 0.95f)
                 lineTo(w * 0.75f, h * 0.45f)
@@ -184,7 +188,8 @@ fun RexHoopsGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
             drawPath(courtPath, Color(0xFFFFFFFF).copy(alpha = 0.12f), style = Stroke(3f))
 
             // 3-point arc
-            val arcPath = Path().apply {
+            arcPath.reset()
+            arcPath.apply {
                 val cx = w * 0.5f
                 val cy = h * 0.95f
                 val rx = w * 0.42f

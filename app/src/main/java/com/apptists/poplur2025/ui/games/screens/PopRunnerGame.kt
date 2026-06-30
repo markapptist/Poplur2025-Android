@@ -181,6 +181,8 @@ fun PopRunnerGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
         }
     }
 
+    val hillsPath = remember { Path() }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -197,9 +199,9 @@ fun PopRunnerGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
             drawRect(Brush.verticalGradient(listOf(skyColor, skyColor.copy(alpha = 0.6f), groundColor.copy(alpha = 0.3f))))
 
             // Hills parallax (bg)
-            drawHills(w, h, Color(0xFF1E2A45), 0.68f, 3)
+            drawHills(hillsPath, w, h, Color(0xFF1E2A45), 0.68f, 3)
             // Hills (fg)
-            drawHills(w, h, Color(0xFF0F1C35), 0.75f, 5)
+            drawHills(hillsPath, w, h, Color(0xFF0F1C35), 0.75f, 5)
 
             // Ground
             drawRect(
@@ -263,8 +265,8 @@ fun PopRunnerGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
     }
 }
 
-private fun DrawScope.drawHills(w: Float, h: Float, color: Color, baseY: Float, count: Int) {
-    val path = Path()
+private fun DrawScope.drawHills(path: Path, w: Float, h: Float, color: Color, baseY: Float, count: Int) {
+    path.reset()
     path.moveTo(0f, h * baseY)
     val step = w / count
     for (i in 0..count) {

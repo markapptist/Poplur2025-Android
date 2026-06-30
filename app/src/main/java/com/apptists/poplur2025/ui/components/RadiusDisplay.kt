@@ -50,13 +50,16 @@ fun RadiusDisplay(
         label = "radius-total-pulse"
     )
     val (formattedRadius, displayUnit) = formatRadiusForDisplay(animatedRadius, unit)
-    val formattedTotal = NumberFormat.getNumberInstance(Locale.US).format(animatedTotal)
+    val (formattedTotal, denominatorUnit) = formatTotalRadiusForDisplay(animatedTotal, unit)
 
     Column(
-        modifier = modifier,
+        modifier = modifier.height(PoplurCounterLayout.counterHeight),
         horizontalAlignment = Alignment.End
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.height(PoplurCounterLayout.labelHeight)
+        ) {
             PoplurText(
                 text = "RADIUS",
                 color = contentColor.copy(alpha = 0.7f),
@@ -72,13 +75,18 @@ fun RadiusDisplay(
                 modifier = Modifier.size(14.dp)
             )
         }
+
+        Spacer(Modifier.height(PoplurCounterLayout.labelToNumeratorSpacing))
+
         Row(
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.graphicsLayer {
-                scaleX = radiusPulse
-                scaleY = radiusPulse
-            }
+            modifier = Modifier
+                .height(PoplurCounterLayout.numeratorHeight)
+                .graphicsLayer {
+                    scaleX = radiusPulse
+                    scaleY = radiusPulse
+                }
         ) {
             ShaderNumberText(
                 text = formattedRadius,
@@ -97,26 +105,45 @@ fun RadiusDisplay(
                 modifier = Modifier.padding(bottom = 4.dp)
             )
         }
+        Spacer(Modifier.height(PoplurCounterLayout.numeratorToSeparatorSpacing))
+
         HorizontalDivider(
             color = Color(0xFFD8892B),
-            thickness = 2.dp,
+            thickness = PoplurCounterLayout.separatorHeight,
             modifier = Modifier
-                .width(70.dp)
-                .padding(vertical = 4.dp)
+                .width(PoplurCounterLayout.separatorWidth)
         )
-        ShaderNumberText(
-            text = formattedTotal,
-            color = contentColor,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Black,
-            lineHeight = 28.sp,
-            intensity = 0.72f,
-            autoSize = true,
-            modifier = Modifier.graphicsLayer {
-                scaleX = totalPulse
-                scaleY = totalPulse
-            }
-        )
+        Spacer(Modifier.height(PoplurCounterLayout.separatorToDenominatorSpacing))
+
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .height(PoplurCounterLayout.denominatorHeight)
+                .graphicsLayer {
+                    scaleX = totalPulse
+                    scaleY = totalPulse
+                }
+        ) {
+            ShaderNumberText(
+                text = formattedTotal,
+                color = contentColor,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Black,
+                lineHeight = 28.sp,
+                intensity = 0.72f,
+                autoSize = true
+            )
+            PoplurText(
+                text = denominatorUnit,
+                color = contentColor.copy(alpha = 0.78f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black,
+                modifier = Modifier.padding(bottom = 3.dp)
+            )
+        }
+
+        Spacer(Modifier.weight(1f))
     }
 }
 
@@ -142,4 +169,17 @@ private fun formatKilometers(kilometers: Float): String {
         return NumberFormat.getNumberInstance(Locale.US).format(kilometers.toInt())
     }
     return String.format(Locale.US, "%.1f", kilometers).removeSuffix(".0")
+}
+
+private fun formatTotalRadiusForDisplay(totalRadius: Int, unit: String): Pair<String, String> {
+    val cleanUnit = unit.trim().ifBlank { "mi" }
+    if (cleanUnit.equals("m", ignoreCase = true) ||
+        cleanUnit.equals("meter", ignoreCase = true) ||
+        cleanUnit.equals("meters", ignoreCase = true)
+    ) {
+        val kilometers = if (totalRadius == 3959) 6_371 else (totalRadius / 1_000).coerceAtLeast(1)
+        return NumberFormat.getNumberInstance(Locale.US).format(kilometers) to "km"
+    }
+
+    return NumberFormat.getNumberInstance(Locale.US).format(totalRadius.coerceAtLeast(0)) to cleanUnit
 }

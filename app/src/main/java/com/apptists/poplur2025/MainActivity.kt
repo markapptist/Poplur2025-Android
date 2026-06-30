@@ -33,7 +33,7 @@ import kotlin.math.roundToInt
 class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, PersistentCubeOverlayHost {
     private var composeView: ComposeView? = null
     private var cubeContainer: FragmentContainerView? = null
-    private val cubeContainerId = View.generateViewId()
+    private val cubeContainerId = R.id.cube_container
     private var lastCubeSkin: CubeSkin = CubeSkin.Default
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,7 +42,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         volumeControlStream = AudioManager.STREAM_MUSIC
-        
+
         lifecycleScope.launch(Dispatchers.IO) {
             AgoraCallEngine.initialize(this@MainActivity)
         }
@@ -158,11 +158,17 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
             initialTabIndex = config.selectedTabIndex,
             onVerticalSwipe = if (config.isInteractive) config.onVerticalSwipe else null,
             onLongPress = if (config.isInteractive) config.onLongPress else null,
+            onLongPressMove = if (config.isInteractive) config.onLongPressMove else null,
             onLongPressEnd = if (config.isInteractive) config.onLongPressEnd else null,
             onTap = if (config.isInteractive) config.onTap else null,
             onTabSelected = if (config.isInteractive) config.onTabSelected else { _: Int -> }
         ).apply {
-            setProfileIconTitle(config.profileCubeIconTitle)
+            setFaceTitles(
+                mapTitle = config.mapCubeFaceTitle,
+                cameraTitle = config.cameraCubeFaceTitle,
+                feedTitle = config.feedCubeFaceTitle,
+                profileTitle = config.profileCubeIconTitle
+            )
             setSkin(config.cubeSkin)
             showChannelObject(config.channelObjectId, config.channelObjectPopToken)
         }
@@ -171,11 +177,17 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
     private fun applyCubeConfig(fragment: GdxNavigationFragment, config: PersistentCubeOverlayConfig) {
         fragment.apply {
             syncSelectedTab(config.selectedTabIndex)
-            setProfileIconTitle(config.profileCubeIconTitle)
+            setFaceTitles(
+                mapTitle = config.mapCubeFaceTitle,
+                cameraTitle = config.cameraCubeFaceTitle,
+                feedTitle = config.feedCubeFaceTitle,
+                profileTitle = config.profileCubeIconTitle
+            )
             setSkin(config.cubeSkin)
             showChannelObject(config.channelObjectId, config.channelObjectPopToken)
             onVerticalSwipe = if (config.isInteractive) config.onVerticalSwipe else null
             onLongPress = if (config.isInteractive) config.onLongPress else null
+            onLongPressMove = if (config.isInteractive) config.onLongPressMove else null
             onLongPressEnd = if (config.isInteractive) config.onLongPressEnd else null
             onTap = if (config.isInteractive) config.onTap else null
             onTabSelected = if (config.isInteractive) config.onTabSelected else null

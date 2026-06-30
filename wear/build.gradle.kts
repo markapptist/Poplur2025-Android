@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.apptists.poplur2025.wear"
-    compileSdk = 36
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.apptists.poplur2025.wear"

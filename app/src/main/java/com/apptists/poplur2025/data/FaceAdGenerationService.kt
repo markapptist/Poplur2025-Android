@@ -2,6 +2,7 @@ package com.apptists.poplur2025.data
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Log
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -68,12 +69,21 @@ object FaceAdGenerationService {
             setRequestProperty("Authorization", "Bearer $key")
             setRequestProperty("Content-Type", "application/json")
             connectTimeout = 30_000
+            readTimeout = 60_000
             doOutput = true
         }
-        conn.outputStream.use { it.write(body.toString().toByteArray()) }
-        val response = conn.inputStream.use { it.readBytes() }.toString(Charsets.UTF_8)
-        conn.disconnect()
-        return JSONObject(response).getString("id")
+        try {
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            val code = conn.responseCode
+            if (code !in 200..201) {
+                Log.w("FaceAdGeneration", "start failed $code: ${conn.errorBody()}")
+                throw FaceAdError.GenerationFailed
+            }
+            val response = conn.inputStream.use { it.readBytes() }.toString(Charsets.UTF_8)
+            return JSONObject(response).getString("id")
+        } finally {
+            conn.disconnect()
+        }
     }
 
     private fun poll(id: String, key: String): String {
@@ -83,17 +93,33 @@ object FaceAdGenerationService {
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 setRequestProperty("Authorization", "Bearer $key")
                 connectTimeout = 15_000
+                readTimeout = 15_000
             }
-            val json = JSONObject(conn.inputStream.use { it.readBytes() }.toString(Charsets.UTF_8))
-            conn.disconnect()
-            when (json.optString("status")) {
-                "succeeded" -> {
-                    val out = json.get("output")
-                    if (out is JSONArray && out.length() > 0) return out.getString(0)
-                    if (out is String) return out
-                    throw FaceAdError.InvalidResponse
+            try {
+                if (conn.responseCode != 200) {
+                    Log.w("FaceAdGeneration", "poll failed ${conn.responseCode}: ${conn.errorBody()}")
+                    return@repeat
                 }
-                "failed", "canceled" -> throw FaceAdError.GenerationFailed
+                val json = JSONObject(conn.inputStream.use { it.readBytes() }.toString(Charsets.UTF_8))
+                when (json.optString("status")) {
+                    "succeeded" -> {
+                        val out = json.get("output")
+                        if (out is JSONArray && out.length() > 0) return out.getString(0)
+                        if (out is String) return out
+                        if (out is JSONObject) {
+                            out.optString("video").takeIf { it.isNotBlank() }?.let { return it }
+                            out.optString("image").takeIf { it.isNotBlank() }?.let { return it }
+                            out.optString("url").takeIf { it.isNotBlank() }?.let { return it }
+                        }
+                        throw FaceAdError.InvalidResponse
+                    }
+                    "failed", "canceled" -> {
+                        Log.w("FaceAdGeneration", "generation failed: ${json.opt("error")}")
+                        throw FaceAdError.GenerationFailed
+                    }
+                }
+            } finally {
+                conn.disconnect()
             }
         }
         throw FaceAdError.Timeout
@@ -103,10 +129,22 @@ object FaceAdGenerationService {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 30_000; readTimeout = 60_000
         }
+        if (conn.responseCode !in 200..299) {
+            Log.w("FaceAdGeneration", "download failed ${conn.responseCode}: ${conn.errorBody()}")
+            conn.disconnect()
+            throw FaceAdError.DownloadFailed
+        }
         val data = conn.inputStream.use { it.readBytes() }
         conn.disconnect()
         return BitmapFactory.decodeByteArray(data, 0, data.size) ?: throw FaceAdError.DownloadFailed
     }
+
+    private fun HttpURLConnection.errorBody(): String =
+        try {
+            errorStream?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
 }
 
 sealed class FaceAdError(msg: String) : Exception(msg) {

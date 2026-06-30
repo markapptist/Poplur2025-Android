@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +43,7 @@ fun AIVideoStudioScreen(
     onGenerate: (prompt: String, style: AIVideoStyle, locationName: String) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var prompt by remember { mutableStateOf(initialPrompt) }
     var selectedStyle by remember { mutableStateOf(initialStyle) }
     var locationName by remember { mutableStateOf("") }
@@ -51,7 +53,7 @@ fun AIVideoStudioScreen(
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) resolveLocation(context) { name ->
+        if (granted) resolveLocation(context, scope) { name ->
             locationName = name
             locationResolved = true
             isLocationLoading = false
@@ -66,7 +68,7 @@ fun AIVideoStudioScreen(
         ) == PackageManager.PERMISSION_GRANTED
         if (hasPermission && !locationResolved) {
             isLocationLoading = true
-            resolveLocation(context) { name ->
+            resolveLocation(context, scope) { name ->
                 locationName = name
                 locationResolved = true
                 isLocationLoading = false
@@ -198,7 +200,7 @@ fun AIVideoStudioScreen(
                         ) == PackageManager.PERMISSION_GRANTED
                         if (hasPermission) {
                             isLocationLoading = true
-                            resolveLocation(context) { name ->
+                            resolveLocation(context, scope) { name ->
                                 locationName = name
                                 locationResolved = true
                                 isLocationLoading = false
@@ -299,24 +301,27 @@ private fun StyleGrid(
 
 private fun resolveLocation(
     context: android.content.Context,
+    scope: kotlinx.coroutines.CoroutineScope,
     onResult: (String) -> Unit
 ) {
     val fusedClient = LocationServices.getFusedLocationProviderClient(context)
     try {
         fusedClient.lastLocation.addOnSuccessListener { location ->
             if (location == null) { onResult(""); return@addOnSuccessListener }
-            try {
-                val geocoder = Geocoder(context, java.util.Locale.getDefault())
-                @Suppress("DEPRECATION")
-                val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
-                val addr = addresses?.firstOrNull()
-                val name = listOfNotNull(
-                    addr?.subLocality ?: addr?.locality,
-                    addr?.adminArea
-                ).joinToString(", ").ifBlank { "" }
-                onResult(name)
-            } catch (e: Exception) {
-                onResult("")
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val geocoder = Geocoder(context, java.util.Locale.getDefault())
+                    @Suppress("DEPRECATION")
+                    val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
+                    val addr = addresses?.firstOrNull()
+                    val name = listOfNotNull(
+                        addr?.subLocality ?: addr?.locality,
+                        addr?.adminArea
+                    ).joinToString(", ").ifBlank { "" }
+                    onResult(name)
+                } catch (e: Exception) {
+                    onResult("")
+                }
             }
         }.addOnFailureListener {
             onResult("")

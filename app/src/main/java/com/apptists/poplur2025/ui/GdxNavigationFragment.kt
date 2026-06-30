@@ -33,15 +33,19 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
     var onTabSelected: ((Int) -> Unit)? = null
     var onVerticalSwipe: ((Boolean) -> Unit)? = null
     var onLongPress: (() -> Unit)? = null
+    var onLongPressMove: ((Float, Float) -> Unit)? = null
     var onLongPressEnd: (() -> Unit)? = null
     var onTap: (() -> Unit)? = null
     var initialTabIndex: Int = 2
     private var adapter: CombinedGdxAdapter? = null
+    private var pendingMapIconTitle: String = "Map"
+    private var pendingCameraIconTitle: String = "Camera"
+    private var pendingFeedIconTitle: String = "Feed"
     private var pendingProfileIconTitle: String = "Profile"
     private var pendingChannelObjectId: String = "star"
     private var pendingChannelObjectToken: Int = 0
     private var syncedTabIndex: Int = Int.MIN_VALUE
-    private var pendingSkin: CubeSkin = CubeSkin.Default
+    private var pendingSkin: CubeSkin = CubeSkin.Gold
     private var inputView: View? = null
     private var textureView: TransparentGLTextureView? = null
 
@@ -49,6 +53,7 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
         initialTabIndex: Int,
         onVerticalSwipe: ((Boolean) -> Unit)? = null,
         onLongPress: (() -> Unit)? = null,
+        onLongPressMove: ((Float, Float) -> Unit)? = null,
         onLongPressEnd: (() -> Unit)? = null,
         onTap: (() -> Unit)? = null,
         onTabSelected: (Int) -> Unit
@@ -56,6 +61,7 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
         this.initialTabIndex = initialTabIndex
         this.onVerticalSwipe = onVerticalSwipe
         this.onLongPress = onLongPress
+        this.onLongPressMove = onLongPressMove
         this.onLongPressEnd = onLongPressEnd
         this.onTap = onTap
         this.onTabSelected = onTabSelected
@@ -64,6 +70,24 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
     fun setProfileIconTitle(title: String) {
         pendingProfileIconTitle = title
         adapter?.profileIconTitle = title
+    }
+
+    fun setFaceTitles(
+        mapTitle: String,
+        cameraTitle: String,
+        feedTitle: String,
+        profileTitle: String
+    ) {
+        pendingMapIconTitle = mapTitle.ifBlank { "Map" }
+        pendingCameraIconTitle = cameraTitle.ifBlank { "Camera" }
+        pendingFeedIconTitle = feedTitle.ifBlank { "Feed" }
+        pendingProfileIconTitle = profileTitle.ifBlank { "Profile" }
+        adapter?.setFaceTitles(
+            mapTitle = pendingMapIconTitle,
+            cameraTitle = pendingCameraIconTitle,
+            feedTitle = pendingFeedIconTitle,
+            profileTitle = pendingProfileIconTitle
+        )
     }
 
     fun setSkin(skin: CubeSkin) {
@@ -99,13 +123,19 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
             initialTabIndex,
             onVerticalSwipe = { isUp -> activity?.runOnUiThread { onVerticalSwipe?.invoke(isUp) } },
             onLongPress = { activity?.runOnUiThread { onLongPress?.invoke() } },
+            onLongPressMove = { deltaX, deltaY -> activity?.runOnUiThread { onLongPressMove?.invoke(deltaX, deltaY) } },
             onLongPressEnd = { activity?.runOnUiThread { onLongPressEnd?.invoke() } },
             onTap = { activity?.runOnUiThread { onTap?.invoke() } }
         ) { index ->
             activity?.runOnUiThread { onTabSelected?.invoke(index) }
         }
         this.adapter = adapter
-        adapter.profileIconTitle = pendingProfileIconTitle
+        adapter.setFaceTitles(
+            mapTitle = pendingMapIconTitle,
+            cameraTitle = pendingCameraIconTitle,
+            feedTitle = pendingFeedIconTitle,
+            profileTitle = pendingProfileIconTitle
+        )
         adapter.skin = pendingSkin
         if (pendingChannelObjectToken > 0) adapter.showChannelObject(pendingChannelObjectId)
 
@@ -140,17 +170,27 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
     ): View {
         GdxNativesLoader.load()
         setApplicationLogger(AndroidApplicationLogger())
-        graphics = TransparentAndroidGraphics(
+        val graphics = TransparentAndroidGraphics(
             this,
             config,
             config.resolutionStrategy ?: FillResolutionStrategy()
         )
+        this.graphics = graphics
+
         val transparentView = TransparentGLTextureView(requireContext()).apply {
-            setRenderer(graphics as GLSurfaceView.Renderer)
+            setRenderer(graphics as GLSurfaceView.Renderer, if (config.useGL30) 3 else 2)
             setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY)
             isFocusable = false
             isFocusableInTouchMode = false
         }
+
+        // Update the graphics object to point to our real view
+        runCatching {
+            val field = com.badlogic.gdx.backends.android.AndroidGraphics::class.java.getDeclaredField("view")
+            field.isAccessible = true
+            field.set(graphics, transparentView)
+        }
+
         textureView = transparentView
         inputView = transparentView
         input = createInput(this, requireActivity(), transparentView, config)
@@ -224,19 +264,15 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
             application: AndroidApplicationBase,
             resolutionStrategy: ResolutionStrategy
         ): GLSurfaceView20 {
-            if (!checkGL20()) {
-                throw com.badlogic.gdx.utils.GdxRuntimeException("libGDX requires OpenGL ES 2.0")
-            }
-            setTargetGlesVersion(if (config.useGL30) 3 else 2)
-            return GLSurfaceView20(
-                application.context,
-                true,
-                config.depth,
-                config.stencil,
-                resolutionStrategy
-            ).apply {
-                configureTransparentSurface(this)
-                setRenderer(this@TransparentAndroidGraphics)
+            val glesVersion = if (config.useGL30) 3 else 2
+            setTargetGlesVersion(glesVersion)
+
+            // Return a dummy GLSurfaceView20 that ignores setRenderer.
+            // This prevents a background render thread from starting.
+            return object : GLSurfaceView20(application.context, true, config.depth, config.stencil, resolutionStrategy) {
+                override fun setRenderer(renderer: GLSurfaceView.Renderer?) {
+                    // Do nothing
+                }
             }
         }
 

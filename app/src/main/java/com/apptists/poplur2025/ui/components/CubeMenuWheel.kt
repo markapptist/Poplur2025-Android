@@ -50,7 +50,6 @@ import com.apptists.poplur2025.ui.usePerItemTint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -89,26 +88,21 @@ class CubeMenuWheelController(
     val isOnScreen: Boolean
         get() = isVisible || isClosing
 
-    private var cycleJob: Job? = null
     private var closeJob: Job? = null
-    private val tickMillis = 620L
+    private var scrubRemainder = 0f
+    private val horizontalScrubStepPx = 96f
+    private val verticalScrubStepPx = 108f
+    private val maxStepsPerScrubUpdate = 4
 
     fun beginHold(nextItems: List<CubeMenuWheelItem>) {
         if (nextItems.isEmpty()) return
-        cycleJob?.cancel()
         closeJob?.cancel()
         items = nextItems
         selectedIndex = 0
         tickCount = 0
+        scrubRemainder = 0f
         isClosing = false
         isVisible = true
-        onTick()
-        cycleJob = scope.launch {
-            while (isActive) {
-                delay(tickMillis)
-                advance()
-            }
-        }
     }
 
     fun endHold(activateSelected: Boolean) {
@@ -117,8 +111,6 @@ class CubeMenuWheelController(
         } else {
             null
         }
-        cycleJob?.cancel()
-        cycleJob = null
         closeJob?.cancel()
         isVisible = false
         isClosing = true
@@ -129,9 +121,34 @@ class CubeMenuWheelController(
         }
     }
 
-    private fun advance() {
-        if (items.isEmpty()) return
-        selectedIndex = (selectedIndex + 1) % items.size
+    fun scrub(deltaX: Float, deltaY: Float, layout: CubeMenuLayout) {
+        if (!isVisible || items.size <= 1) return
+        val primaryDelta = if (layout == CubeMenuLayout.Horizontal) deltaX else deltaY
+        if (abs(primaryDelta) <= 0.25f) return
+
+        val stepDistance = if (layout == CubeMenuLayout.Horizontal) horizontalScrubStepPx else verticalScrubStepPx
+        scrubRemainder += primaryDelta
+
+        var steps = 0
+        while (scrubRemainder <= -stepDistance && steps < maxStepsPerScrubUpdate) {
+            scrubRemainder += stepDistance
+            moveSelection(1)
+            steps += 1
+        }
+        while (scrubRemainder >= stepDistance && steps < maxStepsPerScrubUpdate) {
+            scrubRemainder -= stepDistance
+            moveSelection(-1)
+            steps += 1
+        }
+        if (steps == maxStepsPerScrubUpdate && abs(scrubRemainder) > stepDistance) {
+            scrubRemainder = stepDistance * if (scrubRemainder < 0f) -1f else 1f
+        }
+    }
+
+    private fun moveSelection(offset: Int) {
+        if (items.isEmpty() || offset == 0) return
+        val count = items.size
+        selectedIndex = (selectedIndex + offset + count) % count
         tickCount += 1
         onTick()
     }

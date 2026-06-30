@@ -23,6 +23,7 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
     private GLThread glThread;
     private int renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY;
     private final long targetFrameNanos;
+    private int glesVersion = 2;
 
     TransparentGLTextureView(Context context) {
         super(context);
@@ -31,8 +32,9 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
         setSurfaceTextureListener(this);
     }
 
-    void setRenderer(GLSurfaceView.Renderer renderer) {
+    void setRenderer(GLSurfaceView.Renderer renderer, int glesVersion) {
         this.renderer = renderer;
+        this.glesVersion = glesVersion;
     }
 
     void setRenderMode(int renderMode) {
@@ -65,7 +67,7 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
     @Override
     public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
         if (renderer == null) return;
-        glThread = new GLThread(surface, width, height, renderer, renderMode, targetFrameNanos);
+        glThread = new GLThread(surface, width, height, renderer, renderMode, targetFrameNanos, glesVersion);
         glThread.start();
     }
 
@@ -110,6 +112,7 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
         private int width;
         private int height;
         private int renderMode;
+        private final int glesVersion;
 
         private EGL10 egl;
         private EGLDisplay display;
@@ -123,7 +126,8 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
                 int height,
                 GLSurfaceView.Renderer renderer,
                 int renderMode,
-                long targetFrameNanos
+                long targetFrameNanos,
+                int glesVersion
         ) {
             super("PoplurCubeTextureGL");
             this.surfaceTexture = surfaceTexture;
@@ -132,6 +136,7 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
             this.renderer = renderer;
             this.renderMode = renderMode;
             this.targetFrameNanos = Math.max(1L, targetFrameNanos);
+            this.glesVersion = glesVersion;
         }
 
         @Override
@@ -245,7 +250,7 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
                     EGL10.EGL_ALPHA_SIZE, 8,
                     EGL10.EGL_DEPTH_SIZE, 16,
                     EGL10.EGL_STENCIL_SIZE, 0,
-                    EGL10.EGL_RENDERABLE_TYPE, 4,
+                    EGL10.EGL_RENDERABLE_TYPE, (glesVersion >= 3) ? 0x40 : 4, // EGL_OPENGL_ES3_BIT_KHR or ES2
                     EGL10.EGL_NONE
             };
             EGLConfig[] configs = new EGLConfig[1];
@@ -253,7 +258,7 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
             egl.eglChooseConfig(display, configSpec, configs, 1, count);
             config = configs[0];
 
-            int[] contextAttrs = {0x3098, 2, EGL10.EGL_NONE};
+            int[] contextAttrs = {0x3098, glesVersion, EGL10.EGL_NONE};
             context = egl.eglCreateContext(display, config, EGL10.EGL_NO_CONTEXT, contextAttrs);
             surface = egl.eglCreateWindowSurface(display, config, surfaceTexture, null);
             egl.eglMakeCurrent(display, surface, surface, context);

@@ -48,7 +48,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -96,11 +98,14 @@ import com.apptists.poplur2025.data.DemoPostStore
 
 import com.apptists.poplur2025.data.Post
 import com.apptists.poplur2025.data.UserProfile
+import com.apptists.poplur2025.ui.components.PoplurText
 import com.apptists.poplur2025.ui.components.RadiusDisplay
+import com.apptists.poplur2025.ui.components.ShaderIcon
 import com.apptists.poplur2025.ui.components.ShaderNumberText
 import com.apptists.poplur2025.ui.components.ThemedSkinPlate
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.UserInfoOverlay
+import com.apptists.poplur2025.ui.components.poplurCountdownDisplayModifier
 import com.apptists.poplur2025.ui.components.poplurRadiusDisplayModifier
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.uiTheme
@@ -184,7 +189,7 @@ fun FeedScreen(
         val player = activeFeedPlayer ?: return@LaunchedEffect
         while (true) {
             captionPlaybackSeconds = (player.currentPosition / 1000L).coerceAtLeast(0L)
-            delay(250)
+            delay(500)
         }
     }
 
@@ -375,25 +380,18 @@ fun FeedScreen(
         }
         delay(1_400)
         allowFeedVideoPlayback = true
-        mediaPlayer?.let { player -> if (!player.isPlaying) playFeedPop() }
-        confettiTrigger += 1
     }
 
-    LaunchedEffect(Unit) {
-        playFeedPop()
-    }
-
-    LaunchedEffect(isVisible) {
+    LaunchedEffect(isVisible, activeFeedPlayer) {
         if (!isVisible) return@LaunchedEffect
         while (true) {
-            delay(30_000L)
-            playFeedPop()
-            onChannelObjectPop(randomChannelCubeObject(currentChannelForObject))
-            delay(2_000L)
+            delay(60_000L)
+            if (activeFeedPlayer?.isPlaying != true && !showTvGuide && !showingTimelineSide) {
+                playFeedPop()
+                onChannelObjectPop(randomChannelCubeObject(currentChannelForObject))
+            }
         }
     }
-
-    val isBumperActive by FeedBumperService.isActive.collectAsState()
 
     LaunchedEffect(currentSlot.feedSlotId) {
         val slot = currentSlot
@@ -483,10 +481,7 @@ fun FeedScreen(
                 transitionSpec = {
                     (fadeIn() + scaleIn()).togetherWith(fadeOut() + scaleOut())
                 },
-                modifier = Modifier
-                    .padding(bottom = 48.dp, start = 20.dp)
-                    .align(Alignment.BottomStart)
-                    .zIndex(86f),
+                modifier = poplurCountdownDisplayModifier().zIndex(86f),
                 label = "TrendingAnimation"
             ) { slot ->
                 when (slot) {
@@ -598,7 +593,7 @@ fun FeedScreen(
                 .align(Alignment.Center)
                 .zIndex(86f)
         ) {
-            Icon(
+            ShaderIcon(
                 imageVector = Icons.Default.Favorite,
                 contentDescription = null,
                 tint = Color(0xFFFF365E),
@@ -665,39 +660,6 @@ fun FeedScreen(
             )
         }
 
-        // Feed bumper "UP NEXT" overlay — shown while TTS commercial plays
-        androidx.compose.animation.AnimatedVisibility(
-            visible = isBumperActive && !showTvGuide && !showingTimelineSide,
-            enter = fadeIn(tween(220)) + slideInVertically { -it / 2 },
-            exit = fadeOut(tween(350)) + slideOutVertically { -it / 2 },
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(top = 10.dp)
-                .zIndex(95f)
-        ) {
-            val channelName = when (val slot = currentSlot) {
-                is FeedSlot.PostSlot -> slot.channelCategory
-                is FeedSlot.AdSlot -> "AD"
-            }
-            Row(
-                modifier = Modifier
-                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(999.dp))
-                    .border(1.dp, Color(0xFFFF3838).copy(alpha = 0.55f), RoundedCornerShape(999.dp))
-                    .padding(horizontal = 16.dp, vertical = 7.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("▶", color = Color(0xFFFF3838), fontSize = 12.sp, fontWeight = FontWeight.Black)
-                Text(
-                    "UP NEXT  ·  $channelName".uppercase(),
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.2.sp
-                )
-            }
-        }
     }
 }
 
@@ -1198,20 +1160,21 @@ private fun TVStaticTransitionOverlay3D(channelNumber: Int, channelCategory: Str
                             cameraDistance = 10f * density
                         }
                     ) {
-                        Text(
+                        ShaderNumberText(
                             text = "CH $channelNumber",
                             color = Color(0xFF4EFF40),
                             fontSize = 40.sp,
                             fontWeight = FontWeight.Black,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                            intensity = 0.92f
                         )
-                        Text(
+                        PoplurText(
                             text = channelCategory.uppercase(),
                             color = Color(0xFF4EFF40),
                             fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold,
                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            letterSpacing = 2.sp
+                            letterSpacing = 2.sp,
+                            intensity = 0.82f
                         )
                     }
                 }
@@ -1265,20 +1228,21 @@ private fun TVStaticTransitionOverlay3D(channelNumber: Int, channelCategory: Str
                             cameraDistance = 10f * density
                         }
                     ) {
-                        Text(
+                        ShaderNumberText(
                             text = "CH $channelNumber",
                             color = Color(0xFF4EFF40),
                             fontSize = 40.sp,
                             fontWeight = FontWeight.Black,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                            intensity = 0.92f
                         )
-                        Text(
+                        PoplurText(
                             text = channelCategory.uppercase(),
                             color = Color(0xFF4EFF40),
                             fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold,
                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            letterSpacing = 2.sp
+                            letterSpacing = 2.sp,
+                            intensity = 0.82f
                         )
                     }
                 }
@@ -1428,7 +1392,7 @@ private fun FeedChannelImageButton(
             .shadow((6f + glowAlpha * 12f).dp, RoundedCornerShape(cornerRadius))
             .clickable(onClick = onClick)
     ) {
-        Icon(
+        ShaderIcon(
             imageVector = icon,
             contentDescription = if (direction == FeedChannelStepDirection.Up) "Channel up" else "Channel down",
             tint = tint,
@@ -1469,7 +1433,7 @@ private fun FeedChannelCenterButton(
                 scaleY = scale
             }
     ) {
-        Text(
+        PoplurText(
             text = "CH",
             color = when (cubeSkin) {
                 CubeSkin.Toy -> Color(0xFFE6262B)
@@ -1478,6 +1442,7 @@ private fun FeedChannelCenterButton(
             },
             fontSize = 20.sp,
             fontWeight = FontWeight.Black,
+            intensity = 0.78f,
             style = TextStyle(
                 shadow = Shadow(
                     color = theme.shadow,
@@ -1745,10 +1710,27 @@ private fun FeedChannelIcon(iconResId: Int?, fallbackEmoji: String, size: Dp, fa
             painter = painterResource(iconResId),
             contentDescription = null,
             contentScale = ContentScale.Fit,
-            modifier = Modifier.size(size)
+            modifier = Modifier
+                .size(size)
+                .drawWithCache {
+                    val shader = Brush.linearGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.White.copy(alpha = 0.24f),
+                            Color(0xFF4DFF58).copy(alpha = 0.16f),
+                            Color.Transparent
+                        ),
+                        start = Offset.Zero,
+                        end = Offset(this.size.width, this.size.height)
+                    )
+                    onDrawWithContent {
+                        drawContent()
+                        drawRect(shader, blendMode = BlendMode.SrcAtop)
+                    }
+                }
         )
     } else {
-        Text(fallbackEmoji, fontSize = fallbackFontSize)
+        PoplurText(fallbackEmoji, fontSize = fallbackFontSize, intensity = 0.62f)
     }
 }
 
@@ -2010,7 +1992,7 @@ private fun NewspaperArticleVisual(
                 .padding(13.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
+                PoplurText(
                     when (kind) {
                         NpVisualKind.Dominance -> "LIVE MAP CAPTURE"
                         NpVisualKind.UserPost -> "AI STORY IMAGE"
@@ -2019,21 +2001,23 @@ private fun NewspaperArticleVisual(
                     color = if (kind == NpVisualKind.Dominance) Color.White else Color.Black,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Black,
+                    intensity = 0.56f,
                     modifier = Modifier
                         .background(accent, RoundedCornerShape(50))
                         .padding(horizontal = 9.dp, vertical = 4.dp)
                 )
                 Spacer(Modifier.width(7.dp))
-                Text("$flag $city", color = Color.White.copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                PoplurText("$flag $city", color = Color.White.copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, intensity = 0.56f)
             }
             Spacer(Modifier.height(6.dp))
-            Text(
+            PoplurText(
                 if (kind == NpVisualKind.Dominance && username != null) "@$username territory lock" else headline,
                 color = Color.White,
                 fontSize = if (kind == NpVisualKind.Dominance) 16.sp else 14.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                intensity = 0.68f
             )
         }
     }
@@ -2109,7 +2093,7 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("👑", fontSize = 24.sp)
+                    PoplurText("👑", fontSize = 24.sp, intensity = 0.56f)
                     Spacer(Modifier.width(6.dp))
                     ShaderNumberText(
                         "@${article.d.username}",
@@ -2158,10 +2142,11 @@ private fun NewspaperCard(article: NpArticle, edition: Int) {
             modifier = Modifier.padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
+            PoplurText(
                 chipLabel,
                 color = chipFg, fontSize = 10.sp, fontWeight = FontWeight.Bold,
                 letterSpacing = 0.4.sp,
+                intensity = 0.56f,
                 modifier = Modifier
                     .background(chipBg, RoundedCornerShape(50))
                     .padding(horizontal = 10.dp, vertical = 4.dp)
@@ -2506,16 +2491,17 @@ private fun FeedTvGuideContent(
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         FeedChannelIcon(ch.iconResId, ch.emoji, 22.dp, 14.sp)
-                        Text("CH ${ch.number}", color = guideGreen, fontSize = 16.sp, fontWeight = FontWeight.Black)
+                        PoplurText("CH ${ch.number}", color = guideGreen, fontSize = 16.sp, fontWeight = FontWeight.Black, intensity = 0.86f)
                     }
-                    Text(ch.category.uppercase(), color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp)
-                    Text(ch.program, color = Color.White.copy(alpha = 0.42f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    PoplurText(ch.category.uppercase(), color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 0.8.sp, intensity = 0.58f)
+                    PoplurText(ch.program, color = Color.White.copy(alpha = 0.42f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, intensity = 0.48f)
                 }
-                Text(
+                PoplurText(
                     text = "LIVE",
                     color = Color.Black,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Black,
+                    intensity = 0.56f,
                     modifier = Modifier
                         .clip(RoundedCornerShape(999.dp))
                         .background(guideGreen)
@@ -2551,19 +2537,20 @@ private fun FeedTvGuideHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isTablet) {
-            Text(
+            PoplurText(
                 text = if (isRailOpen) "☰" else "☷",
                 color = Color.White,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Black,
+                intensity = 0.78f,
                 modifier = Modifier
                     .width(44.dp)
                     .clickable(onClick = onToggleRail)
             )
         }
         Column {
-            Text("TV GUIDE", color = Color.White, fontSize = if (isTablet) 34.sp else 28.sp, fontWeight = FontWeight.Black)
-            Text("LIVE CHANNELS", color = guideGreen, fontSize = 12.sp, fontWeight = FontWeight.Black)
+            PoplurText("TV GUIDE", color = Color.White, fontSize = if (isTablet) 34.sp else 28.sp, fontWeight = FontWeight.Black, intensity = 0.92f)
+            PoplurText("LIVE CHANNELS", color = guideGreen, fontSize = 12.sp, fontWeight = FontWeight.Black, intensity = 0.72f)
         }
     }
 }
@@ -2594,15 +2581,16 @@ private fun FeedTvGuideRail(
             ) {
                 FeedChannelIcon(channel.iconResId, channel.emoji, 34.dp, 22.sp)
                 Spacer(Modifier.width(10.dp))
-                Text(channel.number.toString(), color = guideGreen, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                ShaderNumberText(channel.number.toString(), color = guideGreen, fontSize = 18.sp, fontWeight = FontWeight.Black, intensity = 0.8f)
                 Spacer(Modifier.width(10.dp))
-                Text(
+                PoplurText(
                     channel.category.uppercase(),
                     color = Color.White.copy(alpha = if (channel.id == currentChannelId) 1f else 0.62f),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    intensity = if (channel.id == currentChannelId) 0.78f else 0.56f
                 )
             }
         }
@@ -2626,9 +2614,9 @@ private fun FeedTvGuideList(
                 .background(Color.White.copy(alpha = 0.07f))
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            Text("CH", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(80.dp))
-            Text("CATEGORY", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(90.dp))
-            Text("ON NOW", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+            PoplurText("CH", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, intensity = 0.54f, modifier = Modifier.width(80.dp))
+            PoplurText("CATEGORY", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, intensity = 0.54f, modifier = Modifier.width(90.dp))
+            PoplurText("ON NOW", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Black, intensity = 0.54f, modifier = Modifier.weight(1f))
         }
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(0.dp),
@@ -2692,15 +2680,16 @@ private fun FeedTvGuideRow(
         Row(modifier = Modifier.width(80.dp), verticalAlignment = Alignment.CenterVertically) {
             FeedChannelIcon(channel.iconResId, channel.emoji, 42.dp, 26.sp)
             Spacer(Modifier.width(10.dp))
-            Text(text = channel.number.toString(), color = guideGreen, fontSize = 28.sp, fontWeight = FontWeight.Black)
+            ShaderNumberText(text = channel.number.toString(), color = guideGreen, fontSize = 28.sp, fontWeight = FontWeight.Black, intensity = if (isPreviewed) 0.9f else 0.72f)
         }
-        Text(
+        PoplurText(
             text = channel.category.uppercase(),
             color = Color.White.copy(alpha = 0.86f),
             fontSize = 15.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            intensity = 0.68f,
             modifier = Modifier.width(90.dp)
         )
         Column(modifier = Modifier.weight(1f)) {
@@ -2721,30 +2710,33 @@ private fun FeedTvGuideRow(
                 },
                 label = "username-${channel.id}"
             ) { name ->
-                Text(
+                PoplurText(
                     text = name,
                     color = Color.White,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Black,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    intensity = 0.74f
                 )
             }
-            Text(
+            PoplurText(
                 text = channel.program,
                 color = Color.White.copy(alpha = 0.58f),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                intensity = 0.54f
             )
         }
         Spacer(Modifier.width(8.dp))
-        Text(
+        PoplurText(
             text = "LIVE",
             color = Color.Black,
             fontSize = 10.sp,
             fontWeight = FontWeight.Black,
+            intensity = 0.52f,
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
                 .background(guideGreen)
@@ -2826,26 +2818,29 @@ private fun GuidePipVideoPane(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     FeedChannelIcon(channel.iconResId, channel.emoji, 22.dp, 13.sp)
-                    Text(
+                    PoplurText(
                         "CH ${channel.number}",
                         color = guideGreen,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Black
+                        fontWeight = FontWeight.Black,
+                        intensity = 0.8f
                     )
                 }
-                Text(
+                PoplurText(
                     currentPostName.ifBlank { channel.profile.displayName },
                     color = Color.White,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    intensity = 0.68f
                 )
-                Text(
+                PoplurText(
                     "LIVE",
                     color = Color.Black,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Black,
+                    intensity = 0.52f,
                     modifier = Modifier
                         .clip(RoundedCornerShape(999.dp))
                         .background(guideGreen)
@@ -3210,30 +3205,33 @@ private fun PoplurAdOverlay(creative: PoplurAdCreative) {
                 .padding(bottom = 138.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            Text(
+            PoplurText(
                 text = "POPLUR AD",
                 color = Color.White.copy(alpha = 0.78f),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Black,
+                intensity = 0.68f,
                 maxLines = 1
             )
-            Text(
+            PoplurText(
                 text = creative.headline,
                 color = Color.White,
                 fontSize = 36.sp,
                 fontWeight = FontWeight.Black,
                 lineHeight = 37.sp,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                intensity = 0.88f
             )
-            Text(
+            PoplurText(
                 text = creative.body,
                 color = Color.White.copy(alpha = 0.88f),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 lineHeight = 19.sp,
                 maxLines = 3,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                intensity = 0.64f
             )
             Box(
                 modifier = Modifier
@@ -3242,13 +3240,14 @@ private fun PoplurAdOverlay(creative: PoplurAdCreative) {
                     .background(Color.White)
                     .padding(horizontal = 17.dp, vertical = 9.dp)
             ) {
-                Text(
+                PoplurText(
                     text = creative.callToAction,
                     color = Color.Black,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Black,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    intensity = 0.7f
                 )
             }
         }
@@ -3696,17 +3695,18 @@ fun MediaContent(
 
         if (hasError) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
+                ShaderIcon(
                     imageVector = Icons.Default.Error,
                     contentDescription = null,
                     tint = Color.White.copy(alpha = 0.3f),
                     modifier = Modifier.size(48.dp)
                 )
                 Spacer(Modifier.height(8.dp))
-                Text(
+                PoplurText(
                     text = "Media unavailable",
                     color = Color.White.copy(alpha = 0.5f),
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
+                    intensity = 0.52f
                 )
             }
         }
@@ -3781,34 +3781,38 @@ private fun LiveStreamContent(post: Post) {
                         .clip(CircleShape)
                         .background(Color.Red)
                 )
-                Text(
+                PoplurText(
                     "LIVE",
                     color = Color.White,
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Black,
+                    intensity = 0.78f
                 )
             }
 
-            Text(
+            PoplurText(
                 text = post.displayName.ifBlank { post.locationName.ifBlank { "Poplur Live" } },
                 color = Color.White,
                 fontSize = 38.sp,
                 fontWeight = FontWeight.Black,
                 lineHeight = 40.sp,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                intensity = 0.9f
             )
-            Text(
+            PoplurText(
                 text = post.locationName.ifBlank { "Live channel" },
                 color = Color.White.copy(alpha = 0.82f),
                 fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                intensity = 0.66f
             )
-            Text(
+            PoplurText(
                 text = "${post.likes.coerceAtLeast(1)} watching - $radiusText radius",
                 color = Color(0xFF4DFF58),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Black,
+                intensity = 0.78f,
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
                     .background(Color.Black.copy(alpha = 0.36f))

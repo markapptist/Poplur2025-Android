@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -45,11 +46,11 @@ import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.PoplurAIProfileSortOrder
 import com.apptists.poplur2025.ui.components.ProfileAvatarSpeaker
+import com.apptists.poplur2025.ui.components.PoplurText
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.poplurCountdownDisplayModifier
 import com.apptists.poplur2025.ui.components.poplurRadiusDisplayModifier
-import com.apptists.poplur2025.ui.skinBackdropBrush
 import com.apptists.poplur2025.ui.uiTheme
 import kotlinx.coroutines.delay
 
@@ -407,6 +408,8 @@ private fun ProfileHome(
         PoplurAIProfileSortOrder.LeastRadius -> DemoPostStore.posts.sortedBy { it.radius }
         null -> DemoPostStore.posts
     }
+    val profilePostCount = mediaPosts.size
+    val profileTotalRadius = mediaPosts.sumOf { it.radius.coerceAtLeast(0) }
 
     LaunchedEffect(showHeyPoplurTutorial) {
         if (showHeyPoplurTutorial && !didStartHeyPoplurTutorial) {
@@ -420,29 +423,32 @@ private fun ProfileHome(
     Box(
         Modifier
             .fillMaxSize()
-            .background(skinBackdropBrush(cubeSkin))
+            .background(Color.White)
     ) {
         Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             ProfileAvatarSpeaker(
                 avatarUrl = profile.avatarUrl,
-                totalRadiusMeters = profile.radius,
-                postCount = profile.posts,
+                totalRadiusMeters = profileTotalRadius,
+                postCount = profilePostCount,
+                size = if (avatarIs3D) 180.dp else 96.dp,
                 is3D = avatarIs3D,
-                accentColor = theme.accent
+                accentColor = theme.accent,
+                cubeSkin = cubeSkin
             )
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    profile.displayName.uppercase(), 
-                    fontSize = 30.sp, 
-                    fontWeight = FontWeight.Black, 
-                    color = theme.primaryText
+                PoplurText(
+                    text = profile.displayName.uppercase(),
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Color.Black,
+                    intensity = 0.9f
                 )
                 Spacer(Modifier.width(8.dp))
                 Icon(
                     Icons.Default.Edit,
                     contentDescription = "Edit Profile",
-                    tint = theme.secondaryText,
+                    tint = Color.Black.copy(alpha = 0.56f),
                     modifier = Modifier.size(20.dp).clickable { onEdit() }
                 )
             }
@@ -456,22 +462,30 @@ private fun ProfileHome(
                 columns = GridCells.Fixed(3),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .widthIn(max = 520.dp)
                     .weight(1f),
-                contentPadding = PaddingValues(start = 22.dp, end = 22.dp, bottom = 300.dp),
+                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 300.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(mediaPosts) { post -> MediaItem(post.mediaUrl ?: post.videoUrl, post.radius, cubeSkin = cubeSkin) }
+                items(mediaPosts) { post ->
+                    MediaItem(
+                        url = post.mediaUrl,
+                        radius = post.radius,
+                        cubeSkin = cubeSkin,
+                        isVideo = post.videoUrl != null
+                    )
+                }
             }
         }
 
         TrendingDisplay(
-            postsCount = 0,
+            postsCount = profilePostCount,
             radiusChange = 0,
             contentColor = theme.accent,
             modifier = poplurCountdownDisplayModifier()
         )
-        
+
         RadiusDisplay(
             modifier = poplurRadiusDisplayModifier(),
             radius = 56,
@@ -513,17 +527,19 @@ private fun HeyPoplurProfileTutorialCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
+            PoplurText(
                 text = "Say \"Hey Poplur\"",
                 color = Color.White,
                 fontSize = 25.sp,
-                fontWeight = FontWeight.Black
+                fontWeight = FontWeight.Black,
+                intensity = 0.9f
             )
-            Text(
+            PoplurText(
                 text = "The edges light up in your theme color. Then tell Poplur what to do.",
                 color = Color.White.copy(alpha = 0.82f),
                 fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                intensity = 0.58f
             )
             Button(
                 onClick = onDismiss,
@@ -532,10 +548,12 @@ private fun HeyPoplurProfileTutorialCard(
                     contentColor = Color.Black
                 )
             ) {
-                Text(
+                PoplurText(
                     text = "Got it",
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Black,
+                    color = Color.Black,
+                    intensity = 0.64f
                 )
             }
         }
@@ -894,27 +912,40 @@ private fun StoreBadge(text: String) {
 fun ProfileTabItem(text: String, isSelected: Boolean, cubeSkin: CubeSkin = CubeSkin.Default, onClick: () -> Unit) {
     val theme = cubeSkin.uiTheme()
     Column(modifier = Modifier.clickable { onClick() }, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text, fontSize = 20.sp, fontWeight = FontWeight.Black, color = if (isSelected) theme.primaryText else theme.secondaryText)
+        PoplurText(
+            text = text,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Black,
+            color = if (isSelected) Color.Black else Color.Black.copy(alpha = 0.72f),
+            intensity = if (isSelected) 0.86f else 0.58f
+        )
         if (isSelected) Spacer(Modifier.height(4.dp))
         if (isSelected) Box(Modifier.width(48.dp).height(3.dp).background(theme.accent, RoundedCornerShape(2.dp)))
     }
 }
 
 @Composable
-fun MediaItem(url: String? = null, radius: Int = 5000, cubeSkin: CubeSkin = CubeSkin.Default) {
-    val theme = cubeSkin.uiTheme()
+fun MediaItem(url: String? = null, radius: Int = 5000, cubeSkin: CubeSkin = CubeSkin.Default, isVideo: Boolean = false) {
     val shape = RoundedCornerShape(18.dp)
 
     Box(
         Modifier
+            .fillMaxWidth()
             .aspectRatio(1f)
-            .shadow(8.dp, shape, clip = false)
             .clip(shape)
-            .background(skinBackdropBrush(cubeSkin))
-            .border(1.8.dp, theme.border, shape)
+            .background(Color.Gray.copy(alpha = 0.26f))
     ) {
         if (!url.isNullOrBlank()) {
             AsyncImage(model = url, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        } else if (isVideo) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = 0.84f),
+                    modifier = Modifier.size(46.dp)
+                )
+            }
         } else {
             cubeSkin.assetPath?.let { assetPath ->
                 AsyncImage(
@@ -932,13 +963,20 @@ fun MediaItem(url: String? = null, radius: Int = 5000, cubeSkin: CubeSkin = Cube
                     Brush.linearGradient(
                         listOf(
                             Color.Transparent,
-                            theme.backgroundDeep.copy(alpha = if (theme.isLight) 0.08f else 0.42f)
+                            Color.Black.copy(alpha = 0.18f)
                         )
                     )
                 )
         )
-        Surface(modifier = Modifier.padding(8.dp).align(Alignment.BottomStart), color = theme.badgeFill, shape = RoundedCornerShape(12.dp)) {
-            Text("${radius / 1000} KM", color = theme.badgeText, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+        Surface(modifier = Modifier.padding(8.dp).align(Alignment.BottomStart), color = Color.Black.copy(alpha = 0.58f), shape = RoundedCornerShape(12.dp)) {
+            PoplurText(
+                text = "${(radius / 1000).coerceAtLeast(1)} KM",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                intensity = 0.62f
+            )
         }
     }
 }

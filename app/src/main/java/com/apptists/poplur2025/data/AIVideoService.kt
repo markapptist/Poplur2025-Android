@@ -237,43 +237,51 @@ Make the prompts rich, cinematic, and specific to the ${style.label} aesthetic.
             })
         }
 
-        val conn = URL("https://api.replicate.com/v1/models/wan-ai/wan2.1-t2v-480p/predictions")
-            .openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Authorization", "Bearer $key")
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.connectTimeout = 30_000
-        conn.doOutput = true
-        conn.outputStream.bufferedWriter().use { it.write(body.toString()) }
-
-        val responseCode = conn.responseCode
-        val responseBody = if (responseCode == 200 || responseCode == 201) {
-            conn.inputStream.bufferedReader().readText()
-        } else {
-            throw AIVideoError.GenerationFailed("Replicate HTTP $responseCode")
+        val conn = (URL("https://api.replicate.com/v1/models/wan-ai/wan2.1-t2v-480p/predictions")
+            .openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            setRequestProperty("Authorization", "Bearer $key")
+            setRequestProperty("Content-Type", "application/json")
+            connectTimeout = 30_000
+            readTimeout = 60_000
+            doOutput = true
         }
-
-        val predictionId = JSONObject(responseBody).getString("id")
-        return pollClip(predictionId, key)
+        try {
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            val code = conn.responseCode
+            if (code !in 200..201) throw AIVideoError.GenerationFailed("Replicate HTTP $code")
+            val predictionId = JSONObject(conn.inputStream.bufferedReader().readText()).getString("id")
+            return pollClip(predictionId, key)
+        } finally {
+            conn.disconnect()
+        }
     }
 
     private fun pollClip(id: String, key: String): String {
+        val url = URL("https://api.replicate.com/v1/predictions/$id")
         repeat(120) {
             Thread.sleep(3_000)
-            val c = URL("https://api.replicate.com/v1/predictions/$id")
-                .openConnection() as HttpURLConnection
-            c.setRequestProperty("Authorization", "Bearer $key")
-            val json = JSONObject(c.inputStream.bufferedReader().readText())
-            when (json.optString("status")) {
-                "succeeded" -> {
-                    val out = json.opt("output")
-                    return when {
-                        out is JSONArray -> out.getString(0)
-                        out is String -> out
-                        else -> throw AIVideoError.InvalidResponse
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                setRequestProperty("Authorization", "Bearer $key")
+                connectTimeout = 15_000
+                readTimeout = 15_000
+            }
+            try {
+                if (conn.responseCode != 200) return@repeat
+                val json = JSONObject(conn.inputStream.bufferedReader().readText())
+                when (json.optString("status")) {
+                    "succeeded" -> {
+                        val out = json.opt("output")
+                        return when {
+                            out is JSONArray -> out.getString(0)
+                            out is String -> out
+                            else -> throw AIVideoError.InvalidResponse
+                        }
                     }
+                    "failed", "canceled" -> throw AIVideoError.GenerationFailed("Replicate status: ${json.optString("status")}")
                 }
-                "failed", "canceled" -> throw AIVideoError.GenerationFailed("Replicate status: ${json.optString("status")}")
+            } finally {
+                conn.disconnect()
             }
         }
         throw AIVideoError.Timeout
