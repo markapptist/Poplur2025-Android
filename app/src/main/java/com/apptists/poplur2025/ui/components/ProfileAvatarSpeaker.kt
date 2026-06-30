@@ -7,35 +7,24 @@ import android.speech.tts.UtteranceProgressListener
 import android.view.View
 import android.view.View.OnAttachStateChangeListener
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
-import coil.compose.AsyncImage
+import com.apptists.poplur2025.gdx.MarkHeadFragment
 import com.apptists.poplur2025.gdx.ProfileTalkingHeadFragment
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.uiTheme
@@ -46,7 +35,7 @@ import java.util.Locale
  * Replaces the static profile image with an animated avatar that speaks stats on tap.
  *
  * - 2D mode: LibGDX sprite animation using the supplied expression frames.
- * - 3D mode: same image with a floating + subtle rotation animation (Compose 3D-like).
+ * - 3D mode: LibGDX renders the bundled Meshy Mark head GLB.
  * Controlled via [is3D]. Both modes tap to speak stats via Android TTS.
  */
 @Composable
@@ -268,6 +257,85 @@ private fun ProfileTalkingHeadGdxView(
     }
 }
 
+@Composable
+private fun MarkHeadGdxView(
+    isSpeaking: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val activity = remember(context) { context.findFragmentActivity() }
+    val containerId = remember { View.generateViewId() }
+    val fragmentTag = remember(containerId) { "mark_head_$containerId" }
+    val latestSpeaking by rememberUpdatedState(isSpeaking)
+
+    AndroidView(
+        modifier = modifier,
+        factory = { ctx ->
+            FragmentContainerView(ctx).apply {
+                id = containerId
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                clipChildren = false
+                clipToPadding = false
+                addOnAttachStateChangeListener(object : OnAttachStateChangeListener {
+                    override fun onViewAttachedToWindow(v: View) {
+                        (v as? FragmentContainerView)
+                            ?.attachMarkHead(activity, fragmentTag, latestSpeaking)
+                    }
+
+                    override fun onViewDetachedFromWindow(v: View) = Unit
+                })
+            }
+        },
+        update = { container ->
+            container.attachMarkHead(activity, fragmentTag, isSpeaking)
+        }
+    )
+
+    DisposableEffect(activity, containerId) {
+        onDispose {
+            val fragmentActivity = activity ?: return@onDispose
+            val manager = fragmentActivity.supportFragmentManager
+            val fragment = manager.findFragmentByTag(fragmentTag)
+            if (fragment != null && !manager.isStateSaved) {
+                manager.beginTransaction()
+                    .remove(fragment)
+                    .commitAllowingStateLoss()
+            }
+        }
+    }
+}
+
+private fun FragmentContainerView.attachMarkHead(
+    activity: FragmentActivity?,
+    tag: String,
+    isSpeaking: Boolean
+) {
+    val fragmentActivity = activity ?: return
+    val manager = fragmentActivity.supportFragmentManager
+    val existing = manager.findFragmentByTag(tag) as? MarkHeadFragment
+    if (existing != null) {
+        if (getTag() == tag) setTag(null)
+        existing.setSpeaking(isSpeaking)
+        return
+    }
+    if (!isAttachedToWindow) return
+    if (getTag() == tag) return
+    if (manager.isStateSaved) return
+    setTag(tag)
+    runCatching {
+        val fragment = MarkHeadFragment().also { it.setSpeaking(isSpeaking) }
+        manager.beginTransaction()
+            .replace(id, fragment, tag)
+            .runOnCommit { setTag(null) }
+            .commitAllowingStateLoss()
+    }.onFailure {
+        setTag(null)
+        post {
+            if (isAttachedToWindow) attachMarkHead(activity, tag, isSpeaking)
+        }
+    }
+}
+
 private fun FragmentContainerView.attachProfileTalkingHead(
     activity: FragmentActivity?,
     tag: String,
@@ -429,175 +497,26 @@ private fun ThemedProfileHead(
     modifier: Modifier = Modifier
 ) {
     val palette = skin.profileHeadPalette()
-    if (!is3D) {
-        Box(contentAlignment = Alignment.Center, modifier = modifier) {
-            if (palette.hasHalo) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize(0.82f)
-                        .clip(CircleShape)
-                        .background(palette.accent.copy(alpha = 0.16f))
-                )
-            }
-            ProfileTalkingHeadGdxView(
-                isSpeaking = isSpeaking,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+    if (is3D) {
+        MarkHeadGdxView(
+            isSpeaking = isSpeaking,
+            modifier = modifier
+        )
         return
     }
 
-    Canvas(modifier = modifier) {
-        val w = size.width
-        val h = size.height
-        val s = minOf(w / 1.42f, h / 1.28f)
-        val cx = w / 2f
-        val cy = h * 0.46f
-
+    Box(contentAlignment = Alignment.Center, modifier = modifier) {
         if (palette.hasHalo) {
-            drawCircle(
-                color = palette.accent.copy(alpha = 0.22f),
-                radius = s * 0.50f,
-                center = Offset(cx, cy - s * 0.08f)
-            )
-            drawCircle(
-                brush = Brush.linearGradient(listOf(palette.accent, palette.accent2)),
-                radius = s * 0.49f,
-                center = Offset(cx, cy - s * 0.08f),
-                style = Stroke(s * 0.030f)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize(0.82f)
+                    .clip(CircleShape)
+                    .background(palette.accent.copy(alpha = 0.16f))
             )
         }
-
-        if (is3D) {
-            drawBustHead(skin, palette, isSpeaking, cx, cy, s)
-        } else if (palette.isToy) {
-            drawToyHostHead(palette, isSpeaking, cx, cy, s)
-        } else {
-            drawRobotAssistantHead(skin, palette, isSpeaking, cx, cy, s)
-        }
-
-        if (isSpeaking) {
-            val bubbleLeft = cx + s * 0.26f
-            val bubbleTop = cy - s * 0.48f
-            drawRoundRect(
-                color = Color.Black.copy(alpha = 0.18f),
-                topLeft = Offset(bubbleLeft, bubbleTop),
-                size = Size(s * 0.42f, s * 0.26f),
-                cornerRadius = CornerRadius(s * 0.08f, s * 0.08f)
-            )
-            drawRoundRect(
-                color = palette.accent,
-                topLeft = Offset(bubbleLeft, bubbleTop),
-                size = Size(s * 0.42f, s * 0.26f),
-                cornerRadius = CornerRadius(s * 0.08f, s * 0.08f),
-                style = Stroke(s * 0.018f)
-            )
-            repeat(3) { i ->
-                drawCircle(palette.accent, s * 0.025f, Offset(bubbleLeft + s * (0.13f + i * 0.08f), bubbleTop + s * 0.13f))
-            }
-        }
+        ProfileTalkingHeadGdxView(
+            isSpeaking = isSpeaking,
+            modifier = Modifier.fillMaxSize()
+        )
     }
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawRobotAssistantHead(
-    skin: CubeSkin,
-    palette: ProfileHeadPalette,
-    isSpeaking: Boolean,
-    cx: Float,
-    cy: Float,
-    s: Float
-) {
-    drawRoundRect(
-        brush = Brush.linearGradient(listOf(palette.fill.copy(alpha = 0.86f), palette.face.copy(alpha = 0.96f))),
-        topLeft = Offset(cx - s * 0.43f, cy - s * 0.32f),
-        size = Size(s * 0.86f, s * 0.64f),
-        cornerRadius = CornerRadius(s * 0.30f, s * 0.30f)
-    )
-    drawRoundRect(
-        brush = Brush.linearGradient(listOf(palette.accent, palette.accent2)),
-        topLeft = Offset(cx - s * 0.43f, cy - s * 0.32f),
-        size = Size(s * 0.86f, s * 0.64f),
-        cornerRadius = CornerRadius(s * 0.30f, s * 0.30f),
-        style = Stroke(s * 0.032f)
-    )
-    drawRoundRect(palette.accent.copy(alpha = 0.92f), Offset(cx - s * 0.55f, cy - s * 0.15f), Size(s * 0.14f, s * 0.30f), CornerRadius(s * 0.07f, s * 0.07f))
-    drawRoundRect(palette.accent.copy(alpha = 0.92f), Offset(cx + s * 0.41f, cy - s * 0.15f), Size(s * 0.14f, s * 0.30f), CornerRadius(s * 0.07f, s * 0.07f))
-    drawRoundRect(palette.accent2.copy(alpha = 0.94f), Offset(cx - s * 0.17f, cy - s * 0.16f), Size(s * 0.10f, s * 0.22f), CornerRadius(s * 0.05f, s * 0.05f))
-    drawRoundRect(palette.accent2.copy(alpha = 0.94f), Offset(cx + s * 0.07f, cy - s * 0.16f), Size(s * 0.10f, s * 0.22f), CornerRadius(s * 0.05f, s * 0.05f))
-    drawRoundRect(palette.line.copy(alpha = 0.95f), Offset(cx - s * (if (isSpeaking) 0.12f else 0.17f), cy + s * 0.13f), Size(s * (if (isSpeaking) 0.24f else 0.34f), s * (if (isSpeaking) 0.13f else 0.075f)), CornerRadius(s * 0.04f, s * 0.04f))
-    drawRoundRect(palette.fill.copy(alpha = 0.96f), Offset(cx - s * 0.25f, cy + s * 0.38f), Size(s * 0.50f, s * 0.22f), CornerRadius(s * 0.06f, s * 0.06f))
-    drawRoundRect(palette.accent.copy(alpha = 0.86f), Offset(cx - s * 0.11f, cy + s * 0.46f), Size(s * 0.22f, s * 0.045f), CornerRadius(s * 0.03f, s * 0.03f))
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawToyHostHead(
-    palette: ProfileHeadPalette,
-    isSpeaking: Boolean,
-    cx: Float,
-    cy: Float,
-    s: Float
-) {
-    drawCircle(Brush.verticalGradient(listOf(Color(0xFF0742B5), Color(0xFF061F57))), s * 0.46f, Offset(cx, cy - s * 0.08f))
-    drawCircle(Color(0xFFFFB900), s * 0.46f, Offset(cx, cy - s * 0.08f), style = Stroke(s * 0.035f))
-    drawOval(palette.face, Offset(cx - s * 0.29f, cy - s * 0.34f), Size(s * 0.58f, s * 0.62f))
-    drawRoundRect(palette.hair, Offset(cx - s * 0.25f, cy - s * 0.39f), Size(s * 0.50f, s * 0.16f), CornerRadius(s * 0.08f, s * 0.08f))
-    drawCircle(Color(0xFF06368A), s * 0.045f, Offset(cx - s * 0.14f, cy - s * 0.09f))
-    drawCircle(Color(0xFF06368A), s * 0.045f, Offset(cx + s * 0.14f, cy - s * 0.09f))
-    drawRoundRect(Color.White, Offset(cx - s * (if (isSpeaking) 0.09f else 0.14f), cy + s * 0.11f), Size(s * (if (isSpeaking) 0.18f else 0.28f), s * (if (isSpeaking) 0.11f else 0.07f)), CornerRadius(s * 0.04f, s * 0.04f))
-    drawRoundRect(Color(0xFFE51E1E), Offset(cx - s * 0.27f, cy + s * 0.38f), Size(s * 0.54f, s * 0.18f), CornerRadius(s * 0.06f, s * 0.06f))
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBustHead(
-    skin: CubeSkin,
-    palette: ProfileHeadPalette,
-    isSpeaking: Boolean,
-    cx: Float,
-    cy: Float,
-    s: Float
-) {
-    drawOval(
-        brush = Brush.linearGradient(listOf(palette.face.copy(alpha = 0.96f), palette.fill)),
-        topLeft = Offset(cx - s * 0.26f, cy - s * 0.44f),
-        size = Size(s * 0.52f, s * 0.68f)
-    )
-    drawOval(
-        brush = Brush.linearGradient(listOf(palette.accent, palette.accent2.copy(alpha = 0.82f))),
-        topLeft = Offset(cx - s * 0.26f, cy - s * 0.44f),
-        size = Size(s * 0.52f, s * 0.68f),
-        style = Stroke(s * 0.018f)
-    )
-    if (skin == CubeSkin.Camo) {
-        repeat(8) { i ->
-            drawRoundRect(
-                palette.line.copy(alpha = 0.25f),
-                Offset(cx + ((i % 3) - 1) * s * 0.13f - s * 0.10f, cy - s * 0.26f + (i / 3) * s * 0.10f),
-                Size(s * 0.20f, s * 0.05f),
-                CornerRadius(s * 0.025f, s * 0.025f)
-            )
-        }
-    }
-    if (skin == CubeSkin.Ice) {
-        repeat(7) { i ->
-            val x = cx - s * 0.16f + (i % 3) * s * 0.10f
-            val y = cy - s * 0.28f + (i / 3) * s * 0.14f
-            drawLine(palette.line.copy(alpha = 0.34f), Offset(x, y), Offset(x + if (i % 2 == 0) s * 0.10f else -s * 0.09f, y + s * 0.12f), 1.1.dp.toPx())
-        }
-    }
-    if (skin == CubeSkin.Carbon) {
-        repeat(22) { i ->
-            val x = cx - s * 0.20f + ((i * 47) % 97) / 97f * s * 0.40f
-            val y = cy - s * 0.36f + ((i * 71) % 97) / 97f * s * 0.54f
-            drawCircle(palette.accent2.copy(alpha = 0.42f), 1.2.dp.toPx(), Offset(x, y))
-        }
-    }
-    drawRoundRect(palette.line.copy(alpha = 0.72f), Offset(cx - s * 0.16f, cy - s * 0.18f), Size(s * 0.10f, s * 0.035f), CornerRadius(s * 0.018f, s * 0.018f))
-    drawRoundRect(palette.line.copy(alpha = 0.72f), Offset(cx + s * 0.06f, cy - s * 0.18f), Size(s * 0.10f, s * 0.035f), CornerRadius(s * 0.018f, s * 0.018f))
-    drawRoundRect(palette.line.copy(alpha = 0.84f), Offset(cx - s * (if (isSpeaking) 0.09f else 0.14f), cy + s * 0.05f), Size(s * (if (isSpeaking) 0.18f else 0.28f), s * (if (isSpeaking) 0.06f else 0.025f)), CornerRadius(s * 0.02f, s * 0.02f))
-    val shoulders = Path().apply {
-        moveTo(cx - s * 0.45f, cy + s * 0.60f)
-        cubicTo(cx - s * 0.26f, cy + s * 0.34f, cx + s * 0.26f, cy + s * 0.34f, cx + s * 0.45f, cy + s * 0.60f)
-        lineTo(cx + s * 0.58f, cy + s * 0.78f)
-        lineTo(cx - s * 0.58f, cy + s * 0.78f)
-        close()
-    }
-    drawPath(shoulders, Brush.verticalGradient(listOf(palette.shirt.copy(alpha = 0.96f), palette.fill.copy(alpha = 0.82f))))
 }

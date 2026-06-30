@@ -3,6 +3,7 @@ package com.apptists.poplur2025.ui;
 import android.content.Context;
 import android.graphics.SurfaceTexture;
 import android.opengl.GLSurfaceView;
+import android.view.Surface;
 import android.view.Display;
 import android.view.TextureView;
 
@@ -27,6 +28,7 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
 
     TransparentGLTextureView(Context context) {
         super(context);
+        android.util.Log.d("TransparentGLTextureView", "Constructor called");
         targetFrameNanos = frameIntervalNanos(context);
         setOpaque(false);
         setSurfaceTextureListener(this);
@@ -119,6 +121,7 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
         private EGLConfig config;
         private EGLContext context;
         private EGLSurface surface;
+        private Surface androidSurface;
 
         GLThread(
                 SurfaceTexture surfaceTexture,
@@ -169,12 +172,20 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
                         renderer.onSurfaceChanged(gl, w, h);
                     }
                     renderer.onDrawFrame(gl);
-                    egl.eglSwapBuffers(display, surface);
+                    if (!egl.eglSwapBuffers(display, surface)) {
+                        int error = egl.eglGetError();
+                        android.util.Log.w("TransparentGLTextureView", "eglSwapBuffers failed: 0x" + Integer.toHexString(error));
+                        if (error == EGL10.EGL_BAD_SURFACE || error == EGL10.EGL_BAD_NATIVE_WINDOW) {
+                            break;
+                        }
+                    }
                     if (renderMode == GLSurfaceView.RENDERMODE_CONTINUOUSLY) {
                         sleepUntilNextFrame(frameStartNanos);
                     }
                 }
             } catch (InterruptedException ignored) {
+            } catch (Throwable error) {
+                android.util.Log.e("TransparentGLTextureView", "GL render thread failed", error);
             } finally {
                 releaseEgl();
             }
@@ -241,8 +252,44 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
             egl = (EGL10) EGLContext.getEGL();
             display = egl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
             int[] version = new int[2];
-            egl.eglInitialize(display, version);
+            if (display == EGL10.EGL_NO_DISPLAY || !egl.eglInitialize(display, version)) {
+                throw new RuntimeException("Unable to initialize EGL");
+            }
 
+            int requestedGlesVersion = glesVersion >= 3 ? 3 : 2;
+            config = chooseConfig(requestedGlesVersion);
+            if (config == null && requestedGlesVersion == 3) {
+                requestedGlesVersion = 2;
+                config = chooseConfig(requestedGlesVersion);
+            }
+            if (config == null) {
+                throw new RuntimeException("No EGL config for transparent GL texture");
+            }
+
+            int[] contextAttrs = {0x3098, requestedGlesVersion, EGL10.EGL_NONE};
+            context = egl.eglCreateContext(display, config, EGL10.EGL_NO_CONTEXT, contextAttrs);
+            if ((context == null || context == EGL10.EGL_NO_CONTEXT) && requestedGlesVersion == 3) {
+                requestedGlesVersion = 2;
+                config = chooseConfig(requestedGlesVersion);
+                int[] fallbackAttrs = {0x3098, requestedGlesVersion, EGL10.EGL_NONE};
+                context = egl.eglCreateContext(display, config, EGL10.EGL_NO_CONTEXT, fallbackAttrs);
+            }
+            if (context == null || context == EGL10.EGL_NO_CONTEXT) {
+                throw new RuntimeException("Unable to create EGL context: 0x" + Integer.toHexString(egl.eglGetError()));
+            }
+
+            androidSurface = new Surface(surfaceTexture);
+            surface = egl.eglCreateWindowSurface(display, config, androidSurface, null);
+            if (surface == null || surface == EGL10.EGL_NO_SURFACE) {
+                throw new RuntimeException("Unable to create EGL window surface: 0x" + Integer.toHexString(egl.eglGetError()));
+            }
+            if (!egl.eglMakeCurrent(display, surface, surface, context)) {
+                throw new RuntimeException("Unable to make EGL context current: 0x" + Integer.toHexString(egl.eglGetError()));
+            }
+        }
+
+        private EGLConfig chooseConfig(int targetGlesVersion) {
+            int renderableType = targetGlesVersion >= 3 ? 0x40 : 4; // EGL_OPENGL_ES3_BIT_KHR or EGL_OPENGL_ES2_BIT
             int[] configSpec = {
                     EGL10.EGL_RED_SIZE, 8,
                     EGL10.EGL_GREEN_SIZE, 8,
@@ -250,18 +297,15 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
                     EGL10.EGL_ALPHA_SIZE, 8,
                     EGL10.EGL_DEPTH_SIZE, 16,
                     EGL10.EGL_STENCIL_SIZE, 0,
-                    EGL10.EGL_RENDERABLE_TYPE, (glesVersion >= 3) ? 0x40 : 4, // EGL_OPENGL_ES3_BIT_KHR or ES2
+                    EGL10.EGL_RENDERABLE_TYPE, renderableType,
                     EGL10.EGL_NONE
             };
             EGLConfig[] configs = new EGLConfig[1];
             int[] count = new int[1];
-            egl.eglChooseConfig(display, configSpec, configs, 1, count);
-            config = configs[0];
-
-            int[] contextAttrs = {0x3098, glesVersion, EGL10.EGL_NONE};
-            context = egl.eglCreateContext(display, config, EGL10.EGL_NO_CONTEXT, contextAttrs);
-            surface = egl.eglCreateWindowSurface(display, config, surfaceTexture, null);
-            egl.eglMakeCurrent(display, surface, surface, context);
+            if (!egl.eglChooseConfig(display, configSpec, configs, 1, count) || count[0] <= 0) {
+                return null;
+            }
+            return configs[0];
         }
 
         private void releaseEgl() {
@@ -276,6 +320,14 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
                 }
                 egl.eglTerminate(display);
             }
+            if (androidSurface != null) {
+                androidSurface.release();
+                androidSurface = null;
+            }
+            surface = null;
+            context = null;
+            display = null;
+            egl = null;
         }
     }
 }

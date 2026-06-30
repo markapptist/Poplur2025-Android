@@ -240,12 +240,32 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
 
     override fun onPause() {
         textureView?.onPause()
-        super.onPause()
+        runCatching {
+            super.onPause()
+        }.onFailure { error ->
+            markFragmentLifecycleCalled()
+            if (error !is NullPointerException) throw error
+            android.util.Log.w("GdxNavigationFragment", "Ignoring LibGDX GLSurfaceView pause for transparent TextureView", error)
+        }
     }
 
     override fun onResume() {
-        super.onResume()
+        runCatching {
+            super.onResume()
+        }.onFailure { error ->
+            markFragmentLifecycleCalled()
+            if (error !is NullPointerException) throw error
+            android.util.Log.w("GdxNavigationFragment", "Ignoring LibGDX GLSurfaceView resume for transparent TextureView", error)
+        }
         textureView?.onResume()
+    }
+
+    private fun markFragmentLifecycleCalled() {
+        runCatching {
+            val field = androidx.fragment.app.Fragment::class.java.getDeclaredField("mCalled")
+            field.isAccessible = true
+            field.setBoolean(this, true)
+        }
     }
 
     override fun onDestroyView() {
@@ -256,10 +276,31 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
     }
 
     private class TransparentAndroidGraphics(
-        application: GdxNavigationFragment,
+        private val application: GdxNavigationFragment,
         config: AndroidApplicationConfiguration,
         resolutionStrategy: ResolutionStrategy
     ) : AndroidGraphics(application, config, resolutionStrategy, false) {
+        override fun onPauseGLSurfaceView() {
+            application.textureView?.onPause()
+        }
+
+        override fun onResumeGLSurfaceView() {
+            application.textureView?.onResume()
+        }
+
+        override fun setContinuousRendering(isContinuous: Boolean) {
+            val mode = if (isContinuous) {
+                GLSurfaceView.RENDERMODE_CONTINUOUSLY
+            } else {
+                GLSurfaceView.RENDERMODE_WHEN_DIRTY
+            }
+            application.textureView?.setRenderMode(mode)
+        }
+
+        override fun requestRendering() {
+            application.textureView?.requestRender()
+        }
+
         override fun createGLSurfaceView(
             application: AndroidApplicationBase,
             resolutionStrategy: ResolutionStrategy

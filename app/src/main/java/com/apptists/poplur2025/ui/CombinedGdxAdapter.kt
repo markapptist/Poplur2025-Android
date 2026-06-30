@@ -17,7 +17,6 @@ import com.badlogic.gdx.graphics.g3d.Material
 import com.badlogic.gdx.graphics.g3d.Model
 import com.badlogic.gdx.graphics.g3d.ModelBatch
 import com.badlogic.gdx.graphics.g3d.ModelInstance
-import com.badlogic.gdx.graphics.g3d.attributes.BlendingAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.FloatAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.TextureAttribute
@@ -77,7 +76,7 @@ class CombinedGdxAdapter(
 
     // 0.65 = iOS SCNBox half-size (width 1.3 / 2). Geometry is unit size; transform
     // scale is the only multiplier, so cubeScale == world half-extent directly.
-    var cubeScale: Float = 0.48f
+    var cubeScale: Float = 0.65f
         set(value) {
             if (field != value) {
                 field = value
@@ -181,9 +180,7 @@ class CombinedGdxAdapter(
             longPressSent = false
             longPressStarted = false
             Gdx.graphics.setContinuousRendering(true)
-            val canonicalYaw = -90f * targetIndex
-            val nearestYaw = canonicalYaw + ((currentYawDegrees - canonicalYaw) / 360f).roundToInt() * 360f
-            startBounceTo(nearestYaw)
+            startBounceTo(continuousYawForTab(targetIndex))
             Gdx.graphics.requestRendering()
         }
     }
@@ -404,7 +401,6 @@ class CombinedGdxAdapter(
                     materials[index] = Material(
                         TextureAttribute.createDiffuse(texture),
                         ColorAttribute.createDiffuse(Color.WHITE),
-                        BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, 1f),
                         FloatAttribute.createAlphaTest(0.04f)
                     )
                     modelDirty = true
@@ -441,7 +437,6 @@ class CombinedGdxAdapter(
             newMaterials[index] = Material(
                 TextureAttribute.createDiffuse(tex),
                 ColorAttribute.createDiffuse(Color.WHITE),
-                BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, opacity),
                 FloatAttribute.createAlphaTest(0.04f)
             )
             currentTitles[index] = "${skin.id}:$title"
@@ -480,7 +475,6 @@ class CombinedGdxAdapter(
             newMaterials[i] = Material(
                 TextureAttribute.createDiffuse(tex),
                 ColorAttribute.createDiffuse(Color.WHITE),
-                BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, 1f),
                 FloatAttribute.createAlphaTest(0.04f)
             )
         }
@@ -520,7 +514,6 @@ class CombinedGdxAdapter(
             newMaterials[i] = Material(
                 TextureAttribute.createDiffuse(tex),
                 ColorAttribute.createDiffuse(Color.WHITE),
-                BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, 1f),
                 FloatAttribute.createAlphaTest(0.04f)
             )
         }
@@ -535,16 +528,9 @@ class CombinedGdxAdapter(
     }
 
     private fun rebuildMaterialsOpacity() {
-        if (skin != CubeSkin.Default) {
-            skinMaterials.forEach { material ->
-                val blending = material?.get(BlendingAttribute.Type) as? BlendingAttribute
-                blending?.opacity = opacity
-            }
-        }
-        materials.forEach { material ->
-            val blending = material?.get(BlendingAttribute.Type) as? BlendingAttribute
-            blending?.opacity = opacity
-        }
+        // Cube faces are intentionally rendered as alpha-tested opaque surfaces.
+        // Blended cube quads self-compose through depth testing on Android and make
+        // the cube look washed out or partially transparent.
     }
 
     private fun rebuildModel() {
@@ -1652,9 +1638,24 @@ class CombinedGdxAdapter(
         val raw = (-yaw / 90f).roundToInt(); return ((raw % 4) + 4) % 4
     }
 
+    private fun continuousYawForTab(targetIndex: Int): Float {
+        val target = targetIndex.coerceIn(0, 3)
+        val currentIndex = snappedTabIndex(currentYawDegrees)
+        val forwardSteps = (target - currentIndex + 4) % 4
+        val backwardSteps = (currentIndex - target + 4) % 4
+        val signedSteps = when {
+            forwardSteps == 0 -> 0
+            forwardSteps <= backwardSteps -> forwardSteps
+            else -> -backwardSteps
+        }
+        val currentFaceYaw = -90f * currentIndex
+        val currentRevolution = ((currentYawDegrees - currentFaceYaw) / 360f).roundToInt() * 360f
+        return currentFaceYaw + currentRevolution - (90f * signedSteps)
+    }
+
     private enum class BouncePhase { Idle, Overshoot, Settle }
 
     private fun cameraDistance(): Float {
-        return 6.0f
+        return 3.0f
     }
 }
