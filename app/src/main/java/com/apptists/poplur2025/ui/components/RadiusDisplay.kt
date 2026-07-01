@@ -49,16 +49,22 @@ fun RadiusDisplay(
         animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
         label = "radius-total-pulse"
     )
-    val (formattedRadius, displayUnit) = formatRadiusForDisplay(animatedRadius, unit)
-    val (formattedTotal, denominatorUnit) = formatTotalRadiusForDisplay(animatedTotal, unit)
+    val displayValues = radiusDisplayValues(animatedRadius, animatedTotal, unit)
+    val (formattedRadius, displayUnit) = displayValues.numerator to displayValues.numeratorUnit
+    val (formattedTotal, denominatorUnit) = displayValues.denominator to displayValues.denominatorUnit
 
     Column(
-        modifier = modifier.height(PoplurCounterLayout.counterHeight),
+        modifier = modifier
+            .widthIn(min = PoplurCounterLayout.radiusDisplayMinWidth)
+            .height(PoplurCounterLayout.counterHeight),
         horizontalAlignment = Alignment.End
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.height(PoplurCounterLayout.labelHeight)
+            horizontalArrangement = Arrangement.End,
+            modifier = Modifier
+                .widthIn(min = PoplurCounterLayout.radiusDisplayMinWidth)
+                .height(PoplurCounterLayout.labelHeight)
         ) {
             PoplurText(
                 text = "RADIUS",
@@ -145,6 +151,66 @@ fun RadiusDisplay(
 
         Spacer(Modifier.weight(1f))
     }
+}
+
+private data class RadiusDisplayValues(
+    val numerator: String,
+    val numeratorUnit: String,
+    val denominator: String,
+    val denominatorUnit: String
+)
+
+private fun radiusDisplayValues(radius: Int, totalRadius: Int, unit: String): RadiusDisplayValues {
+    val cleanUnit = unit.trim().ifBlank { "mi" }
+    val denominatorValue = denominatorValueForDisplay(totalRadius, cleanUnit)
+    val numeratorValue = numeratorValueForDisplay(radius, cleanUnit).coerceAtMost(denominatorValue)
+    val numeratorUnit = numeratorUnitForDisplay(radius, cleanUnit)
+    val denominatorUnit = if (usesMeterInput(cleanUnit)) "km" else cleanUnit
+
+    return RadiusDisplayValues(
+        numerator = formatRadiusValue(numeratorValue, numeratorUnit),
+        numeratorUnit = numeratorUnit,
+        denominator = NumberFormat.getNumberInstance(Locale.US).format(denominatorValue),
+        denominatorUnit = denominatorUnit
+    )
+}
+
+private fun numeratorValueForDisplay(radius: Int, unit: String): Float {
+    val currentRadius = radius.coerceAtLeast(0)
+    return if (usesMeterInput(unit)) {
+        if (currentRadius >= 1_000) currentRadius / 1_000f else currentRadius.toFloat()
+    } else {
+        currentRadius.toFloat()
+    }
+}
+
+private fun denominatorValueForDisplay(totalRadius: Int, unit: String): Float {
+    return if (usesMeterInput(unit)) {
+        if (totalRadius == 3959) 6_371f else (totalRadius / 1_000f).coerceAtLeast(1f)
+    } else {
+        totalRadius.coerceAtLeast(0).toFloat()
+    }
+}
+
+private fun numeratorUnitForDisplay(radius: Int, unit: String): String {
+    return if (usesMeterInput(unit)) {
+        if (radius.coerceAtLeast(0) >= 1_000) "km" else "m"
+    } else {
+        unit
+    }
+}
+
+private fun usesMeterInput(unit: String): Boolean {
+    return unit.equals("m", ignoreCase = true) ||
+        unit.equals("meter", ignoreCase = true) ||
+        unit.equals("meters", ignoreCase = true)
+}
+
+private fun formatRadiusValue(radius: Float, unit: String): String {
+    if (unit.equals("km", ignoreCase = true)) {
+        return formatKilometers(radius)
+    }
+    return NumberFormat.getNumberInstance(Locale.US).format(radius.toInt())
 }
 
 private fun formatRadiusForDisplay(radius: Int, unit: String): Pair<String, String> {

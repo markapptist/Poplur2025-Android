@@ -21,6 +21,7 @@ data class PersistentCubeOverlayConfig(
     val onLongPressEnd: () -> Unit,
     val onTap: () -> Unit,
     val onTabSelected: (Int) -> Unit,
+    val onFirstFrameRendered: () -> Unit,
     val channelObjectId: String,
     val channelObjectPopToken: Int
 )
@@ -46,6 +47,7 @@ fun PersistentCubeOverlay(
     onLongPressEnd: () -> Unit = {},
     onTap: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {},
+    onFirstFrameRendered: () -> Unit = {},
     channelObjectId: String = "star",
     channelObjectPopToken: Int = 0
 ) {
@@ -67,6 +69,7 @@ fun PersistentCubeOverlay(
         onLongPressEnd = onLongPressEnd,
         onTap = onTap,
         onTabSelected = onTabSelected,
+        onFirstFrameRendered = onFirstFrameRendered,
         channelObjectId = channelObjectId,
         channelObjectPopToken = channelObjectPopToken
     )

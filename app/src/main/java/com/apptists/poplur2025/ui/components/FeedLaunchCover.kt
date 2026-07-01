@@ -48,12 +48,10 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.apptists.poplur2025.R
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.cos
@@ -126,18 +124,16 @@ fun FeedLaunchCover(
 ) {
     val context = LocalContext.current
     val logoBitmap = remember(context, skinLogoPath) {
-        runCatching {
-            context.assets.open(skinLogoPath).use { BitmapFactory.decodeStream(it).asImageBitmap() }
-        }.getOrElse {
-            runCatching {
-                context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
-            }.getOrNull()
+        context.assets.open(skinLogoPath).use { stream ->
+            val bitmap = BitmapFactory.decodeStream(stream)
+                ?: error("Required launch logo asset could not be decoded: $skinLogoPath")
+            bitmap.asImageBitmap()
         }
     }
     val shuffledPhases = remember { LOADING_PHASES.shuffled() }
     val particleSeed = remember { Random.nextInt(1, Int.MAX_VALUE) }
     val particleEffects = remember(particleSeed) {
-        LoadingParticleEffect.values().toList().shuffled(Random(particleSeed))
+        listOf(LoadingParticleEffect.Confetti)
     }
     val ambientParticles = remember(particleSeed) { buildAmbientParticles(particleSeed, count = 150) }
     val confettiParticles = remember(particleSeed) { buildRainParticles(particleSeed + 17, count = 110) }
@@ -255,35 +251,19 @@ fun FeedLaunchCover(
         }
 
         // --- Poplur Logo (raw image, matching iOS SKSpriteNode(imageNamed:"logo")) ---
-        if (logoBitmap != null) {
-            Image(
-                bitmap = logoBitmap,
-                contentDescription = "Poplur Logo",
-                modifier = Modifier
-                    .size(200.dp)
-                    .align(Alignment.Center)
-                    .offset(y = (-60).dp)
-                    .graphicsLayer {
-                        scaleX = logoScale.value
-                        scaleY = logoScale.value
-                        rotationZ = logoRotation
-                    }
-            )
-        } else {
-            Image(
-                painter = painterResource(id = R.mipmap.ic_launcher),
-                contentDescription = "Poplur Logo",
-                modifier = Modifier
-                    .size(200.dp)
-                    .align(Alignment.Center)
-                    .offset(y = (-60).dp)
-                    .graphicsLayer {
-                        scaleX = logoScale.value
-                        scaleY = logoScale.value
-                        rotationZ = logoRotation
-                    }
-            )
-        }
+        Image(
+            bitmap = logoBitmap,
+            contentDescription = "Poplur Logo",
+            modifier = Modifier
+                .size(200.dp)
+                .align(Alignment.Center)
+                .offset(y = (-60).dp)
+                .graphicsLayer {
+                    scaleX = logoScale.value
+                    scaleY = logoScale.value
+                    rotationZ = logoRotation
+                }
+        )
 
         // AI loading bar + text
         Column(

@@ -58,8 +58,8 @@ fun ShaderIcon(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    scaleX = 1.08f
-                    scaleY = 1.08f
+                    scaleX = 1.04f
+                    scaleY = 1.04f
                 }
         )
         Icon(

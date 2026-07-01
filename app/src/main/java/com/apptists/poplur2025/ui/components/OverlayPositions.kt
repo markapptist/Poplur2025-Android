@@ -14,6 +14,7 @@ object PoplurOverlayPositions {
 
 object PoplurCounterLayout {
     val counterHeight = 136.dp
+    val radiusDisplayMinWidth = 94.dp
     val labelHeight = 16.dp
     val labelToNumeratorSpacing = 4.dp
     val numeratorHeight = 42.dp

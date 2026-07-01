@@ -53,7 +53,7 @@ fun SettingsScreen(
     closedCaptionsEnabled: Boolean = true,
     onPreferredLanguageChange: (PoplurLanguage) -> Unit = {},
     onClosedCaptionsChange: (Boolean) -> Unit = {},
-    selectedCubeSkin: CubeSkin = CubeSkin.Gold,
+    selectedCubeSkin: CubeSkin = CubeSkin.Default,
     onCubeSkinChange: (CubeSkin) -> Unit = {},
     cubeMenuLayout: CubeMenuLayout = CubeMenuLayout.Horizontal,
     onCubeMenuLayoutChange: (CubeMenuLayout) -> Unit = {},

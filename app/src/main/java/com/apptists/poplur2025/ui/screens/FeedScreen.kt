@@ -98,10 +98,12 @@ import com.apptists.poplur2025.data.DemoPostStore
 
 import com.apptists.poplur2025.data.Post
 import com.apptists.poplur2025.data.UserProfile
+import com.apptists.poplur2025.data.isDeliveryEligible
 import com.apptists.poplur2025.ui.components.PoplurText
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.ShaderIcon
 import com.apptists.poplur2025.ui.components.ShaderNumberText
+import com.apptists.poplur2025.util.PoplurEQSync
 import com.apptists.poplur2025.ui.components.ThemedSkinPlate
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.UserInfoOverlay
@@ -176,6 +178,9 @@ fun FeedScreen(
     val userCommentCreditsBySlot = remember { mutableStateMapOf<String, List<FeedCommentCredit>>() }
     var channelButtonPopDirection by remember { mutableStateOf<FeedChannelStepDirection?>(null) }
     var channelButtonPopToken by remember { mutableIntStateOf(0) }
+    var deliveryPost by remember { mutableStateOf<Post?>(null) }
+    val eqLanes by PoplurEQSync.activeLanes.collectAsState()
+    val feedVideoVolumeMultiplier = PoplurEQSync.feedVideoVolumeMultiplier(eqLanes)
     val showingTimelineSide = showTimelineView
     val currentChannelForObject by rememberUpdatedState(
         when (val slot = currentSlot) {
@@ -210,7 +215,10 @@ fun FeedScreen(
     }
 
     DisposableEffect(Unit) {
-        onDispose { onTvGuideVisibilityChanged(false) }
+        onDispose {
+            onTvGuideVisibilityChanged(false)
+            PoplurEQSync.end(PoplurEQSync.Lane.FeedVideo)
+        }
     }
     
     val mediaPlayer = remember {
@@ -232,7 +240,8 @@ fun FeedScreen(
     }
 
     val playFeedPop = remember(mediaPlayer) {
-        {
+        play@{
+            if (!PoplurEQSync.shouldPlayTransientSound(minimumIntervalMs = 140L)) return@play
             mediaPlayer?.let { player ->
                 try {
                     if (player.isPlaying) player.pause()
@@ -376,10 +385,19 @@ fun FeedScreen(
         if (!isVisible) {
             activeFeedPlayer = null
             allowFeedVideoPlayback = false
+            PoplurEQSync.end(PoplurEQSync.Lane.FeedVideo)
             return@LaunchedEffect
         }
         delay(1_400)
         allowFeedVideoPlayback = true
+    }
+
+    LaunchedEffect(activeFeedPlayer, isVisible) {
+        if (isVisible && activeFeedPlayer != null) {
+            PoplurEQSync.begin(PoplurEQSync.Lane.FeedVideo)
+        } else {
+            PoplurEQSync.end(PoplurEQSync.Lane.FeedVideo)
+        }
     }
 
     LaunchedEffect(isVisible, activeFeedPlayer) {
@@ -424,6 +442,7 @@ fun FeedScreen(
                             isVisible = isVisible,
                             isMuted = false,
                             allowVideoPlayback = allowFeedVideoPlayback,
+                            volumeMultiplier = feedVideoVolumeMultiplier,
                             useExternalVideoSurface = showTvGuide,
                             onActivePlayerChanged = { player -> activeFeedPlayer = player },
                             onCreditsVisibilityChanged = { showCommentCredits = it },
@@ -434,6 +453,7 @@ fun FeedScreen(
                         slot = slot,
                         isVisible = isVisible,
                         allowVideoPlayback = allowFeedVideoPlayback,
+                        volumeMultiplier = feedVideoVolumeMultiplier,
                         useExternalVideoSurface = showTvGuide,
                         onActivePlayerChanged = { player -> activeFeedPlayer = player },
                         onCreditsVisibilityChanged = { showCommentCredits = it },
@@ -549,6 +569,22 @@ fun FeedScreen(
             )
         }
 
+        val deliveryEligiblePost = (currentSlot as? FeedSlot.PostSlot)
+            ?.post
+            ?.takeIf { it.isDeliveryEligible() }
+        if (deliveryEligiblePost != null && !showingTimelineSide && !showTvGuide && !homeChromeInactive) {
+            DeliveryButton(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 22.dp, bottom = 214.dp)
+                    .zIndex(94f),
+                onClick = {
+                    onUserInteraction()
+                    deliveryPost = deliveryEligiblePost
+                }
+            )
+        }
+
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -657,6 +693,13 @@ fun FeedScreen(
                     onIndexChange(channel.index)
                     showTvGuide = false
                 }
+            )
+        }
+
+        deliveryPost?.let { post ->
+            DeliveryFlowDialog(
+                post = post,
+                onDismiss = { deliveryPost = null }
             )
         }
 
@@ -3159,6 +3202,7 @@ private fun FeedAdContent(
     slot: FeedSlot.AdSlot,
     isVisible: Boolean,
     allowVideoPlayback: Boolean,
+    volumeMultiplier: Float,
     useExternalVideoSurface: Boolean,
     onActivePlayerChanged: (ExoPlayer?) -> Unit,
     onCreditsVisibilityChanged: (Boolean) -> Unit = {},
@@ -3173,6 +3217,7 @@ private fun FeedAdContent(
             post = adPost,
             isVisible = isVisible,
             allowVideoPlayback = allowVideoPlayback,
+            volumeMultiplier = volumeMultiplier,
             useExternalVideoSurface = useExternalVideoSurface,
             onActivePlayerChanged = onActivePlayerChanged,
             onCreditsVisibilityChanged = onCreditsVisibilityChanged,
@@ -3430,6 +3475,7 @@ fun MediaContent(
     isVisible: Boolean = true,
     isMuted: Boolean = false,
     allowVideoPlayback: Boolean = true,
+    volumeMultiplier: Float = 1f,
     useExternalVideoSurface: Boolean = false,
     onActivePlayerChanged: (ExoPlayer?) -> Unit = {},
     onFirstFrameRendered: () -> Unit = {},
@@ -3528,7 +3574,7 @@ fun MediaContent(
                                 setMediaItem(mediaItem)
                                 repeatMode = Player.REPEAT_MODE_OFF
                                 videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
-                                volume = if (isMuted) 0f else 1f
+                                volume = if (isMuted) 0f else volumeMultiplier
                                 addListener(object : Player.Listener {
                                     override fun onPlaybackStateChanged(state: Int) {
                                         isLoading = state == Player.STATE_BUFFERING || (state == Player.STATE_READY && !hasRenderedVideo)
@@ -3571,8 +3617,8 @@ fun MediaContent(
                         }
                     }
 
-                    LaunchedEffect(exoPlayer, isMuted) {
-                        exoPlayer.volume = if (isMuted) 0f else 1f
+                    LaunchedEffect(exoPlayer, isMuted, volumeMultiplier) {
+                        exoPlayer.volume = if (isMuted) 0f else volumeMultiplier
                     }
 
                     DisposableEffect(exoPlayer) {

@@ -4,6 +4,7 @@ import android.content.Context
 import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.SurfaceView
 import android.view.View
@@ -36,6 +37,7 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
     var onLongPressMove: ((Float, Float) -> Unit)? = null
     var onLongPressEnd: (() -> Unit)? = null
     var onTap: (() -> Unit)? = null
+    var onFirstFrameRendered: (() -> Unit)? = null
     var initialTabIndex: Int = 2
     private var adapter: CombinedGdxAdapter? = null
     private var pendingMapIconTitle: String = "Map"
@@ -46,8 +48,10 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
     private var pendingChannelObjectToken: Int = 0
     private var syncedTabIndex: Int = Int.MIN_VALUE
     private var pendingSkin: CubeSkin = CubeSkin.Gold
+    private var pendingInteractionEnabled: Boolean = true
     private var inputView: View? = null
     private var textureView: TransparentGLTextureView? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     constructor(
         initialTabIndex: Int,
@@ -56,6 +60,7 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
         onLongPressMove: ((Float, Float) -> Unit)? = null,
         onLongPressEnd: (() -> Unit)? = null,
         onTap: (() -> Unit)? = null,
+        onFirstFrameRendered: (() -> Unit)? = null,
         onTabSelected: (Int) -> Unit
     ) : this() {
         this.initialTabIndex = initialTabIndex
@@ -64,6 +69,7 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
         this.onLongPressMove = onLongPressMove
         this.onLongPressEnd = onLongPressEnd
         this.onTap = onTap
+        this.onFirstFrameRendered = onFirstFrameRendered
         this.onTabSelected = onTabSelected
     }
 
@@ -93,6 +99,11 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
     fun setSkin(skin: CubeSkin) {
         pendingSkin = skin
         adapter?.skin = skin
+    }
+
+    fun setInteractionEnabled(enabled: Boolean) {
+        pendingInteractionEnabled = enabled
+        adapter?.isInteractionEnabled = enabled
     }
 
     fun syncSelectedTab(index: Int) {
@@ -125,11 +136,13 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
             onLongPress = { activity?.runOnUiThread { onLongPress?.invoke() } },
             onLongPressMove = { deltaX, deltaY -> activity?.runOnUiThread { onLongPressMove?.invoke(deltaX, deltaY) } },
             onLongPressEnd = { activity?.runOnUiThread { onLongPressEnd?.invoke() } },
-            onTap = { activity?.runOnUiThread { onTap?.invoke() } }
+            onTap = { activity?.runOnUiThread { onTap?.invoke() } },
+            onFirstFrameRendered = { mainHandler.post { onFirstFrameRendered?.invoke() } }
         ) { index ->
             activity?.runOnUiThread { onTabSelected?.invoke(index) }
         }
         this.adapter = adapter
+        adapter.isInteractionEnabled = pendingInteractionEnabled
         adapter.setFaceTitles(
             mapTitle = pendingMapIconTitle,
             cameraTitle = pendingCameraIconTitle,

@@ -8,7 +8,7 @@ import com.apptists.poplur2025.R
 
 val CubeSkin.appIconAliasName: String
     get() = when (this) {
-        CubeSkin.Default -> "IconDefaultAlias"
+        CubeSkin.Default -> "IconDefaultLauncherAlias"
         CubeSkin.Gold -> "IconGoldAlias"
         CubeSkin.Toy -> "IconToyAlias"
         CubeSkin.Rainbow -> "IconRainbowAlias"
@@ -34,8 +34,21 @@ val CubeSkin.appIconResId: Int
     }
 
 object AppIconThemeManager {
+    private const val EXPLICIT_LAUNCH_ALIAS = "IconDefaultAlias"
     private val allAliasNames = CubeSkin.entries.map { it.appIconAliasName }
     private var lastAppliedSkinId: String? = null
+
+    fun ensureExplicitLaunchAliasEnabled(context: Context) {
+        val appContext = context.applicationContext
+        val componentName = ComponentName(appContext.packageName, "${appContext.packageName}.$EXPLICIT_LAUNCH_ALIAS")
+        runCatching {
+            appContext.packageManager.setComponentEnabledSetting(
+                componentName,
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                PackageManager.DONT_KILL_APP
+            )
+        }
+    }
 
     fun apply(context: Context, skin: CubeSkin) {
         if (lastAppliedSkinId == skin.id) return
@@ -54,7 +67,7 @@ object AppIconThemeManager {
                 return
             }
 
-            val isDefaultAlias = alias == "IconDefaultAlias"
+            val isDefaultAlias = alias == "IconDefaultLauncherAlias"
             
             // Determine if the component is effectively correct based on its manifest default
             val isCorrectIfDefault = if (isDefaultAlias) {
@@ -80,6 +93,7 @@ object AppIconThemeManager {
             }
         }
 
+        setAliasState(EXPLICIT_LAUNCH_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
         setAliasState(selectedAlias, PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
 
         allAliasNames

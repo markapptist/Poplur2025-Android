@@ -12,8 +12,15 @@ data class UserProfile(
     val avatarUrl: String? = null,
     val radius: Int = 1250,
     val followers: Int = 1200,
-    val posts: Int = 12
-)
+    val posts: Int = 12,
+    val accountType: AccountType = AccountType.User,
+    val businessProfile: BusinessProfile? = null
+) {
+    val isBusinessAccount: Boolean get() = accountType == AccountType.Business
+    val isVerifiedBusiness: Boolean get() = businessProfile?.isVerified == true
+    val profileDisplayName: String
+        get() = businessProfile?.businessName?.takeIf { it.isNotBlank() } ?: displayName
+}
 
 data class Post(
     val id: String = "",

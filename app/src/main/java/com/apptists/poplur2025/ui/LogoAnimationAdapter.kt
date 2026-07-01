@@ -8,7 +8,7 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.math.Interpolation
 import android.util.Log
 
-class LogoAnimationAdapter(private val logoAssetPath: String = "logo.png") : ApplicationAdapter() {
+class LogoAnimationAdapter(private val logoAssetPath: String) : ApplicationAdapter() {
     private var spriteBatch: SpriteBatch? = null
     private var logoTexture: Texture? = null
     private var logoScale = 0f
@@ -20,16 +20,16 @@ class LogoAnimationAdapter(private val logoAssetPath: String = "logo.png") : App
         try {
             Log.d("LogoAnimationAdapter", "create() started")
             spriteBatch = SpriteBatch()
-            try {
-                val path = if (Gdx.files.internal(logoAssetPath).exists()) logoAssetPath else "logo.png"
-                logoTexture = Texture(Gdx.files.internal(path))
-                logoTexture?.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
-            } catch (e: Exception) {
-                Log.e("LogoAnimationAdapter", "Failed to load logo.png", e)
+            val logoFile = Gdx.files.internal(logoAssetPath)
+            if (!logoFile.exists()) {
+                error("Required logo asset is missing: $logoAssetPath")
             }
+            logoTexture = Texture(logoFile)
+            logoTexture?.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
             Log.d("LogoAnimationAdapter", "create() finished successfully")
         } catch (e: Exception) {
             Log.e("LogoAnimationAdapter", "CRITICAL ERROR in create()", e)
+            throw e
         }
     }
 

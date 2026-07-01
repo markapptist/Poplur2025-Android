@@ -3,6 +3,7 @@ package com.apptists.poplur2025
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -34,7 +35,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
     private var composeView: ComposeView? = null
     private var cubeContainer: FragmentContainerView? = null
     private val cubeContainerId = R.id.cube_container
-    private var lastCubeSkin: CubeSkin = CubeSkin.Default
+    private var lastCubeSkin: CubeSkin = CubeSkin.Gold
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(R.style.Theme_Poplur)
@@ -96,7 +97,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            if (event.action == KeyEvent.ACTION_DOWN) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                 val direction = if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
                     AudioManager.ADJUST_RAISE
                 } else {
@@ -161,6 +162,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
             onLongPressMove = if (config.isInteractive) config.onLongPressMove else null,
             onLongPressEnd = if (config.isInteractive) config.onLongPressEnd else null,
             onTap = if (config.isInteractive) config.onTap else null,
+            onFirstFrameRendered = config.onFirstFrameRendered,
             onTabSelected = if (config.isInteractive) config.onTabSelected else { _: Int -> }
         ).apply {
             setFaceTitles(
@@ -169,6 +171,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                 feedTitle = config.feedCubeFaceTitle,
                 profileTitle = config.profileCubeIconTitle
             )
+            setInteractionEnabled(config.isInteractive)
             setSkin(config.cubeSkin)
             showChannelObject(config.channelObjectId, config.channelObjectPopToken)
         }
@@ -183,6 +186,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                 feedTitle = config.feedCubeFaceTitle,
                 profileTitle = config.profileCubeIconTitle
             )
+            setInteractionEnabled(config.isInteractive)
             setSkin(config.cubeSkin)
             showChannelObject(config.channelObjectId, config.channelObjectPopToken)
             onVerticalSwipe = if (config.isInteractive) config.onVerticalSwipe else null
@@ -190,6 +194,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
             onLongPressMove = if (config.isInteractive) config.onLongPressMove else null
             onLongPressEnd = if (config.isInteractive) config.onLongPressEnd else null
             onTap = if (config.isInteractive) config.onTap else null
+            onFirstFrameRendered = config.onFirstFrameRendered
             onTabSelected = if (config.isInteractive) config.onTabSelected else null
         }
     }
@@ -216,9 +221,11 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
 
 private const val CUBE_OVERLAY_SIZE_DP = 280f
 private const val CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP = 174f
+private const val VOLUME_EVENT_MIN_INTERVAL_MS = 180L
 
 object PoplurVolumeEvents {
     private val listeners = mutableSetOf<() -> Unit>()
+    @Volatile private var lastNotifyUptimeMs = 0L
 
     fun addListener(listener: () -> Unit) {
         listeners += listener
@@ -229,6 +236,9 @@ object PoplurVolumeEvents {
     }
 
     fun notifyVolumeKeyPressed() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastNotifyUptimeMs < VOLUME_EVENT_MIN_INTERVAL_MS) return
+        lastNotifyUptimeMs = now
         listeners.toList().forEach { it() }
     }
 }

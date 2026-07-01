@@ -36,6 +36,12 @@
             android:name=".IconDefaultAlias"
             android:enabled="true"
             android:exported="true"
+            android:targetActivity=".MainActivity" />
+
+        <activity-alias
+            android:name=".IconDefaultLauncherAlias"
+            android:enabled="true"
+            android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:label="Poplur"
             android:roundIcon="@mipmap/ic_launcher_round"

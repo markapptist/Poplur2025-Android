@@ -41,12 +41,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.holdMenuAssetPath
 import com.apptists.poplur2025.ui.usePerItemTint
+import com.apptists.poplur2025.util.PoplurEQSync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -103,6 +105,7 @@ class CubeMenuWheelController(
         scrubRemainder = 0f
         isClosing = false
         isVisible = true
+        PoplurEQSync.begin(PoplurEQSync.Lane.HoldMenu)
     }
 
     fun endHold(activateSelected: Boolean) {
@@ -117,6 +120,7 @@ class CubeMenuWheelController(
         closeJob = scope.launch {
             delay(180)
             isClosing = false
+            PoplurEQSync.end(PoplurEQSync.Lane.HoldMenu)
             selectedAction?.invoke()
         }
     }
@@ -314,58 +318,65 @@ private fun CubeNeonMenu(
     cubeSkin: CubeSkin = CubeSkin.Default,
     modifier: Modifier = Modifier
 ) {
-    val visibleItems = visibleMenuItems(items, selectedIndex)
-    val skinColors = menuSkinColors(cubeSkin)
-
-    BoxWithConstraints(modifier) {
-        val horizontal = layout == CubeMenuLayout.Horizontal
-        val centerX = maxWidth / 2f
-        val centerY = if (horizontal) {
-            maxHeight - clampDp(maxHeight * 0.24f, 320.dp, 380.dp)
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        val visibleItems = visibleMenuItems(items, selectedIndex)
+        val skinColors = if (cubeSkin.usePerItemTint) {
+            null
         } else {
-            maxHeight / 2f
+            menuSkinColors(cubeSkin)
         }
+        val assetPath = cubeSkin.holdMenuAssetPath
         val horizontalSpacing = clampDp(maxWidth * 0.23f, 86.dp, 112.dp)
         val verticalSpacing = clampDp(maxHeight * 0.11f, 92.dp, 118.dp)
-        val tileAssetPath = cubeSkin.holdMenuAssetPath
+        val horizontalLiftFromBottom = clampDp(maxHeight * 0.24f, 226.dp, 292.dp)
+        val panelYOffset = when (layout) {
+            CubeMenuLayout.Horizontal -> maxHeight * 0.5f - horizontalLiftFromBottom
+            CubeMenuLayout.Vertical -> 0.dp
+        }
 
-        visibleItems.forEach { visibleItem ->
-            val selected = visibleItem.index == selectedIndex
-            val itemWidth = cubeMenuTileWidth(selected, layout)
-            val itemHeight = cubeMenuTileHeight(selected, layout)
-            val slotOffset = if (horizontal) horizontalSpacing * visibleItem.relativeSlot.toFloat() else verticalSpacing * visibleItem.relativeSlot.toFloat()
-            val itemX = if (horizontal) centerX + slotOffset - itemWidth / 2f else centerX - itemWidth / 2f
-            val itemY = if (horizontal) centerY - itemHeight / 2f else centerY + slotOffset - itemHeight / 2f
-            val distance = abs(visibleItem.relativeSlot)
-            val slotAlpha = when {
-                distance > 2 -> 0f
-                distance == 2 -> 0.72f
-                else -> 1f
-            }
-            val tileColors = if (cubeSkin.usePerItemTint) itemTileColors(visibleItem.item.accent) else skinColors
-
+        Box(Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
-                    .offset(x = itemX, y = itemY)
-                    .size(width = itemWidth, height = itemHeight)
-                    .graphicsLayer {
-                        alpha = slotAlpha * openProgress
-                        val tileScale = 0.82f + openProgress * 0.18f
-                        scaleX = tileScale
-                        scaleY = tileScale
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                CubeNeonMenuTile(
-                    item = visibleItem.item,
-                    relativeSlot = visibleItem.relativeSlot,
-                    selected = selected,
-                    tickCount = tickCount,
-                    layout = layout,
-                    cubeSkin = cubeSkin,
-                    skinColors = tileColors,
-                    tileAssetPath = tileAssetPath
-                )
+                    .fillMaxSize()
+                    .background(Color.White.copy(alpha = 0.10f * openProgress))
+            )
+
+            visibleItems.forEach { visibleItem ->
+                val selected = visibleItem.index == selectedIndex
+                val distance = abs(visibleItem.relativeSlot)
+                val slotOpacity = if (distance == 2) 0.72f else 1f
+                val slotOffsetX = when (layout) {
+                    CubeMenuLayout.Horizontal -> horizontalSpacing * visibleItem.relativeSlot.toFloat()
+                    CubeMenuLayout.Vertical -> 0.dp
+                }
+                val slotOffsetY = when (layout) {
+                    CubeMenuLayout.Horizontal -> panelYOffset
+                    CubeMenuLayout.Vertical -> verticalSpacing * visibleItem.relativeSlot.toFloat()
+                }
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset(x = slotOffsetX, y = slotOffsetY)
+                        .graphicsLayer {
+                            alpha = openProgress * slotOpacity
+                            val entranceScale = 0.3f + openProgress * 0.7f
+                            scaleX = entranceScale
+                            scaleY = entranceScale
+                        }
+                        .zIndex(if (selected) 3f else 3f - distance.toFloat())
+                ) {
+                    CubeNeonMenuTile(
+                        item = visibleItem.item,
+                        relativeSlot = visibleItem.relativeSlot,
+                        selected = selected,
+                        tickCount = tickCount,
+                        layout = layout,
+                        cubeSkin = cubeSkin,
+                        skinColors = skinColors ?: itemTileColors(visibleItem.item.accent),
+                        tileAssetPath = assetPath
+                    )
+                }
             }
         }
     }
@@ -380,7 +391,7 @@ private fun CubeNeonMenuTile(
     layout: CubeMenuLayout,
     cubeSkin: CubeSkin,
     skinColors: MenuSkinColors,
-    tileAssetPath: String? = null
+    tileAssetPath: String
 ) {
     val density = LocalDensity.current
     val impulse = androidx.compose.runtime.remember { Animatable(0f) }
@@ -440,28 +451,12 @@ private fun CubeNeonMenuTile(
             }
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (tileAssetPath != null) {
-                AsyncImage(
-                    model = "file:///android_asset/$tileAssetPath",
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().clip(tileShape)
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    skinColors.tileBgAccent,
-                                    Color(0.02f, 0.02f, 0.06f, 0.98f)
-                                )
-                            ),
-                            tileShape
-                        )
-                )
-            }
+            AsyncImage(
+                model = "file:///android_asset/$tileAssetPath",
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().clip(tileShape)
+            )
             Box(
                 modifier = Modifier
                     .fillMaxSize()

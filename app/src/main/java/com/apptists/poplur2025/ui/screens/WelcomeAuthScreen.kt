@@ -5,9 +5,13 @@ import android.view.View
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -15,11 +19,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -40,7 +44,13 @@ import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
 import androidx.compose.ui.tooling.preview.Preview
 import com.apptists.poplur2025.auth.AuthViewModel
+import com.apptists.poplur2025.data.AccountType
+import com.apptists.poplur2025.data.BusinessProfile
+import com.apptists.poplur2025.data.BusinessVerificationMethod
+import com.apptists.poplur2025.data.BusinessVerificationStatus
 import com.apptists.poplur2025.ui.ConfettiAnimationFragment
+import com.apptists.poplur2025.ui.GdxState
+import com.apptists.poplur2025.ui.components.PersistentCubeOverlay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
@@ -51,8 +61,8 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
         onSignIn = { email, password, onResult ->
             authViewModel.signIn(email, password, onResult)
         },
-        onSignUp = { email, password, onResult ->
-            authViewModel.signUp(email, password, onResult)
+        onSignUp = { email, password, accountType, businessProfile, onResult ->
+            authViewModel.signUp(email, password, accountType, businessProfile, onResult)
         }
     )
 }
@@ -61,7 +71,7 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
 internal fun WelcomeAuthScreenContent(
     initialMode: AuthMode = AuthMode.Welcome,
     onSignIn: (String, String, (Boolean, String?) -> Unit) -> Unit,
-    onSignUp: (String, String, (Boolean, String?) -> Unit) -> Unit
+    onSignUp: (String, String, AccountType, BusinessProfile?, (Boolean, String?) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
     var mode by remember { mutableStateOf(initialMode) }
@@ -171,10 +181,11 @@ internal fun WelcomeAuthScreenContent(
                     logoBitmap = logoBitmap,
                     layout = authLayout,
                     animationStarted = welcomeAnimationStarted,
-                    onSignIn = { mode = AuthMode.Login }
+                    onSignIn = { mode = AuthMode.Login },
+                    onCreateAccount = { mode = AuthMode.SignUp }
                 )
             }
-        } else {
+        } else if (mode == AuthMode.Login) {
             Box(Modifier.fillMaxSize().zIndex(2f)) {
                 LoginTicketContent(
                     logoBitmap = logoBitmap,
@@ -193,18 +204,33 @@ internal fun WelcomeAuthScreenContent(
                     onSubmit = {
                         loading = true
                         error = null
-                        if (mode == AuthMode.Login) {
-                            onSignIn(email, password) { ok, msg ->
-                                loading = false
-                                if (!ok) error = msg
-                            }
-                        } else {
-                            onSignUp(email, password) { ok, msg ->
-                                loading = false
-                                if (!ok) error = msg
-                            }
+                        onSignIn(email, password) { ok, msg ->
+                            loading = false
+                            if (!ok) error = msg
                         }
                     }
+                )
+            }
+        } else {
+            Box(Modifier.fillMaxSize().zIndex(2f)) {
+                BusinessSignupTicketContent(
+                    logoBitmap = logoBitmap,
+                    error = error,
+                    loading = loading,
+                    layout = authLayout,
+                    onBack = {
+                        error = null
+                        mode = AuthMode.Welcome
+                    },
+                    onSubmit = { signupEmail, signupPassword, signupAccountType, businessProfile ->
+                        loading = true
+                        error = null
+                        onSignUp(signupEmail, signupPassword, signupAccountType, businessProfile) { ok, msg ->
+                            loading = false
+                            if (!ok) error = msg
+                        }
+                    },
+                    onValidationError = { error = it }
                 )
             }
         }
@@ -216,7 +242,8 @@ private fun WelcomeTicketContent(
     logoBitmap: androidx.compose.ui.graphics.ImageBitmap?,
     layout: AuthLayoutMetrics,
     animationStarted: Boolean,
-    onSignIn: () -> Unit
+    onSignIn: () -> Unit,
+    onCreateAccount: () -> Unit
 ) {
     val logoProgress by animateFloatAsState(
         targetValue = if (animationStarted) 1f else 0f,
@@ -249,27 +276,57 @@ private fun WelcomeTicketContent(
                 }
         )
 
-        Button(
-            onClick = onSignIn,
+        AuthCubeOverlay(
+            label = "Welcome",
+            selectedTabIndex = 0,
+            enabled = false,
+            onTap = {}
+        )
+
+        Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = layout.welcomeButtonTop)
-                .width(layout.welcomeButtonWidth)
-                .height(layout.welcomeButtonHeight)
                 .graphicsLayer {
                     alpha = buttonProgress
                     scaleX = 0.88f + (0.12f * buttonProgress)
                     scaleY = 0.88f + (0.12f * buttonProgress)
                     translationY = (1f - buttonProgress) * 28f
                 },
-            shape = RoundedCornerShape(layout.welcomeButtonHeight / 2f),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color.White,
-                contentColor = Color.Black
-            ),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 10.dp, pressedElevation = 4.dp)
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("Sign In", fontWeight = FontWeight.Black, fontSize = layout.welcomeButtonTextSize.sp)
+            Button(
+                onClick = onSignIn,
+                modifier = Modifier
+                    .width(layout.welcomeButtonWidth)
+                    .height(layout.welcomeButtonHeight),
+                shape = RoundedCornerShape(layout.welcomeButtonHeight / 2f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White,
+                    contentColor = Color.Black
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 10.dp, pressedElevation = 4.dp)
+            ) {
+                Text("Sign In", fontWeight = FontWeight.Black, fontSize = layout.welcomeButtonTextSize.sp)
+            }
+            OutlinedButton(
+                onClick = onCreateAccount,
+                modifier = Modifier
+                    .width(layout.welcomeButtonWidth)
+                    .height((layout.welcomeButtonHeight * 0.86f).coerceAtLeast(50.dp)),
+                shape = RoundedCornerShape(layout.welcomeButtonHeight / 2f),
+                border = BorderStroke(2.dp, Color.White.copy(alpha = 0.86f)),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = Color.White
+                )
+            ) {
+                Text(
+                    "Sign Up",
+                    fontWeight = FontWeight.Black,
+                    fontSize = (layout.welcomeButtonTextSize * 0.82f).sp
+                )
+            }
         }
     }
 }
@@ -300,6 +357,13 @@ private fun LoginTicketContent(
                 .align(Alignment.TopCenter)
                 .padding(top = layout.loginLogoTop)
                 .size(layout.logoSize)
+        )
+
+        AuthCubeOverlay(
+            label = "Login",
+            selectedTabIndex = 0,
+            enabled = false,
+            onTap = {}
         )
 
         Box(
@@ -354,6 +418,613 @@ private fun LoginTicketContent(
             )
         }
     }
+}
+
+@Composable
+private fun BusinessSignupTicketContent(
+    logoBitmap: androidx.compose.ui.graphics.ImageBitmap?,
+    error: String?,
+    loading: Boolean,
+    layout: AuthLayoutMetrics,
+    onBack: () -> Unit,
+    onSubmit: (String, String, AccountType, BusinessProfile?) -> Unit,
+    onValidationError: (String?) -> Unit
+) {
+    var signupStep by rememberSaveable { mutableStateOf(0) }
+    var cubeSpinToken by rememberSaveable { mutableStateOf(0) }
+    var selectedAccountType by rememberSaveable { mutableStateOf(AccountType.User.wireValue) }
+    var email by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var confirmPassword by rememberSaveable { mutableStateOf("") }
+
+    var businessName by rememberSaveable { mutableStateOf("") }
+    var businessCategory by rememberSaveable { mutableStateOf("") }
+    var businessDescription by rememberSaveable { mutableStateOf("") }
+    var businessAddress by rememberSaveable { mutableStateOf("") }
+    var latitude by rememberSaveable { mutableStateOf("43.6532") }
+    var longitude by rememberSaveable { mutableStateOf("-79.3832") }
+    var contactEmail by rememberSaveable { mutableStateOf("") }
+    var contactPhone by rememberSaveable { mutableStateOf("") }
+    var website by rememberSaveable { mutableStateOf("") }
+    var logoPhotoNotes by rememberSaveable { mutableStateOf("") }
+    var verificationRequested by rememberSaveable { mutableStateOf(false) }
+    var acceptedTerms by rememberSaveable { mutableStateOf(false) }
+    var proofSummary by rememberSaveable { mutableStateOf("") }
+    val selectedMethods = remember { mutableStateListOf<String>() }
+    val scrollState = rememberScrollState()
+
+    val accountType = AccountType.fromWire(selectedAccountType)
+    fun setVerificationMethod(method: BusinessVerificationMethod, selected: Boolean) {
+        if (selected) {
+            if (!selectedMethods.contains(method.wireValue)) selectedMethods.add(method.wireValue)
+        } else {
+            selectedMethods.remove(method.wireValue)
+        }
+    }
+
+    fun buildBusinessProfile(): BusinessProfile? =
+        if (accountType == AccountType.Business) {
+            BusinessProfile(
+                businessName = businessName.trim(),
+                category = businessCategory.trim(),
+                description = businessDescription.trim(),
+                address = businessAddress.trim(),
+                latitude = latitude.toDoubleOrNull() ?: 43.6532,
+                longitude = longitude.toDoubleOrNull() ?: -79.3832,
+                contactEmail = contactEmail.trim(),
+                contactPhone = contactPhone.trim(),
+                website = website.trim(),
+                logoPhotoNotes = logoPhotoNotes.trim(),
+                verificationStatus = BusinessVerificationStatus.PendingReview,
+                verificationMethods = selectedMethods.toList(),
+                proofSummary = proofSummary.trim(),
+                requiresReverification = false
+            )
+        } else {
+            null
+        }
+
+    fun submitSignup() {
+        val validationError = validateSignup(
+            accountType = accountType,
+            email = email,
+            password = password,
+            confirmPassword = confirmPassword,
+            businessName = businessName,
+            businessCategory = businessCategory,
+            businessAddress = businessAddress,
+            latitude = latitude,
+            longitude = longitude,
+            contactEmail = contactEmail,
+            contactPhone = contactPhone,
+            verificationRequested = verificationRequested,
+            acceptedTerms = acceptedTerms,
+            selectedMethods = selectedMethods,
+            proofSummary = proofSummary
+        )
+        if (validationError != null) {
+            onValidationError(validationError)
+            return
+        }
+        onValidationError(null)
+        onSubmit(email.trim(), password, accountType, buildBusinessProfile())
+    }
+
+    fun moveToStep(nextStep: Int) {
+        cubeSpinToken += 1
+        signupStep = nextStep
+        onValidationError(null)
+    }
+
+    fun advanceSignup() {
+        if (loading) return
+        when (signupStep) {
+            0 -> moveToStep(1)
+            1 -> {
+                val validationError = validateAccountStep(email, password, confirmPassword)
+                if (validationError != null) {
+                    onValidationError(validationError)
+                    return
+                }
+                if (accountType == AccountType.Business) moveToStep(2) else submitSignup()
+            }
+            2 -> {
+                val validationError = validateBusinessProfileStep(
+                    businessName = businessName,
+                    businessCategory = businessCategory,
+                    businessAddress = businessAddress,
+                    latitude = latitude,
+                    longitude = longitude,
+                    contactEmail = contactEmail,
+                    contactPhone = contactPhone
+                )
+                if (validationError != null) {
+                    onValidationError(validationError)
+                    return
+                }
+                moveToStep(3)
+            }
+            3 -> {
+                val validationError = validateVerificationStep(
+                    verificationRequested = verificationRequested,
+                    acceptedTerms = acceptedTerms,
+                    selectedMethods = selectedMethods,
+                    proofSummary = proofSummary
+                )
+                if (validationError != null) {
+                    onValidationError(validationError)
+                    return
+                }
+                moveToStep(4)
+            }
+            else -> submitSignup()
+        }
+    }
+
+    fun stepBack() {
+        onValidationError(null)
+        signupStep = when (signupStep) {
+            0 -> 0
+            1 -> 0
+            2 -> 1
+            3 -> 2
+            else -> 3
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(horizontal = layout.formHorizontalInset)
+                .padding(top = 24.dp, bottom = 190.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = {
+                    if (signupStep == 0) onBack() else stepBack()
+                }) {
+                    Text("Back", color = Color.White, fontWeight = FontWeight.Black)
+                }
+                Spacer(Modifier.weight(1f))
+            }
+
+            WelcomeLogo(
+                logoBitmap = logoBitmap,
+                modifier = Modifier.size((layout.logoSize * 0.58f).coerceIn(116.dp, 150.dp))
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                signupStepTitle(signupStep),
+                color = Color.White,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                signupStepSubtitle(signupStep, accountType),
+                color = Color.White.copy(alpha = 0.78f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            Spacer(Modifier.height(18.dp))
+
+            if (signupStep == 0) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SignupAccountTypeCard(
+                    title = "User",
+                    selected = accountType == AccountType.User,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    selectedAccountType = AccountType.User.wireValue
+                    moveToStep(1)
+                    onValidationError(null)
+                }
+                SignupAccountTypeCard(
+                    title = "Business",
+                    selected = accountType == AccountType.Business,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    selectedAccountType = AccountType.Business.wireValue
+                    if (contactEmail.isBlank()) contactEmail = email
+                    moveToStep(1)
+                    onValidationError(null)
+                }
+            }
+
+            if (signupStep == 1) SignupSection("Account") {
+                SignupTextField("Email", email) {
+                    email = it
+                    if (contactEmail.isBlank()) contactEmail = it
+                }
+                SignupTextField("Password", password, isPassword = true) { password = it }
+                SignupTextField("Confirm password", confirmPassword, isPassword = true) { confirmPassword = it }
+            }
+
+            if (accountType == AccountType.Business && signupStep == 2) {
+                SignupSection("Create Business Profile") {
+                    SignupTextField("Business name", businessName) { businessName = it }
+                    SignupTextField("Business category", businessCategory) { businessCategory = it }
+                    SignupTextField("Description", businessDescription, singleLine = false) { businessDescription = it }
+                    SignupTextField("Address / location on map", businessAddress) { businessAddress = it }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SignupTextField("Latitude", latitude, modifier = Modifier.weight(1f)) { latitude = it }
+                        SignupTextField("Longitude", longitude, modifier = Modifier.weight(1f)) { longitude = it }
+                    }
+                    SignupMapLocationPreview(
+                        businessName = businessName.ifBlank { "Business location" },
+                        address = businessAddress,
+                        latitude = latitude,
+                        longitude = longitude
+                    )
+                    SignupTextField("Contact email", contactEmail) { contactEmail = it }
+                    SignupTextField("Contact phone", contactPhone) { contactPhone = it }
+                    SignupTextField("Website", website) { website = it }
+                    SignupTextField("Logo/photos notes", logoPhotoNotes, singleLine = false) { logoPhotoNotes = it }
+                }
+            }
+
+            if (accountType == AccountType.Business && signupStep == 3) {
+                SignupSection("Request Verification") {
+                    Button(
+                        onClick = { verificationRequested = true },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(26.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+                    ) {
+                        Text(
+                            if (verificationRequested) "Verification Requested" else "Verify My Business",
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+
+                    if (verificationRequested) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = acceptedTerms, onCheckedChange = { acceptedTerms = it })
+                            Text(
+                                "I agree that major changes to name, address, or ownership can trigger re-verification.",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            "Choose proof methods",
+                            color = Color.White.copy(alpha = 0.78f),
+                            fontWeight = FontWeight.Black,
+                            fontSize = 12.sp
+                        )
+                        BusinessVerificationMethod.entries.forEach { method ->
+                            val checked = selectedMethods.contains(method.wireValue)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        setVerificationMethod(method, !checked)
+                                    }
+                                    .background(Color.White.copy(alpha = 0.12f))
+                                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = { setVerificationMethod(method, it) }
+                                )
+                                Text(
+                                    method.label,
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        SignupTextField("Submit proof details", proofSummary, singleLine = false) { proofSummary = it }
+                    }
+                }
+            }
+
+            if (accountType == AccountType.Business && signupStep == 4) {
+                SignupSection("Review Process") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        BusinessVerificationStatus.entries.forEach { status ->
+                            val active = status == if (verificationRequested) {
+                                BusinessVerificationStatus.PendingReview
+                            } else {
+                                BusinessVerificationStatus.NotVerified
+                            }
+                            Text(
+                                status.label,
+                                color = if (active) Color.Black else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(if (active) Color.White else Color.White.copy(alpha = 0.14f))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        "Approved businesses show a verified badge and unlock business-only features. Rejected businesses can see the reason and resubmit proof.",
+                        color = Color.White.copy(alpha = 0.74f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            error?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, color = Color.White, fontWeight = FontWeight.Black)
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Button(
+                enabled = !loading,
+                onClick = { advanceSignup() },
+                modifier = Modifier.fillMaxWidth().height(58.dp),
+                shape = RoundedCornerShape(29.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White,
+                    contentColor = Color.Black,
+                    disabledContainerColor = Color.White.copy(alpha = 0.72f),
+                    disabledContentColor = Color.Black.copy(alpha = 0.5f)
+                )
+            ) {
+                Text(
+                    signupActionTitle(signupStep, accountType, loading),
+                    fontWeight = FontWeight.Black,
+                    fontSize = 16.sp
+                )
+            }
+        }
+
+        AuthCubeOverlay(
+            label = signupStepTitle(signupStep),
+            selectedTabIndex = cubeSpinToken % 4,
+            enabled = !loading,
+            onTap = { advanceSignup() }
+        )
+    }
+}
+
+@Composable
+private fun AuthCubeOverlay(
+    label: String,
+    selectedTabIndex: Int,
+    enabled: Boolean,
+    onTap: () -> Unit
+) {
+    PersistentCubeOverlay(
+        selectedTabIndex = selectedTabIndex.coerceIn(0, 3),
+        mapCubeFaceTitle = label,
+        cameraCubeFaceTitle = label,
+        feedCubeFaceTitle = label,
+        profileCubeIconTitle = label,
+        cubeSkin = GdxState.selectedCubeSkin,
+        isInteractive = enabled,
+        onTap = onTap,
+        onTabSelected = {},
+        onVerticalSwipe = {},
+        onLongPress = {},
+        onLongPressMove = { _, _ -> },
+        onLongPressEnd = {}
+    )
+}
+
+@Composable
+private fun SignupAccountTypeCard(
+    title: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .height(58.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (selected) Color.White else Color.White.copy(alpha = 0.16f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            title,
+            color = if (selected) Color.Black else Color.White,
+            fontWeight = FontWeight.Black,
+            fontSize = 18.sp
+        )
+    }
+}
+
+@Composable
+private fun SignupSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color.Black.copy(alpha = 0.16f))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(title, color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp)
+        content()
+    }
+}
+
+@Composable
+private fun SignupTextField(
+    placeholder: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    singleLine: Boolean = true,
+    isPassword: Boolean = false,
+    onValueChange: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = {
+            Text(placeholder, color = Color.White.copy(alpha = 0.54f), fontWeight = FontWeight.Bold)
+        },
+        singleLine = singleLine,
+        minLines = if (singleLine) 1 else 3,
+        visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+        textStyle = LocalTextStyle.current.copy(color = Color.White, fontWeight = FontWeight.Bold),
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = Color.White,
+            unfocusedTextColor = Color.White,
+            focusedBorderColor = Color.White,
+            unfocusedBorderColor = Color.White.copy(alpha = 0.32f),
+            focusedContainerColor = Color.White.copy(alpha = 0.08f),
+            unfocusedContainerColor = Color.White.copy(alpha = 0.08f),
+            cursorColor = Color.White
+        )
+    )
+}
+
+@Composable
+private fun SignupMapLocationPreview(
+    businessName: String,
+    address: String,
+    latitude: String,
+    longitude: String
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.12f))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text("Map location", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
+        Text(businessName, color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
+        Text(address.ifBlank { "Add an address so Poplur can place this business on the map." }, color = Color.White.copy(alpha = 0.74f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text("${latitude.ifBlank { "lat" }}, ${longitude.ifBlank { "lng" }}", color = Color.White.copy(alpha = 0.74f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+    }
+}
+
+private fun signupStepTitle(step: Int): String = when (step) {
+    0 -> "Choose Account"
+    1 -> "Create Login"
+    2 -> "Business Profile"
+    3 -> "Verify Business"
+    else -> "Review & Submit"
+}
+
+private fun signupStepSubtitle(step: Int, accountType: AccountType): String = when (step) {
+    0 -> "Choose a personal user account or a verified business account."
+    1 -> if (accountType == AccountType.Business) {
+        "Create the login for the business admin account."
+    } else {
+        "Create your login, then continue with normal user onboarding."
+    }
+    2 -> "Attach the business to a real map location and add its public details."
+    3 -> "Request verification and submit proof so Poplur can review the business."
+    else -> if (accountType == AccountType.Business) {
+        "Confirm the request before submitting the business for review."
+    } else {
+        "Create your account."
+    }
+}
+
+private fun signupActionTitle(step: Int, accountType: AccountType, loading: Boolean): String = when {
+    loading -> "Submitting"
+    step == 1 && accountType == AccountType.User -> "Create User Account"
+    step >= 4 && accountType == AccountType.Business -> "Submit Business for Review"
+    else -> "Continue"
+}
+
+private fun validateAccountStep(
+    email: String,
+    password: String,
+    confirmPassword: String
+): String? {
+    if (email.isBlank() || password.isBlank()) return "Enter an email and password."
+    if (password.length < 6) return "Password must be at least 6 characters."
+    if (password != confirmPassword) return "Passwords do not match."
+    return null
+}
+
+private fun validateBusinessProfileStep(
+    businessName: String,
+    businessCategory: String,
+    businessAddress: String,
+    latitude: String,
+    longitude: String,
+    contactEmail: String,
+    contactPhone: String
+): String? {
+    if (businessName.isBlank() || businessCategory.isBlank() || businessAddress.isBlank()) {
+        return "Add your business name, category, and map address."
+    }
+    if (latitude.toDoubleOrNull() == null || longitude.toDoubleOrNull() == null) {
+        return "Enter a valid latitude and longitude for the business map location."
+    }
+    if (contactEmail.isBlank() && contactPhone.isBlank()) {
+        return "Add a business contact email or phone number."
+    }
+    return null
+}
+
+private fun validateVerificationStep(
+    verificationRequested: Boolean,
+    acceptedTerms: Boolean,
+    selectedMethods: List<String>,
+    proofSummary: String
+): String? {
+    if (!verificationRequested || !acceptedTerms) {
+        return "Tap Verify My Business and agree to the verification terms."
+    }
+    if (selectedMethods.isEmpty()) return "Choose at least one verification method."
+    if (proofSummary.isBlank()) return "Submit proof details for review."
+    return null
+}
+
+private fun validateSignup(
+    accountType: AccountType,
+    email: String,
+    password: String,
+    confirmPassword: String,
+    businessName: String,
+    businessCategory: String,
+    businessAddress: String,
+    latitude: String,
+    longitude: String,
+    contactEmail: String,
+    contactPhone: String,
+    verificationRequested: Boolean,
+    acceptedTerms: Boolean,
+    selectedMethods: List<String>,
+    proofSummary: String
+): String? {
+    validateAccountStep(email, password, confirmPassword)?.let { return it }
+    if (accountType == AccountType.User) return null
+    validateBusinessProfileStep(
+        businessName = businessName,
+        businessCategory = businessCategory,
+        businessAddress = businessAddress,
+        latitude = latitude,
+        longitude = longitude,
+        contactEmail = contactEmail,
+        contactPhone = contactPhone
+    )?.let { return it }
+    validateVerificationStep(
+        verificationRequested = verificationRequested,
+        acceptedTerms = acceptedTerms,
+        selectedMethods = selectedMethods,
+        proofSummary = proofSummary
+    )?.let { return it }
+    return null
 }
 
 @Composable
@@ -500,7 +1171,7 @@ fun WelcomeAuthScreenPreview() {
         WelcomeAuthScreenContent(
             initialMode = AuthMode.Welcome,
             onSignIn = { _, _, _ -> },
-            onSignUp = { _, _, _ -> }
+            onSignUp = { _, _, _, _, _ -> }
         )
     }
 }
@@ -512,7 +1183,7 @@ fun WelcomeAuthScreenLoginPreview() {
         WelcomeAuthScreenContent(
             initialMode = AuthMode.Login,
             onSignIn = { _, _, _ -> },
-            onSignUp = { _, _, _ -> }
+            onSignUp = { _, _, _, _, _ -> }
         )
     }
 }

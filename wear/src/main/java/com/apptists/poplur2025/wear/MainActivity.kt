@@ -170,7 +170,9 @@ private class WatchRadiusStore(private val context: Context) : DataClient.OnData
 
     fun displayValue(metric: Boolean): String {
         if (radiusMeters <= 0L) return "0"
-        val value = if (metric) radiusMeters / 1_000.0 else radiusMeters / 1_609.344
+        val denominator = if (metric) WATCH_EARTH_RADIUS_KM else WATCH_EARTH_RADIUS_MI
+        val value = (if (metric) radiusMeters / 1_000.0 else radiusMeters / 1_609.344)
+            .coerceAtMost(denominator)
         return if (value >= 10.0) "%.0f".format(value) else "%.1f".format(value)
     }
 
@@ -244,6 +246,8 @@ private val LcdBlue   = Color(0.24f, 0.78f, 1.00f)
 private val LcdDivider = Color(0.10f, 0.45f, 0.10f)
 private val LcdRed    = Color(1.00f, 0.18f, 0.12f)
 private val LcdYellow = Color(1.00f, 0.86f, 0.10f)
+private const val WATCH_EARTH_RADIUS_KM = 6_371.0
+private const val WATCH_EARTH_RADIUS_MI = 3_959.0
 
 // ── Main screen ──────────────────────────────────────────────────────────────
 
@@ -730,7 +734,7 @@ private fun DataColumn(
     modifier: Modifier = Modifier
 ) {
     val unit        = if (showKm) "km" else "mi"
-    val denominator = if (showKm) "/6371" else "/3959"
+    val denominator = if (showKm) "/${WATCH_EARTH_RADIUS_KM.toInt()}" else "/${WATCH_EARTH_RADIUS_MI.toInt()}"
     val radius      = if (showKm) store.displayValue(true) else store.displayValue(false)
     val timeFmt     = remember { SimpleDateFormat("H:mm", Locale.getDefault()) }
 
@@ -937,4 +941,3 @@ suspend fun androidx.compose.ui.input.pointer.PointerInputScope.tryAwaitRelease(
         false
     }
 }
-

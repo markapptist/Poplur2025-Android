@@ -19,14 +19,14 @@ import javax.microedition.khronos.egl.EGLSurface;
  * TextureView composes in the normal Android view hierarchy, unlike SurfaceView, so it can sit
  * over Compose without exposing a black compositor plane.
  */
-class TransparentGLTextureView extends TextureView implements TextureView.SurfaceTextureListener {
+public class TransparentGLTextureView extends TextureView implements TextureView.SurfaceTextureListener {
     private GLSurfaceView.Renderer renderer;
     private GLThread glThread;
     private int renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY;
     private final long targetFrameNanos;
     private int glesVersion = 2;
 
-    TransparentGLTextureView(Context context) {
+    public TransparentGLTextureView(Context context) {
         super(context);
         android.util.Log.d("TransparentGLTextureView", "Constructor called");
         targetFrameNanos = frameIntervalNanos(context);
@@ -34,33 +34,33 @@ class TransparentGLTextureView extends TextureView implements TextureView.Surfac
         setSurfaceTextureListener(this);
     }
 
-    void setRenderer(GLSurfaceView.Renderer renderer, int glesVersion) {
+    public void setRenderer(GLSurfaceView.Renderer renderer, int glesVersion) {
         this.renderer = renderer;
         this.glesVersion = glesVersion;
     }
 
-    void setRenderMode(int renderMode) {
+    public void setRenderMode(int renderMode) {
         this.renderMode = renderMode;
         GLThread thread = glThread;
         if (thread != null) thread.setRenderMode(renderMode);
     }
 
-    void requestRender() {
+    public void requestRender() {
         GLThread thread = glThread;
         if (thread != null) thread.requestRender();
     }
 
-    void onPause() {
+    public void onPause() {
         GLThread thread = glThread;
         if (thread != null) thread.onPause();
     }
 
-    void onResume() {
+    public void onResume() {
         GLThread thread = glThread;
         if (thread != null) thread.onResume();
     }
 
-    void onDestroy() {
+    public void onDestroy() {
         GLThread thread = glThread;
         glThread = null;
         if (thread != null) thread.shutdown();

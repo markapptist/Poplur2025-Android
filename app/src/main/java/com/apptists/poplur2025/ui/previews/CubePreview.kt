@@ -76,7 +76,7 @@ class CubeDebugFragment : GdxNavigationFragment() {
 }
 
 @Composable
-fun CubeDevelopmentScreen(onBack: () -> Unit = {}) {
+fun CubeDebugScreen(onBack: () -> Unit = {}) {
     var scale by remember { mutableStateOf(0.65f) }
     var cornerRadius by remember { mutableStateOf(92f) }
     var rotation by remember { mutableStateOf(-90f) }
@@ -255,8 +255,8 @@ fun CubeDevelopmentScreen(onBack: () -> Unit = {}) {
 
 @androidx.compose.ui.tooling.preview.Preview
 @Composable
-fun CubeDevelopmentPreview() {
+fun CubeDebugPreview() {
     MaterialTheme {
-        CubeDevelopmentScreen()
+        CubeDebugScreen()
     }
 }

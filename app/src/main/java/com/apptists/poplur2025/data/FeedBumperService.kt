@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import com.apptists.poplur2025.util.PoplurEQSync
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -50,6 +51,7 @@ object FeedBumperService {
                 pendingScript?.let { speak(it) }
                 pendingScript = null
             } else {
+                setActive(false)
                 Log.w(TAG, "TTS init failed: $status")
             }
         }
@@ -62,7 +64,7 @@ object FeedBumperService {
 
         // Show overlay + speak fallback immediately (before any network call)
         val immediate = fallbackScript(post, channelName)
-        _isActive.value = true
+        setActive(true)
         if (ttsReady) speak(immediate) else pendingScript = immediate
 
         // Upgrade with Claude's script in background — queued after fallback finishes
@@ -72,7 +74,7 @@ object FeedBumperService {
                 tts?.speak(aiScript, TextToSpeech.QUEUE_ADD, null, "bumper_ai")
                 val ms = ((aiScript.split(" ").size / 2.5) * 1000).toLong().coerceIn(3_000L, 12_000L)
                 mainHandler.removeCallbacksAndMessages(null)
-                mainHandler.postDelayed({ _isActive.value = false }, ms)
+                mainHandler.postDelayed({ setActive(false) }, ms)
             }
         } catch (e: Exception) {
             Log.d(TAG, "Claude unavailable, fallback already playing")
@@ -81,7 +83,7 @@ object FeedBumperService {
 
     fun dismiss() {
         tts?.stop()
-        _isActive.value = false
+        setActive(false)
         mainHandler.removeCallbacksAndMessages(null)
     }
 
@@ -90,7 +92,16 @@ object FeedBumperService {
         // Auto-hide overlay after estimated speech duration
         val words = script.split(" ").size
         val ms = ((words / 2.5) * 1000).toLong().coerceIn(3_000L, 12_000L)
-        mainHandler.postDelayed({ _isActive.value = false }, ms)
+        mainHandler.postDelayed({ setActive(false) }, ms)
+    }
+
+    private fun setActive(active: Boolean) {
+        _isActive.value = active
+        if (active) {
+            PoplurEQSync.begin(PoplurEQSync.Lane.FeedBumper)
+        } else {
+            PoplurEQSync.end(PoplurEQSync.Lane.FeedBumper)
+        }
     }
 
     private suspend fun generateScript(post: Post, channelName: String): String =

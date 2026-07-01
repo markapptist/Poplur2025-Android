@@ -1,16 +1,9 @@
 package com.apptists.poplur2025.ui.components
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -29,7 +22,7 @@ import androidx.compose.ui.unit.TextUnit
 
 /**
  * A shader-enhanced replacement for standard Compose Text.
- * Adds a glow and animated shimmer effect consistent with the Poplur aesthetic.
+ * Adds glow and a static shimmer consistent with the Poplur aesthetic without per-label animation loops.
  */
 @Composable
 fun PoplurText(
@@ -51,17 +44,6 @@ fun PoplurText(
     style: TextStyle = LocalTextStyle.current,
     intensity: Float = 1f
 ) {
-    val transition = rememberInfiniteTransition(label = "poplur-text-shader")
-    val time by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 60f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 60000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "poplur-text-shader-time"
-    )
-
     val textColor = if (color != Color.Unspecified) color else style.color
     val effectiveGlowColor = remember(textColor) {
         val lum = textColor.red * 0.2126f + textColor.green * 0.7152f + textColor.blue * 0.0722f
@@ -77,8 +59,8 @@ fun PoplurText(
         )
     }
 
-    val scan = ((time * 42f) % 220f) - 110f
-    val shimmerBrush = remember(highlightColor, scan, intensity) {
+    val shimmerBrush = remember(textColor, highlightColor, intensity) {
+        val scan = 18f
         Brush.linearGradient(
             colors = listOf(
                 textColor.copy(alpha = 0f),
@@ -114,7 +96,7 @@ fun PoplurText(
                 shadow = Shadow(
                     color = effectiveGlowColor.copy(alpha = 0.28f * intensity),
                     offset = Offset.Zero,
-                    blurRadius = 14f
+                    blurRadius = 2f
                 )
             )
         )

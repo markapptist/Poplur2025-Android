@@ -66,7 +66,7 @@ fun ShaderNumberText(
                 shadow = Shadow(
                     color = effectiveGlowColor.copy(alpha = 0.35f * intensity),
                     offset = Offset.Zero,
-                    blurRadius = 18f
+                    blurRadius = 2f
                 )
             )
         )

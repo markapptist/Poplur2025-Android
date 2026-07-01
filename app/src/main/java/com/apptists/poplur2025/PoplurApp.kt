@@ -4,6 +4,7 @@ import android.app.Application
 import coil.Coil
 import coil.ImageLoader
 import com.apptists.poplur2025.ads.AdManager
+import com.apptists.poplur2025.ui.AppIconThemeManager
 import com.apptists.poplur2025.wear.WearRadiusSync
 import com.google.firebase.FirebaseApp
 import okhttp3.Interceptor
@@ -12,6 +13,7 @@ import okhttp3.OkHttpClient
 class PoplurApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        AppIconThemeManager.ensureExplicitLaunchAliasEnabled(this)
         FirebaseApp.initializeApp(this)
         AdManager.initialize(this)
         WearRadiusSync.start(this)

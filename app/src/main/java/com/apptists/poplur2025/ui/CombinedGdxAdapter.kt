@@ -6,12 +6,7 @@ import com.badlogic.gdx.InputAdapter
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.PerspectiveCamera
-import com.badlogic.gdx.graphics.Pixmap
-import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.VertexAttributes.Usage
-import com.badlogic.gdx.graphics.g2d.BitmapFont
-import com.badlogic.gdx.graphics.g2d.GlyphLayout
-import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import com.badlogic.gdx.graphics.g3d.Environment
 import com.badlogic.gdx.graphics.g3d.Material
 import com.badlogic.gdx.graphics.g3d.Model
@@ -19,15 +14,23 @@ import com.badlogic.gdx.graphics.g3d.ModelBatch
 import com.badlogic.gdx.graphics.g3d.ModelInstance
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.FloatAttribute
+import com.badlogic.gdx.graphics.g3d.attributes.IntAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.TextureAttribute
 import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder
 import com.badlogic.gdx.graphics.g3d.utils.MeshPartBuilder
-import com.badlogic.gdx.graphics.glutils.FrameBuffer
-import com.badlogic.gdx.graphics.glutils.ShapeRenderer
 import com.badlogic.gdx.math.Interpolation
 import com.badlogic.gdx.math.Matrix4
 import com.badlogic.gdx.math.Vector3
+import com.badlogic.gdx.math.collision.BoundingBox
+import net.mgsx.gltf.loaders.glb.GLBLoader
+import net.mgsx.gltf.scene3d.attributes.PBRTextureAttribute
+import net.mgsx.gltf.scene3d.scene.Scene
+import net.mgsx.gltf.scene3d.scene.SceneAsset
+import org.json.JSONObject
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.charset.StandardCharsets
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -41,105 +44,68 @@ class CombinedGdxAdapter(
     private val onLongPressMove: ((Float, Float) -> Unit)? = null,
     private val onLongPressEnd: (() -> Unit)? = null,
     private val onTap: (() -> Unit)? = null,
+    private val onFirstFrameRendered: (() -> Unit)? = null,
     private val onTabSelected: (Int) -> Unit
 ) : ApplicationAdapter() {
 
+    @Volatile
+    var isInteractionEnabled: Boolean = true
+
     private var camera: PerspectiveCamera? = null
     private var modelBatch: ModelBatch? = null
-    private var model: Model? = null
-    private var instance: ModelInstance? = null
     private var channelObjectModel: Model? = null
     private var channelObjectInstance: ModelInstance? = null
     private var channelObjectEndMillis: Long = 0L
     private var channelObjectStartedMillis: Long = 0L
     private var channelObjectId: String = "star"
     private var environment: Environment? = null
-
-    private val skinFaceTextures = arrayOfNulls<Texture>(6)
-    private val skinMaterials = arrayOfNulls<Material>(6)
+    private var cubeSceneAsset: SceneAsset? = null
+    private var cubeScene: Scene? = null
+    private var cubeSceneAssetPath: String? = null
+    private val cubeModelCenter = Vector3()
+    private var cubeModelBaseScale = 1f
+    private val cubeRestingPitchDegrees = -10f
 
     var skin: CubeSkin = CubeSkin.Gold
         set(value) {
             if (field != value) {
                 field = value
-                texturesDirty = true
                 modelDirty = true
             }
         }
 
-    private var textureBatch: SpriteBatch? = null
-    private var shapeRenderer: ShapeRenderer? = null
-    @Volatile private var texturesDirty = false
     @Volatile private var modelDirty = false
-    @Volatile private var materialsDirty = false
     private var appInstance: com.badlogic.gdx.Application? = null
 
-    // 0.65 = iOS SCNBox half-size (width 1.3 / 2). Geometry is unit size; transform
-    // scale is the only multiplier, so cubeScale == world half-extent directly.
     var cubeScale: Float = 0.65f
         set(value) {
             if (field != value) {
                 field = value
-                modelDirty = true
             }
         }
 
     var cornerRadius: Float = 92f
-        set(value) {
-            if (field != value) {
-                field = value
-                texturesDirty = true
-                modelDirty = true
-            }
-        }
 
     var opacity: Float = 1.0f
-        set(value) {
-            if (field != value) {
-                field = value
-                materialsDirty = true
-                modelDirty = true
-            }
-        }
 
     var mapIconTitle: String = "Map"
         set(value) {
-            val v = value.ifBlank { "Map" }
-            if (field != v) {
-                field = v
-                texturesDirty = true
-                modelDirty = true
-            }
+            field = value.ifBlank { "Map" }
         }
 
     var currentIconTitle: String = "Camera"
         set(value) {
-            val v = normalizeCameraTitle(value)
-            if (field != v) {
-                field = v
-                texturesDirty = true
-                modelDirty = true
-            }
+            field = normalizeCameraTitle(value)
         }
 
     var feedIconTitle: String = "Feed"
         set(value) {
-            val v = value.ifBlank { "Feed" }
-            if (field != v) {
-                field = v
-                texturesDirty = true
-                modelDirty = true
-            }
+            field = value.ifBlank { "Feed" }
         }
 
     var profileIconTitle: String = "Profile"
         set(value) {
-            val v = value.ifBlank { "Profile" }
-            if (field != v) {
-                field = v
-                texturesDirty = true
-                modelDirty = true
-            }
+            field = value.ifBlank { "Profile" }
         }
 
     fun setFaceTitles(
@@ -226,19 +192,9 @@ class CombinedGdxAdapter(
     private val peekIntervalSeconds = 25f
     private var nextPeekSeconds = peekIntervalSeconds
 
-    // Face texture cache — all possible titles are rendered once at create() time so
-    // runtime icon changes (e.g. Profile wheel cycling every 620 ms) are just HashMap
-    // lookups instead of FrameBuffer + glReadPixels GPU stalls on the render thread.
-    private val textureCache = HashMap<String, Texture>()
-    private var lastCachedCornerRadius = -1f  // forces initial cache build
-
-    private val textures = arrayOfNulls<Texture>(6)
-    private val materials = arrayOfNulls<Material>(6)
-    private val currentTitles = arrayOfNulls<String>(6)
-    private var font: BitmapFont? = null
-
     private var lastWidth = 0
     private var lastHeight = 0
+    private var firstFrameReported = false
 
     override fun create() {
         try {
@@ -266,30 +222,27 @@ class CombinedGdxAdapter(
             }
 
             modelBatch = ModelBatch()
-            textureBatch = SpriteBatch()
-            shapeRenderer = ShapeRenderer().apply { setAutoShapeType(true) }
-            font = BitmapFont().apply {
-                data.setScale(2.5f)
-                setUseIntegerPositions(false)
-            }
-
-            rebuildTextures()
-            rebuildModel()
 
             environment = Environment().apply {
-                set(ColorAttribute(ColorAttribute.AmbientLight, 1f, 1f, 1f, 1f))
-                add(DirectionalLight().set(0.95f, 0.90f, 0.82f, -0.45f, -0.62f, -0.78f))
+                set(ColorAttribute(ColorAttribute.AmbientLight, 0.4f, 0.4f, 0.45f, 1f))
+                add(DirectionalLight().set(0.95f, 0.90f, 1.00f, -0.45f, -0.62f, -0.78f))
+                add(DirectionalLight().set(0.35f, 0.30f, 0.40f, 0.45f, 0.62f, 0.78f))
             }
+
+            rebuildModel()
 
             Gdx.input.inputProcessor = object : InputAdapter() {
                 override fun touchDown(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
+                    if (!isInteractionEnabled) return false
                     if (pointer != 0) return false  // single-touch only — prevents multi-finger twists
                     if (!isInsideCubeTouchTarget(screenX.toFloat(), screenY.toFloat())) return false
+                    Gdx.graphics.setContinuousRendering(true)
                     dragging = true; isVerticalSwipe = false; isSwipeTriggered = false; isRotation = false; longPressSent = false; longPressStarted = false; bouncePhase = BouncePhase.Idle; downX = screenX.toFloat(); downY = screenY.toFloat(); lastX = screenX.toFloat(); lastY = screenY.toFloat(); touchStartMillis = System.currentTimeMillis()
                     if (peekPhase != PeekPhase.Idle) { peekPitchDegrees = 0f; peekPhase = PeekPhase.Idle; nextPeekSeconds = peekIntervalSeconds }
                     return true
                 }
                 override fun touchDragged(screenX: Int, screenY: Int, pointer: Int): Boolean {
+                    if (!isInteractionEnabled) return false
                     if (pointer != 0) return false  // single-touch only
                     if (!dragging) return true
                     val dx = screenX.toFloat() - downX; val dy = screenY.toFloat() - downY
@@ -335,8 +288,10 @@ class CombinedGdxAdapter(
                     return true
                 }
             }
+            Gdx.graphics.requestRendering()
         } catch (e: Exception) {
             Log.e("CombinedGdxAdapter", "CRITICAL ERROR in create()", e)
+            throw e
         }
     }
 
@@ -363,220 +318,182 @@ class CombinedGdxAdapter(
         return cubeScale.coerceAtLeast(0.01f)
     }
 
-    private fun clearTextureCacheIfNeeded() {
-        // If cornerRadius changed since the last cache build, discard stale textures.
-        if (lastCachedCornerRadius != cornerRadius) {
-            textureCache.values.forEach { it.dispose() }
-            textureCache.clear()
-            currentTitles.fill(null)
-            lastCachedCornerRadius = cornerRadius
-        }
-    }
-
-    private fun rebuildTextures() {
-        if (skin != CubeSkin.Default) {
-            rebuildSkinTextures()
-            return
-        }
-        clearTextureCacheIfNeeded()
-
-        // Face order matches iOS SceneKit: +Z Map (0°), +X Camera (90°), -Z Feed (180°), -X Profile (270°).
-        val titles = listOf(
-            mapIconTitle.ifBlank { "Map" },
-            normalizeCameraTitle(currentIconTitle),
-            feedIconTitle.ifBlank { "Feed" },
-            profileIconTitle.ifBlank { "Profile" },
-            "TopFork",
-            "BottomP"
-        )
-
-        titles.forEachIndexed { index, title ->
-            if (currentTitles[index] != title) {
-                // Cache hit is the common path — no FBO, no glReadPixels, no GPU stall.
-                val texture = textureCache.getOrPut(title) { createFaceTexture(title) }
-                textures[index] = texture
-                val existing = materials[index]
-                if (existing == null) {
-                    // First time — create the Material; model must be built around it.
-                    materials[index] = Material(
-                        TextureAttribute.createDiffuse(texture),
-                        ColorAttribute.createDiffuse(Color.WHITE),
-                        FloatAttribute.createAlphaTest(0.04f)
-                    )
-                    modelDirty = true
-                } else {
-                    // Update the texture attribute in-place on the object the model
-                    // already references — the model picks up the change automatically
-                    // on the next render without a rebuild.
-                    existing.set(TextureAttribute.createDiffuse(texture))
-                }
-                currentTitles[index] = title
-            }
-        }
-    }
-
-    private fun rebuildSkinTextures() {
-        rebuildSkinTexturesWithDynamicIcons()
-    }
-
-    private fun rebuildSkinTexturesWithDynamicIcons() {
-        val titles = listOf(
-            mapIconTitle.ifBlank { "Map" },
-            normalizeCameraTitle(currentIconTitle),
-            feedIconTitle.ifBlank { "Feed" },
-            profileIconTitle.ifBlank { "Profile" },
-            "TopFork",
-            "BottomP"
-        )
-        val newTextures = arrayOfNulls<Texture>(6)
-        val newMaterials = arrayOfNulls<Material>(6)
-
-        titles.forEachIndexed { index, title ->
-            val tex = createFaceTexture(title, skin, index)
-            newTextures[index] = tex
-            newMaterials[index] = Material(
-                TextureAttribute.createDiffuse(tex),
-                ColorAttribute.createDiffuse(Color.WHITE),
-                FloatAttribute.createAlphaTest(0.04f)
-            )
-            currentTitles[index] = "${skin.id}:$title"
-        }
-
-        skinFaceTextures.forEach { it?.dispose() }
-        repeat(6) { i ->
-            skinFaceTextures[i] = newTextures[i]
-            skinMaterials[i] = newMaterials[i]
-        }
-        modelDirty = true
-    }
-
-    private fun rebuildSkinTexturesFromFile(path: String) {
-        val fullPixmap = Pixmap(Gdx.files.internal(path))
-        val tileW = fullPixmap.width / 4
-        val tileH = fullPixmap.height / 3
-        // Cubemap cross layout (col, row) per face index — matches iOS exactly.
-        // Face order: 0=front(+Z)=Map, 1=right(+X)=Camera, 2=back(-Z)=Feed, 3=left(-X)=Profile, 4=top, 5=bottom.
-        // Cross layout: (0,1)=Feed, (1,1)=Profile, (2,1)=Map, (3,1)=Camera, (1,0)=top, (1,2)=bottom.
-        val coords = listOf(2 to 1, 3 to 1, 0 to 1, 1 to 1, 1 to 0, 1 to 2)
-        
-        val newTextures = arrayOfNulls<Texture>(6)
-        val newMaterials = arrayOfNulls<Material>(6)
-
-        coords.forEachIndexed { i, (col, row) ->
-            val p = Pixmap(tileW, tileH, Pixmap.Format.RGBA8888)
-            p.drawPixmap(fullPixmap, 0, 0, col * tileW, row * tileH, tileW, tileH)
-
-            makeDrawnPixelsOpaque(p)
-            val tex = Texture(p)
-            tex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
-            tex.setWrap(Texture.TextureWrap.ClampToEdge, Texture.TextureWrap.ClampToEdge)
-            newTextures[i] = tex
-            p.dispose()
-            newMaterials[i] = Material(
-                TextureAttribute.createDiffuse(tex),
-                ColorAttribute.createDiffuse(Color.WHITE),
-                FloatAttribute.createAlphaTest(0.04f)
-            )
-        }
-        
-        skinFaceTextures.forEach { it?.dispose() }
-        repeat(6) { i ->
-            skinFaceTextures[i] = newTextures[i]
-            skinMaterials[i] = newMaterials[i]
-        }
-        fullPixmap.dispose()
-        modelDirty = true
-    }
-
-    private fun rebuildSkinTexturesFromColor(baseColor: Color) {
-        val size = 256
-        val newTextures = arrayOfNulls<Texture>(6)
-        val newMaterials = arrayOfNulls<Material>(6)
-        
-        repeat(6) { i ->
-            val p = Pixmap(size, size, Pixmap.Format.RGBA8888)
-            // Gradient from lighter top-left to darker bottom-right
-            for (y in 0 until size) {
-                for (x in 0 until size) {
-                    val t = (x + y).toFloat() / (size * 2)
-                    val r = (baseColor.r * (1.4f - t * 0.8f)).coerceIn(0f, 1f)
-                    val g = (baseColor.g * (1.4f - t * 0.8f)).coerceIn(0f, 1f)
-                    val b = (baseColor.b * (1.4f - t * 0.8f)).coerceIn(0f, 1f)
-                    p.setColor(r, g, b, 1f)
-                    p.drawPixel(x, y)
-                }
-            }
-            val tex = Texture(p)
-            tex.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
-            tex.setWrap(Texture.TextureWrap.ClampToEdge, Texture.TextureWrap.ClampToEdge)
-            newTextures[i] = tex
-            p.dispose()
-            newMaterials[i] = Material(
-                TextureAttribute.createDiffuse(tex),
-                ColorAttribute.createDiffuse(Color.WHITE),
-                FloatAttribute.createAlphaTest(0.04f)
-            )
-        }
-        
-        // Update arrays and dispose old textures
-        skinFaceTextures.forEach { it?.dispose() }
-        repeat(6) { i ->
-            skinFaceTextures[i] = newTextures[i]
-            skinMaterials[i] = newMaterials[i]
-        }
-        modelDirty = true
-    }
-
-    private fun rebuildMaterialsOpacity() {
-        // Cube faces are intentionally rendered as alpha-tested opaque surfaces.
-        // Blended cube quads self-compose through depth testing on Android and make
-        // the cube look washed out or partially transparent.
-    }
-
     private fun rebuildModel() {
-        val oldModel = model
+        val modelPath = skin.modelAssetPath
 
-        if (skin != CubeSkin.Default) {
-            val nonNullSkinMaterials = skinMaterials.filterNotNull()
-            if (nonNullSkinMaterials.size == 6) {
-                model = buildSkinCube(nonNullSkinMaterials)
-                instance = ModelInstance(model)
-                oldModel?.dispose()
+        if (cubeScene == null || cubeSceneAssetPath != modelPath) {
+            loadCubeScene(modelPath)
+        }
+    }
+
+    private fun loadCubeScene(modelPath: String) {
+        try {
+            cubeScene = null
+            cubeSceneAsset?.dispose()
+            cubeSceneAsset = null
+
+            val loadedAsset = GLBLoader().load(requiredCubeGlbBytes(modelPath))
+                ?: error("Required cube model could not be loaded: $modelPath")
+            val loadedScene = Scene(loadedAsset.scene)
+            cubeSceneAsset = loadedAsset
+            cubeScene = loadedScene
+            cubeSceneAssetPath = modelPath
+            prepareCubeMaterials(loadedScene)
+            fitCubeModel(loadedScene)
+            Log.d("CombinedGdxAdapter", "Loaded required cube GLB: $modelPath")
+        } catch (error: Throwable) {
+            Log.e("CombinedGdxAdapter", "Required cube model failed to load: $modelPath", error)
+            throw error
+        }
+    }
+
+    private fun requiredCubeGlbBytes(modelPath: String): ByteArray {
+        val file = Gdx.files.internal(modelPath)
+        if (!file.exists()) {
+            error("Required cube model asset is missing: $modelPath")
+        }
+        return stripNormalTexturesFromGlb(file.readBytes())
+    }
+
+    private fun stripNormalTexturesFromGlb(glbBytes: ByteArray): ByteArray {
+        if (glbBytes.size < GLB_HEADER_BYTES) error("Invalid cube GLB: file is too small.")
+
+        val source = ByteBuffer.wrap(glbBytes).order(ByteOrder.LITTLE_ENDIAN)
+        val magic = source.int
+        val version = source.int
+        source.int // declared length
+        if (magic != GLB_MAGIC || version != GLB_VERSION) {
+            error("Invalid cube GLB header.")
+        }
+
+        val chunks = mutableListOf<GlbChunk>()
+        var jsonChunkIndex = -1
+        while (source.position() < glbBytes.size) {
+            if (source.remaining() < GLB_CHUNK_HEADER_BYTES) error("Invalid cube GLB chunk header.")
+            val chunkLength = source.int
+            val chunkType = source.int
+            if (chunkLength < 0 || chunkLength > source.remaining()) {
+                error("Invalid cube GLB chunk length.")
             }
-            return
+            val chunkBytes = ByteArray(chunkLength)
+            source.get(chunkBytes)
+            if (chunkType == GLB_CHUNK_TYPE_JSON) jsonChunkIndex = chunks.size
+            chunks += GlbChunk(chunkType, chunkBytes)
         }
-        val nonNullMaterials = materials.filterNotNull()
-        if (nonNullMaterials.size == 6) {
-            model = buildCube(nonNullMaterials)
-            instance = ModelInstance(model)
-            oldModel?.dispose()
+        if (jsonChunkIndex < 0) error("Required cube GLB is missing a JSON chunk.")
+
+        val originalJson = chunks[jsonChunkIndex].bytes
+            .toString(StandardCharsets.UTF_8)
+            .trimEnd(' ', '\u0000', '\n', '\r', '\t')
+        val json = JSONObject(originalJson)
+        var removedNormalMaps = 0
+        json.optJSONArray("materials")?.let { materials ->
+            for (index in 0 until materials.length()) {
+                val material = materials.optJSONObject(index) ?: continue
+                if (material.has("normalTexture")) {
+                    material.remove("normalTexture")
+                    removedNormalMaps += 1
+                }
+            }
+        }
+        val sanitizedJson = json.toString().toByteArray(StandardCharsets.UTF_8)
+        chunks[jsonChunkIndex] = GlbChunk(
+            GLB_CHUNK_TYPE_JSON,
+            paddedChunk(sanitizedJson, GLB_JSON_PADDING_BYTE)
+        )
+
+        val totalLength = GLB_HEADER_BYTES + chunks.sumOf { GLB_CHUNK_HEADER_BYTES + it.bytes.size }
+        val output = ByteBuffer.allocate(totalLength).order(ByteOrder.LITTLE_ENDIAN)
+        output.putInt(GLB_MAGIC)
+        output.putInt(GLB_VERSION)
+        output.putInt(totalLength)
+        chunks.forEach { chunk ->
+            output.putInt(chunk.bytes.size)
+            output.putInt(chunk.type)
+            output.put(chunk.bytes)
+        }
+        if (removedNormalMaps > 0) {
+            Log.d("CombinedGdxAdapter", "Removed $removedNormalMaps cube normal map declaration(s) to avoid GLB tangent generation.")
+        }
+        return output.array()
+    }
+
+    private fun paddedChunk(bytes: ByteArray, paddingByte: Byte): ByteArray {
+        val paddedLength = (bytes.size + 3) and -4
+        if (paddedLength == bytes.size) return bytes
+        return bytes.copyOf(paddedLength).also { padded ->
+            for (index in bytes.size until paddedLength) padded[index] = paddingByte
         }
     }
 
-    private fun buildCube(materials: List<Material>): Model {
-        return buildRoundedCube(materials)
+    private fun prepareCubeMaterials(loadedScene: Scene) {
+        loadedScene.modelInstance.materials.forEach { material ->
+            val baseColor = material.get(
+                PBRTextureAttribute::class.java,
+                PBRTextureAttribute.BaseColorTexture
+            )
+            val emissive = material.get(
+                PBRTextureAttribute::class.java,
+                PBRTextureAttribute.EmissiveTexture
+            )
+            material.clear()
+            material.set(ColorAttribute.createDiffuse(Color.WHITE))
+            baseColor?.let {
+                material.set(TextureAttribute(TextureAttribute.Diffuse, it.textureDescription))
+            }
+            emissive?.let {
+                material.set(TextureAttribute(TextureAttribute.Emissive, it.textureDescription))
+            }
+            material.set(IntAttribute.createCullFace(GL20.GL_NONE))
+            material.set(FloatAttribute.createAlphaTest(0.01f))
+        }
     }
 
-    private fun buildSkinCube(materials: List<Material>): Model {
-        return buildRoundedCube(materials)
+    private fun fitCubeModel(loadedScene: Scene) {
+        val bounds = BoundingBox()
+        val dimensions = Vector3()
+        loadedScene.modelInstance.calculateTransforms()
+        loadedScene.modelInstance.calculateBoundingBox(bounds)
+        bounds.getCenter(cubeModelCenter)
+        bounds.getDimensions(dimensions)
+        val largestExtent = maxOf(dimensions.x, dimensions.y, dimensions.z).coerceAtLeast(0.001f)
+        cubeModelBaseScale = 2f / largestExtent
+        Log.d(
+            "CombinedGdxAdapter",
+            "Cube GLB bounds center=$cubeModelCenter dimensions=$dimensions baseScale=$cubeModelBaseScale"
+        )
     }
 
-    private fun buildRoundedCube(faceMaterials: List<Material>): Model {
-        val mb = ModelBuilder()
-        val faceAttr = (Usage.Position or Usage.Normal or Usage.TextureCoordinates).toLong()
-        // Geometry is always unit half-size (1.0). Visual size is controlled exclusively
-        // by the transform .scale(cubeScale) in render(), matching the iOS pattern where
-        // SCNBox(width:1.3) is scaled by the transform rather than baked into geometry.
-        val s = 1.0f
-        mb.begin()
-        // Face order: front +Z, right +X, back -Z, left -X, top +Y, bottom -Y.
-        mb.part("front",  GL20.GL_TRIANGLES, faceAttr, faceMaterials[0]).rect(-s, -s, s,  s, -s, s,  s, s, s,  -s, s, s,  0f, 0f, 1f)
-        mb.part("right",  GL20.GL_TRIANGLES, faceAttr, faceMaterials[1]).rect( s, -s, s,  s, -s, -s, s, s, -s,  s, s, s,  1f, 0f, 0f)
-        mb.part("back",   GL20.GL_TRIANGLES, faceAttr, faceMaterials[2]).rect( s, -s, -s, -s, -s, -s, -s, s, -s, s, s, -s, 0f, 0f, -1f)
-        mb.part("left",   GL20.GL_TRIANGLES, faceAttr, faceMaterials[3]).rect(-s, -s, -s, -s, -s, s, -s, s, s, -s, s, -s, -1f, 0f, 0f)
-        mb.part("top",    GL20.GL_TRIANGLES, faceAttr, faceMaterials[4]).rect(-s, s, s,  s, s, s,  s, s, -s, -s, s, -s, 0f, 1f, 0f)
-        mb.part("bottom", GL20.GL_TRIANGLES, faceAttr, faceMaterials[5]).rect(-s, -s, -s, s, -s, -s, s, -s, s, -s, -s, s, 0f, -1f, 0f)
-        return mb.end()
+    private fun renderCubeScene(now: Long, popScale: Float) {
+        val loadedScene = cubeScene ?: return
+        val scale = cubeTransformScale() * cubeModelBaseScale * popScale
+        loadedScene.modelInstance.transform
+            .idt()
+            .translate(
+                cubeSceneX(),
+                cubeSceneY() + kotlin.math.sin(time * 3.9f) * 0.035f,
+                0f
+            )
+            .rotate(Vector3.X, cubeRestingPitchDegrees)
+            .rotate(Vector3.Y, currentYawDegrees + GdxState.tiltYawOffset)
+            .scale(scale, scale, scale)
+            .translate(-cubeModelCenter.x, -cubeModelCenter.y, -cubeModelCenter.z)
+        loadedScene.modelInstance.calculateTransforms()
+        Gdx.gl.glDisable(GL20.GL_CULL_FACE)
+        modelBatch?.begin(camera)
+        modelBatch?.render(loadedScene.modelInstance, environment)
+        modelBatch?.end()
+        reportFirstFrameRendered()
+        if (now < channelObjectEndMillis || bouncePhase != BouncePhase.Idle || GdxState.tiltYawOffset != 0f) {
+            Gdx.graphics.requestRendering()
+        }
+    }
+
+    private fun reportFirstFrameRendered() {
+        if (firstFrameReported) return
+        firstFrameReported = true
+        Log.d("CombinedGdxAdapter", "Cube first frame rendered")
+        onFirstFrameRendered?.invoke()
     }
 
     private fun buildChannelObject(objectId: String): Model {
@@ -1013,512 +930,9 @@ class CombinedGdxAdapter(
         Star
     }
 
-    private fun skinBaseColor(skinOverride: CubeSkin?): Color {
-        return skinOverride?.gdxColor?.let { Color(it) } ?: Color(0.04f, 0.03f, 0.10f, 1f)
-    }
-
-    private fun skinBorderColor(skinOverride: CubeSkin?): Color {
-        return skinOverride?.gdxColor?.let {
-            Color(
-                (it.r + 0.18f).coerceAtMost(1f),
-                (it.g + 0.18f).coerceAtMost(1f),
-                (it.b + 0.18f).coerceAtMost(1f),
-                1f
-            )
-        } ?: Color(0.55f, 0.30f, 1.0f, 1f)
-    }
-
-    private fun skinIconColor(skinOverride: CubeSkin?): Color {
-        return when (skinOverride) {
-            CubeSkin.Gold -> Color(1.00f, 0.95f, 0.60f, 1f)
-            CubeSkin.Chocolate -> Color(0.92f, 0.65f, 0.25f, 1f)
-            CubeSkin.Camo -> Color(0.82f, 0.84f, 0.56f, 1f)
-            CubeSkin.Ice -> Color(0.82f, 0.96f, 1.00f, 1f)
-            else -> Color.WHITE
-        }
-    }
-
-    private fun drawSkinFaceBackground(
-        sr: ShapeRenderer,
-        size: Float,
-        cornerRadius: Float,
-        baseColor: Color,
-        skinOverride: CubeSkin?
-    ) {
-        sr.color = if (skinOverride == null) {
-            baseColor
-        } else {
-            Color(
-                (baseColor.r * 0.48f).coerceIn(0f, 1f),
-                (baseColor.g * 0.48f).coerceIn(0f, 1f),
-                (baseColor.b * 0.48f).coerceIn(0f, 1f),
-                1f
-            )
-        }
-        sr.filledRoundRect(0f, 0f, size, size, cornerRadius)
-
-        if (skinOverride == null) return
-
-        val pad = size * 0.045f
-        sr.color = Color(
-            (baseColor.r * 1.32f).coerceIn(0f, 1f),
-            (baseColor.g * 1.32f).coerceIn(0f, 1f),
-            (baseColor.b * 1.32f).coerceIn(0f, 1f),
-            0.92f
-        )
-        sr.filledRoundRect(pad, pad, size - pad * 2f, size - pad * 2f, (cornerRadius - pad).coerceAtLeast(8f))
-
-        sr.color = Color(1f, 1f, 1f, if (skinOverride == CubeSkin.Ice) 0.30f else 0.14f)
-        sr.rectLine(size * 0.18f, size * 0.82f, size * 0.78f, size * 0.20f, size * 0.018f)
-
-        sr.color = Color(0f, 0f, 0f, if (skinOverride == CubeSkin.Toy || skinOverride == CubeSkin.Ice) 0.10f else 0.24f)
-        sr.filledRoundRect(size * 0.08f, size * 0.08f, size * 0.84f, size * 0.22f, cornerRadius * 0.45f)
-    }
-
-    private fun createFaceTexture(title: String, skinOverride: CubeSkin? = null, faceIndex: Int? = null): Texture {
-        val size = 384
-        val displayTitle = when (title) {
-            "Record" -> "Camera"
-            "TopFork", "BottomP" -> ""
-            else -> title
-        }
-        val fbo = try {
-            FrameBuffer(Pixmap.Format.RGBA8888, size, size, false)
-        } catch (e: Exception) {
-            // FBO creation might fail if GL context is unstable or out of memory
-            return Texture(size, size, Pixmap.Format.RGBA8888) 
-        }
-        val projection = Matrix4().setToOrtho2D(0f, 0f, size.toFloat(), size.toFloat())
-        val sr = shapeRenderer ?: ShapeRenderer().also { shapeRenderer = it; it.setAutoShapeType(true) }
-        val batch = textureBatch ?: SpriteBatch().also { textureBatch = it }
-        val skinBackground = createSkinFaceBackgroundTexture(skinOverride, faceIndex, size)
-
-        fbo.begin()
-        Gdx.gl.glViewport(0, 0, size, size)
-        Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
-        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
-        Gdx.gl.glEnable(GL20.GL_BLEND)
-        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA)
-        batch.projectionMatrix = projection
-        skinBackground?.let { background ->
-            batch.begin()
-            batch.draw(background, 0f, 0f, size.toFloat(), size.toFloat())
-            batch.end()
-        }
-        sr.projectionMatrix = projection
-        sr.begin(ShapeRenderer.ShapeType.Filled)
-
-        val bgColor = skinBaseColor(skinOverride)
-        val borderColor = skinBorderColor(skinOverride)
-        val iconColor = skinIconColor(skinOverride)
-        val pad = 0f
-        val r = cornerRadius
-        if (skinBackground == null) {
-            drawSkinFaceBackground(sr, size.toFloat(), r, bgColor, skinOverride)
-        }
-
-        if (skinBackground == null) {
-            // Skin-matched neon border glow (18 passes, inward from edge).
-            for (i in 18 downTo 1) {
-                val inset = i.toFloat() * 1.8f
-                val alpha = (1f - i.toFloat() / 18f) * 0.55f
-                sr.color = Color(borderColor.r, borderColor.g, borderColor.b, alpha)
-                sr.filledRoundRect(inset, inset, size - inset * 2f, size - inset * 2f, (r - inset).coerceAtLeast(4f))
-            }
-            // Crisp inner border
-            val crisp = 5f
-            sr.color = Color(
-                (borderColor.r + 0.22f).coerceAtMost(1f),
-                (borderColor.g + 0.22f).coerceAtMost(1f),
-                (borderColor.b + 0.22f).coerceAtMost(1f),
-                0.92f
-            )
-            sr.filledRoundRect(crisp, crisp, size - crisp * 2f, size - crisp * 2f, (r - crisp).coerceAtLeast(4f))
-            // Re-fill interior with background so only border is left
-            val innerPad = crisp + 2.5f
-            sr.color = bgColor
-            sr.filledRoundRect(innerPad, innerPad, size - innerPad * 2f, size - innerPad * 2f, (r - innerPad).coerceAtLeast(4f))
-        }
-
-        // Soft radial glow behind icon — cy chosen so content (icon+gap+label) is vertically centered
-        val cx = size / 2f
-        val cy = size * 0.605f
-        val isize = 108f
-        for (i in 14 downTo 1) {
-            val frac = i.toFloat() / 14f
-            sr.color = Color(iconColor.r, iconColor.g, iconColor.b, 0.018f * frac)
-            sr.circle(cx, cy, isize * 0.55f + i * 9f, 44)
-        }
-
-        // Icon: dynamically drawn so skin cubemap artwork never locks in stale symbols.
-        sr.color = iconColor
-        when (title) {
-            "Camera", "Record", "Create", "Photo", "Post Here" -> {
-                // camera.fill: rounded-rect body + viewfinder bump + lens circle
-                val bodyW = isize * 0.74f; val bodyH = isize * 0.48f
-                val bodyX = cx - bodyW / 2f; val bodyY = cy - bodyH / 2f - isize * 0.04f
-                sr.filledRoundRect(bodyX, bodyY, bodyW, bodyH, isize * 0.10f)
-                // Viewfinder bump on top-center
-                val bumpW = isize * 0.22f; val bumpH = isize * 0.13f
-                sr.rect(cx - bumpW / 2f, bodyY + bodyH - isize * 0.01f, bumpW, bumpH)
-                // Lens: cutout (dark) then lens ring
-                sr.color = bgColor
-                sr.circle(cx, cy - isize * 0.04f, isize * 0.20f, 36)
-                sr.color = iconColor
-                sr.circle(cx, cy - isize * 0.04f, isize * 0.16f, 36)
-                sr.color = bgColor
-                sr.circle(cx, cy - isize * 0.04f, isize * 0.08f, 28)
-                if (title == "Create" || title == "Post Here") {
-                    sr.color = iconColor
-                    sr.rectLine(cx + isize * 0.24f, cy + isize * 0.18f, cx + isize * 0.24f, cy + isize * 0.38f, isize * 0.055f)
-                    sr.rectLine(cx + isize * 0.14f, cy + isize * 0.28f, cx + isize * 0.34f, cy + isize * 0.28f, isize * 0.055f)
-                }
-            }
-            "Feed", "TV Guide" -> {
-                // tv.fill: TV screen rectangle + antenna/stand
-                val tvW = isize * 0.68f; val tvH = isize * 0.50f
-                val tvX = cx - tvW / 2f; val tvY = cy - tvH / 2f
-                sr.filledRoundRect(tvX, tvY, tvW, tvH, isize * 0.09f)
-                // Screen cutout (bezel → inner screen)
-                val bezel = isize * 0.075f
-                sr.color = bgColor
-                sr.filledRoundRect(tvX + bezel, tvY + bezel, tvW - bezel * 2f, tvH - bezel * 2f, isize * 0.04f)
-                sr.color = iconColor
-                // Stand base under TV
-                val standW = isize * 0.24f; val standH = isize * 0.07f
-                sr.rect(cx - standW / 2f, tvY - standH, standW, standH)
-                // Feet
-                sr.rect(cx - standW / 2f, tvY - standH - isize * 0.04f, isize * 0.06f, isize * 0.04f)
-                sr.rect(cx + standW / 2f - isize * 0.06f, tvY - standH - isize * 0.04f, isize * 0.06f, isize * 0.04f)
-                if (title == "TV Guide") {
-                    repeat(3) { row ->
-                        val y = tvY + tvH - bezel * 1.8f - row * isize * 0.11f
-                        sr.rect(tvX + bezel * 1.55f, y, tvW - bezel * 3.1f, isize * 0.035f)
-                    }
-                }
-            }
-            "Profile" -> {
-                // person.circle: ring with person silhouette inside
-                sr.circle(cx, cy, isize * 0.38f, 44)
-                sr.color = bgColor
-                sr.circle(cx, cy, isize * 0.29f, 44)
-                sr.color = iconColor
-                sr.circle(cx, cy + isize * 0.12f, isize * 0.11f, 32)
-                sr.filledRoundRect(cx - isize * 0.18f, cy - isize * 0.20f, isize * 0.36f, isize * 0.20f, isize * 0.11f)
-            }
-            "Map" -> {
-                // map: three folded panels at slightly different heights
-                val pw = isize * 0.21f; val gap = isize * 0.035f
-                val tallH = isize * 0.54f; val shortH = isize * 0.46f
-                sr.rect(cx - pw * 1.5f - gap, cy - shortH / 2f, pw, shortH)
-                sr.rect(cx - pw / 2f, cy - tallH / 2f, pw, tallH)
-                sr.rect(cx + pw / 2f + gap, cy - shortH / 2f, pw, shortH)
-            }
-            "2D Map", "3D Map" -> {
-                val pw = isize * 0.20f; val gap = isize * 0.035f
-                sr.rect(cx - pw * 1.5f - gap, cy - isize * 0.22f, pw, isize * 0.44f)
-                sr.rect(cx - pw / 2f, cy - isize * 0.30f, pw, isize * 0.60f)
-                sr.rect(cx + pw / 2f + gap, cy - isize * 0.22f, pw, isize * 0.44f)
-                if (title == "3D Map") {
-                    sr.rectLine(cx - isize * 0.26f, cy + isize * 0.34f, cx + isize * 0.22f, cy + isize * 0.34f, isize * 0.045f)
-                    sr.rectLine(cx + isize * 0.22f, cy + isize * 0.34f, cx + isize * 0.36f, cy + isize * 0.20f, isize * 0.045f)
-                }
-            }
-            "Search", "Detect On", "Detect Off" -> {
-                val ring = isize * 0.26f
-                sr.circle(cx - isize * 0.06f, cy + isize * 0.05f, ring, 44)
-                sr.color = bgColor
-                sr.circle(cx - isize * 0.06f, cy + isize * 0.05f, ring * 0.70f, 44)
-                sr.color = iconColor
-                sr.rectLine(cx + isize * 0.14f, cy - isize * 0.15f, cx + isize * 0.36f, cy - isize * 0.36f, isize * 0.10f)
-                if (title.startsWith("Detect")) {
-                    sr.circle(cx - isize * 0.06f, cy + isize * 0.05f, isize * 0.065f, 20)
-                }
-            }
-            "Location" -> {
-                sr.circle(cx, cy + isize * 0.12f, isize * 0.27f, 44)
-                sr.triangle(cx - isize * 0.20f, cy - isize * 0.02f, cx + isize * 0.20f, cy - isize * 0.02f, cx, cy - isize * 0.40f)
-                sr.color = bgColor
-                sr.circle(cx, cy + isize * 0.12f, isize * 0.11f, 24)
-            }
-            "Start Tour", "Stop Tour" -> {
-                val routeStroke = isize * 0.07f
-                sr.rectLine(cx - isize * 0.34f, cy - isize * 0.20f, cx - isize * 0.08f, cy + isize * 0.16f, routeStroke)
-                sr.rectLine(cx - isize * 0.08f, cy + isize * 0.16f, cx + isize * 0.30f, cy - isize * 0.06f, routeStroke)
-                sr.circle(cx - isize * 0.34f, cy - isize * 0.20f, isize * 0.08f, 20)
-                sr.circle(cx + isize * 0.30f, cy - isize * 0.06f, isize * 0.08f, 20)
-                if (title == "Start Tour") {
-                    sr.triangle(cx - isize * 0.03f, cy - isize * 0.40f, cx - isize * 0.03f, cy - isize * 0.18f, cx + isize * 0.16f, cy - isize * 0.29f)
-                } else {
-                    sr.rect(cx - isize * 0.10f, cy - isize * 0.39f, isize * 0.20f, isize * 0.20f)
-                }
-            }
-            "Video" -> {
-                val bodyW = isize * 0.54f; val bodyH = isize * 0.42f
-                sr.filledRoundRect(cx - bodyW * 0.58f, cy - bodyH / 2f, bodyW, bodyH, isize * 0.09f)
-                sr.triangle(cx + bodyW * 0.06f, cy + bodyH * 0.24f, cx + bodyW * 0.06f, cy - bodyH * 0.24f, cx + bodyW * 0.44f, cy - bodyH * 0.02f)
-            }
-            "Live" -> {
-                sr.circle(cx, cy, isize * 0.13f, 28)
-                repeat(3) { ring ->
-                    val radius = isize * (0.23f + ring * 0.11f)
-                    sr.rectLine(cx - radius, cy, cx - radius * 0.64f, cy + radius * 0.28f, isize * 0.035f)
-                    sr.rectLine(cx - radius, cy, cx - radius * 0.64f, cy - radius * 0.28f, isize * 0.035f)
-                    sr.rectLine(cx + radius, cy, cx + radius * 0.64f, cy + radius * 0.28f, isize * 0.035f)
-                    sr.rectLine(cx + radius, cy, cx + radius * 0.64f, cy - radius * 0.28f, isize * 0.035f)
-                }
-            }
-            "AR", "Poplur AI", "Generating" -> {
-                fun sparkle(x: Float, y: Float, s: Float) {
-                    sr.rectLine(x, y - s, x, y + s, isize * 0.045f)
-                    sr.rectLine(x - s, y, x + s, y, isize * 0.045f)
-                }
-                sparkle(cx, cy + isize * 0.10f, isize * 0.28f)
-                sparkle(cx - isize * 0.30f, cy - isize * 0.18f, isize * 0.14f)
-                sparkle(cx + isize * 0.28f, cy - isize * 0.24f, isize * 0.12f)
-            }
-            "Games" -> {
-                val bodyW = isize * 0.72f; val bodyH = isize * 0.36f
-                sr.filledRoundRect(cx - bodyW / 2f, cy - bodyH / 2f, bodyW, bodyH, isize * 0.18f)
-                sr.color = bgColor
-                sr.rect(cx - isize * 0.24f, cy - isize * 0.03f, isize * 0.18f, isize * 0.06f)
-                sr.rect(cx - isize * 0.18f, cy - isize * 0.09f, isize * 0.06f, isize * 0.18f)
-                sr.circle(cx + isize * 0.18f, cy + isize * 0.05f, isize * 0.045f, 18)
-                sr.circle(cx + isize * 0.28f, cy - isize * 0.05f, isize * 0.045f, 18)
-            }
-            "Preview" -> {
-                sr.triangle(cx - isize * 0.22f, cy + isize * 0.32f, cx - isize * 0.22f, cy - isize * 0.32f, cx + isize * 0.34f, cy)
-            }
-            "Like" -> {
-                sr.circle(cx - isize * 0.14f, cy + isize * 0.13f, isize * 0.18f, 32)
-                sr.circle(cx + isize * 0.14f, cy + isize * 0.13f, isize * 0.18f, 32)
-                sr.triangle(cx - isize * 0.31f, cy + isize * 0.08f, cx + isize * 0.31f, cy + isize * 0.08f, cx, cy - isize * 0.34f)
-            }
-            "Comment", "Message", "Add Message" -> {
-                val bw = isize * 0.72f; val bh = isize * 0.46f
-                val bx = cx - bw / 2f; val by = cy - bh / 2f + isize * 0.04f
-                sr.filledRoundRect(bx, by, bw, bh, isize * 0.12f)
-                sr.triangle(cx - isize * 0.16f, by + isize * 0.02f, cx + isize * 0.02f, by + isize * 0.02f, cx - isize * 0.14f, by - isize * 0.18f)
-                sr.color = bgColor
-                repeat(3) { dot ->
-                    sr.circle(cx - isize * 0.18f + dot * isize * 0.18f, cy + isize * 0.06f, isize * 0.04f, 16)
-                }
-            }
-            "News" -> {
-                val nw = isize * 0.68f; val nh = isize * 0.56f
-                val nx = cx - nw / 2f; val ny = cy - nh / 2f
-                sr.filledRoundRect(nx, ny, nw, nh, isize * 0.04f)
-                sr.color = bgColor
-                sr.rect(nx + isize * 0.08f, ny + nh - isize * 0.18f, nw - isize * 0.16f, isize * 0.055f)
-                repeat(3) { row ->
-                    sr.rect(nx + isize * 0.08f, ny + nh - isize * 0.30f - row * isize * 0.10f, nw - isize * 0.16f, isize * 0.035f)
-                }
-            }
-            "CC On", "CC Off" -> {
-                val bw = isize * 0.70f; val bh = isize * 0.42f
-                sr.filledRoundRect(cx - bw / 2f, cy - bh / 2f, bw, bh, isize * 0.10f)
-                sr.color = bgColor
-                sr.rectLine(cx - isize * 0.22f, cy, cx - isize * 0.05f, cy, isize * 0.06f)
-                sr.rectLine(cx + isize * 0.05f, cy, cx + isize * 0.22f, cy, isize * 0.06f)
-            }
-            "Back" -> {
-                sr.rectLine(cx + isize * 0.28f, cy, cx - isize * 0.28f, cy, isize * 0.10f)
-                sr.triangle(cx - isize * 0.35f, cy, cx - isize * 0.08f, cy + isize * 0.24f, cx - isize * 0.08f, cy - isize * 0.24f)
-            }
-            "TopFork" -> {
-                val stroke = isize * 0.07f
-                val forkX = cx - isize * 0.16f
-                sr.rectLine(forkX, cy - isize * 0.34f, forkX, cy + isize * 0.28f, stroke)
-                repeat(3) { prong ->
-                    val px = forkX - isize * 0.10f + prong * isize * 0.10f
-                    sr.rectLine(px, cy + isize * 0.18f, px, cy + isize * 0.38f, stroke * 0.62f)
-                }
-                val knifeX = cx + isize * 0.18f
-                sr.rectLine(knifeX, cy - isize * 0.34f, knifeX, cy + isize * 0.34f, stroke)
-                sr.triangle(
-                    knifeX - stroke * 0.38f, cy + isize * 0.08f,
-                    knifeX + isize * 0.18f, cy + isize * 0.36f,
-                    knifeX + stroke * 0.44f, cy + isize * 0.03f
-                )
-            }
-            "BottomP" -> {
-                sr.circle(cx, cy, isize * 0.39f, 48)
-                sr.color = bgColor
-                sr.circle(cx, cy, isize * 0.29f, 48)
-                sr.color = iconColor
-            }
-            "Mail" -> {
-                val ew = isize * 0.74f; val eh = isize * 0.50f
-                val el = cx - ew / 2f; val eb = cy - eh / 2f; val b = isize * 0.08f
-                sr.rect(el, eb, ew, eh)
-                sr.color = bgColor
-                sr.rect(el + b, eb + b, ew - b * 2, eh - b * 2)
-                sr.color = iconColor
-                sr.rectLine(el + b, eb + eh - b, cx, cy + isize * 0.04f, b)
-                sr.rectLine(el + ew - b, eb + eh - b, cx, cy + isize * 0.04f, b)
-            }
-            "Settings" -> {
-                repeat(8) { i ->
-                    val angle = Math.toRadians((i * 45).toDouble()).toFloat()
-                    sr.rectLine(
-                        cx + kotlin.math.cos(angle) * isize * 0.22f, cy + kotlin.math.sin(angle) * isize * 0.22f,
-                        cx + kotlin.math.cos(angle) * isize * 0.38f, cy + kotlin.math.sin(angle) * isize * 0.38f,
-                        isize * 0.10f
-                    )
-                }
-                sr.circle(cx, cy, isize * 0.20f, 36)
-                sr.color = bgColor
-                sr.circle(cx, cy, isize * 0.09f, 28)
-            }
-            "Stats" -> {
-                val stroke = isize * 0.12f
-                sr.circle(cx, cy, isize * 0.35f, 44)
-                sr.color = bgColor
-                sr.circle(cx, cy, isize * 0.35f - stroke, 44)
-                sr.color = iconColor
-                sr.rect(cx - isize * 0.03f, cy, isize * 0.06f, isize * 0.34f)
-                sr.rect(cx - isize * 0.03f, cy - isize * 0.03f, isize * 0.34f, isize * 0.06f)
-                sr.circle(cx + isize * 0.31f, cy - isize * 0.03f, isize * 0.07f, 18)
-            }
-            "Alerts" -> {
-                sr.filledRoundRect(cx - isize * 0.24f, cy - isize * 0.10f, isize * 0.48f, isize * 0.42f, isize * 0.16f)
-                sr.circle(cx, cy + isize * 0.36f, isize * 0.08f, 20)
-                sr.circle(cx, cy - isize * 0.16f, isize * 0.08f, 20)
-            }
-            "Phone" -> {
-                val ps = isize * 1.5f; val pb = ps * 0.13f
-                sr.rectLine(cx - ps * 0.30f, cy + ps * 0.22f, cx - ps * 0.06f, cy - ps * 0.14f, pb)
-                sr.rectLine(cx - ps * 0.06f, cy - ps * 0.14f, cx + ps * 0.32f, cy - ps * 0.25f, pb)
-                sr.circle(cx - ps * 0.33f, cy + ps * 0.24f, ps * 0.13f, 28)
-                sr.circle(cx + ps * 0.35f, cy - ps * 0.27f, ps * 0.13f, 28)
-            }
-            "Store" -> {
-                val b = isize * 0.09f
-                sr.rectLine(cx - isize * 0.34f, cy + isize * 0.18f, cx - isize * 0.20f, cy - isize * 0.18f, b)
-                sr.rect(cx - isize * 0.16f, cy - isize * 0.16f, isize * 0.50f, isize * 0.30f)
-                sr.circle(cx - isize * 0.06f, cy - isize * 0.28f, isize * 0.08f, 20)
-                sr.circle(cx + isize * 0.28f, cy - isize * 0.28f, isize * 0.08f, 20)
-            }
-        }
-        sr.end()
-
-        batch.projectionMatrix = projection
-        batch.begin()
-        font?.let { f ->
-            f.setColor(iconColor)
-            if (title == "BottomP") {
-                val pLayout = GlyphLayout(f, "P")
-                f.draw(batch, "P", (size - pLayout.width) / 2f, cy + pLayout.height / 2f)
-            }
-            if (displayTitle.isNotEmpty()) {
-                val l = GlyphLayout(f, displayTitle)
-                f.draw(batch, displayTitle, (size - l.width) / 2f, size * 0.280f)
-            }
-        }
-        batch.end()
-
-            val pixmap = Pixmap.createFromFrameBuffer(0, 0, size, size)
-            fbo.end()
-            makeDrawnPixelsOpaque(pixmap)
-            val tex = Texture(pixmap)
-            tex.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest)
-            tex.setWrap(Texture.TextureWrap.ClampToEdge, Texture.TextureWrap.ClampToEdge)
-            pixmap.dispose()
-            skinBackground?.dispose()
-            fbo.dispose()
-            return tex
-        }
-
-    private fun createSkinFaceBackgroundTexture(skinOverride: CubeSkin?, faceIndex: Int?, size: Int): Texture? {
-        val path = skinOverride?.assetPath ?: return null
-        val index = faceIndex ?: return null
-        return runCatching {
-            val source = Pixmap(Gdx.files.internal(path))
-            val tileW = source.width / 4
-            val tileH = source.height / 3
-            val coords = listOf(2 to 1, 3 to 1, 0 to 1, 1 to 1, 1 to 0, 1 to 2)
-            val (col, row) = coords[index.coerceIn(0, coords.lastIndex)]
-            val tile = Pixmap(tileW, tileH, Pixmap.Format.RGBA8888)
-            tile.drawPixmap(source, 0, 0, col * tileW, row * tileH, tileW, tileH)
-            val content = tileContentBounds(tile, threshold = 20)
-            val result = Pixmap(size, size, Pixmap.Format.RGBA8888)
-            val edgeColor = skinOverride.gdxColor ?: Color(0.04f, 0.03f, 0.10f, 1f)
-            result.setColor(edgeColor)
-            result.fill()
-            result.drawPixmap(
-                tile,
-                0,
-                0,
-                size,
-                size,
-                content.x,
-                content.y,
-                content.width,
-                content.height
-            )
-            makeDrawnPixelsOpaque(result)
-            val texture = Texture(result)
-            texture.setFilter(Texture.TextureFilter.Nearest, Texture.TextureFilter.Nearest)
-            texture.setWrap(Texture.TextureWrap.ClampToEdge, Texture.TextureWrap.ClampToEdge)
-            source.dispose()
-            tile.dispose()
-            result.dispose()
-            texture
-        }.getOrNull()
-    }
-
-    private data class PixelBounds(
-        val x: Int,
-        val y: Int,
-        val width: Int,
-        val height: Int
-    )
-
-    private fun tileContentBounds(pixmap: Pixmap, threshold: Int): PixelBounds {
-        var minX = pixmap.width
-        var minY = pixmap.height
-        var maxX = -1
-        var maxY = -1
-        for (y in 0 until pixmap.height) {
-            for (x in 0 until pixmap.width) {
-                val pixel = pixmap.getPixel(x, y)
-                val r = (pixel ushr 24) and 0xFF
-                val g = (pixel ushr 16) and 0xFF
-                val b = (pixel ushr 8) and 0xFF
-                if (r > threshold || g > threshold || b > threshold) {
-                    if (x < minX) minX = x
-                    if (y < minY) minY = y
-                    if (x > maxX) maxX = x
-                    if (y > maxY) maxY = y
-                }
-            }
-        }
-        if (maxX < minX || maxY < minY) {
-            return PixelBounds(0, 0, pixmap.width, pixmap.height)
-        }
-        return PixelBounds(minX, minY, maxX - minX + 1, maxY - minY + 1)
-    }
-
-    private fun makeDrawnPixelsOpaque(pixmap: Pixmap) {
-        for (y in 0 until pixmap.height) {
-            for (x in 0 until pixmap.width) {
-                val pixel = pixmap.getPixel(x, y)
-                val alpha = pixel and 0xFF
-                if (alpha > 2) {
-                    pixmap.drawPixel(x, y, pixel or 0xFF)
-                }
-            }
-        }
-    }
-
-    private fun ShapeRenderer.filledRoundRect(x: Float, y: Float, w: Float, h: Float, r: Float) {
-        val rr = r.coerceAtMost(w/2f).coerceAtMost(h/2f)
-        rect(x+rr, y, w-2*rr, h); rect(x, y+rr, w, h-2*rr)
-        circle(x+rr, y+rr, rr, 32); circle(x+w-rr, y+rr, rr, 32)
-        circle(x+rr, y+h-rr, rr, 32); circle(x+w-rr, y+h-rr, rr, 32)
-    }
-
     private fun startBounceTo(target: Float) {
+        Gdx.graphics.setContinuousRendering(true)
+        Gdx.graphics.requestRendering()
         startYawDegrees = currentYawDegrees; targetYawDegrees = target; animationTime = 0f; bouncePhase = BouncePhase.Overshoot
     }
 
@@ -1558,17 +972,9 @@ class CombinedGdxAdapter(
 
     override fun render() {
         try {
-            if (texturesDirty) {
-                rebuildTextures()
-                texturesDirty = false
-            }
             if (modelDirty) {
                 rebuildModel()
                 modelDirty = false
-            }
-            if (materialsDirty) {
-                rebuildMaterialsOpacity()
-                materialsDirty = false
             }
 
             val deltaTime = Gdx.graphics.deltaTime
@@ -1603,13 +1009,7 @@ class CombinedGdxAdapter(
                 }
                 Gdx.graphics.requestRendering()
             } else {
-                instance?.let { cube ->
-                val scale = cubeTransformScale()
-                cube.transform.setToTranslation(cubeSceneX(), cubeSceneY() + kotlin.math.sin(time * 3.9f) * 0.035f, 0f)
-                    .rotate(Vector3.Y, currentYawDegrees + GdxState.tiltYawOffset)
-                    .scale(scale, scale, scale)
-                modelBatch?.begin(camera); modelBatch?.render(cube, environment); modelBatch?.end()
-                }
+                renderCubeScene(now, 1f)
             }
         } catch (e: Exception) {
             Log.e("CombinedGdxAdapter", "Error in render()", e)
@@ -1623,15 +1023,9 @@ class CombinedGdxAdapter(
     }
 
     override fun dispose() {
+        cubeSceneAsset?.dispose()
         modelBatch?.dispose()
-        model?.dispose()
         channelObjectModel?.dispose()
-        // textureCache owns all Texture objects; textures[] just holds references into it.
-        textureCache.values.forEach { it.dispose() }
-        textureCache.clear()
-        skinFaceTextures.forEach { it?.dispose() }
-        font?.dispose()
-        textureBatch?.dispose(); shapeRenderer?.dispose()
     }
 
     private fun snappedTabIndex(yaw: Float): Int {
@@ -1655,7 +1049,18 @@ class CombinedGdxAdapter(
 
     private enum class BouncePhase { Idle, Overshoot, Settle }
 
+    private data class GlbChunk(val type: Int, val bytes: ByteArray)
+
     private fun cameraDistance(): Float {
-        return 3.0f
+        return 6.0f
+    }
+
+    private companion object {
+        const val GLB_MAGIC = 0x46546C67
+        const val GLB_VERSION = 2
+        const val GLB_HEADER_BYTES = 12
+        const val GLB_CHUNK_HEADER_BYTES = 8
+        const val GLB_CHUNK_TYPE_JSON = 0x4E4F534A
+        val GLB_JSON_PADDING_BYTE: Byte = 0x20
     }
 }

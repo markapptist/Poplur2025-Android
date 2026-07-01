@@ -41,12 +41,12 @@ import coil.compose.AsyncImage
 
 import com.apptists.poplur2025.R
 import com.apptists.poplur2025.auth.AuthViewModel
+import com.apptists.poplur2025.data.BusinessVerificationStatus
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.PoplurAIProfileSortOrder
 import com.apptists.poplur2025.ui.components.ProfileAvatarSpeaker
-import com.apptists.poplur2025.ui.components.PoplurText
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.TrendingDisplay
 import com.apptists.poplur2025.ui.components.poplurCountdownDisplayModifier
@@ -437,12 +437,11 @@ private fun ProfileHome(
             )
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                PoplurText(
-                    text = profile.displayName.uppercase(),
+                Text(
+                    text = profile.profileDisplayName.uppercase(),
                     fontSize = 30.sp,
                     fontWeight = FontWeight.Black,
-                    color = Color.Black,
-                    intensity = 0.9f
+                    color = Color.Black
                 )
                 Spacer(Modifier.width(8.dp))
                 Icon(
@@ -452,6 +451,7 @@ private fun ProfileHome(
                     modifier = Modifier.size(20.dp).clickable { onEdit() }
                 )
             }
+            BusinessProfileBadge(profile = profile)
             Row(Modifier.fillMaxWidth().padding(top = 22.dp), horizontalArrangement = Arrangement.Center) {
                 ProfileTabItem("Media", selectedTab == 0, cubeSkin = cubeSkin) { onTab(0) }
                 Spacer(Modifier.width(56.dp))
@@ -507,6 +507,50 @@ private fun ProfileHome(
 }
 
 @Composable
+private fun BusinessProfileBadge(profile: UserProfile) {
+    val business = profile.businessProfile ?: return
+    val color = businessStatusColor(business.verificationStatus)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(
+            text = if (business.verificationStatus == BusinessVerificationStatus.Verified) {
+                "Verified Business"
+            } else {
+                business.verificationStatus.label
+            },
+            color = Color.Black,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(color.copy(alpha = 0.18f))
+                .border(1.dp, color.copy(alpha = 0.45f), RoundedCornerShape(999.dp))
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+        val subline = listOf(business.category, business.address)
+            .filter { it.isNotBlank() }
+            .joinToString(" - ")
+        if (subline.isNotBlank()) {
+            Text(
+                text = subline,
+                color = Color.Black.copy(alpha = 0.58f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+private fun businessStatusColor(status: BusinessVerificationStatus): Color =
+    when (status) {
+        BusinessVerificationStatus.NotVerified -> Color(0xFF8E8E93)
+        BusinessVerificationStatus.PendingReview -> Color(0xFFFF9500)
+        BusinessVerificationStatus.Verified -> Color(0xFF34C759)
+        BusinessVerificationStatus.Rejected -> Color(0xFFFF3B30)
+        BusinessVerificationStatus.NeedsMoreInfo -> Color(0xFF007AFF)
+    }
+
+@Composable
 private fun HeyPoplurProfileTutorialCard(
     accent: Color,
     onDismiss: () -> Unit,
@@ -527,19 +571,17 @@ private fun HeyPoplurProfileTutorialCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            PoplurText(
+            Text(
                 text = "Say \"Hey Poplur\"",
                 color = Color.White,
                 fontSize = 25.sp,
-                fontWeight = FontWeight.Black,
-                intensity = 0.9f
+                fontWeight = FontWeight.Black
             )
-            PoplurText(
+            Text(
                 text = "The edges light up in your theme color. Then tell Poplur what to do.",
                 color = Color.White.copy(alpha = 0.82f),
                 fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                intensity = 0.58f
+                fontWeight = FontWeight.Bold
             )
             Button(
                 onClick = onDismiss,
@@ -548,12 +590,11 @@ private fun HeyPoplurProfileTutorialCard(
                     contentColor = Color.Black
                 )
             ) {
-                PoplurText(
+                Text(
                     text = "Got it",
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Black,
-                    color = Color.Black,
-                    intensity = 0.64f
+                    color = Color.Black
                 )
             }
         }
@@ -912,12 +953,11 @@ private fun StoreBadge(text: String) {
 fun ProfileTabItem(text: String, isSelected: Boolean, cubeSkin: CubeSkin = CubeSkin.Default, onClick: () -> Unit) {
     val theme = cubeSkin.uiTheme()
     Column(modifier = Modifier.clickable { onClick() }, horizontalAlignment = Alignment.CenterHorizontally) {
-        PoplurText(
+        Text(
             text = text,
             fontSize = 20.sp,
             fontWeight = FontWeight.Black,
-            color = if (isSelected) Color.Black else Color.Black.copy(alpha = 0.72f),
-            intensity = if (isSelected) 0.86f else 0.58f
+            color = if (isSelected) Color.Black else Color.Black.copy(alpha = 0.72f)
         )
         if (isSelected) Spacer(Modifier.height(4.dp))
         if (isSelected) Box(Modifier.width(48.dp).height(3.dp).background(theme.accent, RoundedCornerShape(2.dp)))
@@ -969,13 +1009,12 @@ fun MediaItem(url: String? = null, radius: Int = 5000, cubeSkin: CubeSkin = Cube
                 )
         )
         Surface(modifier = Modifier.padding(8.dp).align(Alignment.BottomStart), color = Color.Black.copy(alpha = 0.58f), shape = RoundedCornerShape(12.dp)) {
-            PoplurText(
+            Text(
                 text = "${(radius / 1000).coerceAtLeast(1)} KM",
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                intensity = 0.62f
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
             )
         }
     }

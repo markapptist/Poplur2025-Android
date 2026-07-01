@@ -13,8 +13,8 @@ val CubeSkin.themeColorRGB: FloatArray?
 val CubeSkin.usePerItemTint: Boolean
     get() = this == CubeSkin.Default || this == CubeSkin.Toy
 
-/** Asset path for the hold-menu panel/tile background texture, or null to use the color-based fallback. */
-val CubeSkin.holdMenuAssetPath: String?
+/** Required asset path for the hold-menu panel/tile background texture. */
+val CubeSkin.holdMenuAssetPath: String
     get() = when (this) {
         CubeSkin.Ice       -> "holdmenu/ice.png"
         CubeSkin.Camo      -> "holdmenu/camo.png"
@@ -31,9 +31,9 @@ enum class CubeSkin(
     val id: String,
     val label: String,
     val assetPath: String?,
-    val modelAssetPath: String?,
+    val modelAssetPath: String,
     val gdxColor: Color?,
-    val logoAssetPath: String = "logo.png"
+    val logoAssetPath: String
 ) {
     Default(
         "default",
@@ -41,7 +41,7 @@ enum class CubeSkin(
         null,
         "cube_models/dark_rubber_neon_icon_cube.glb",
         null,
-        "logo.png"
+        "logo/logo_rubber.png"
     ),
     Gold(
         "gold",
@@ -95,9 +95,9 @@ enum class CubeSkin(
         "space",
         "Deep Space",
         "cube/skin_space.png",
-        null,
+        "cube_models/purple_sparkle_icon_cube.glb",
         Color(0.08f, 0.05f, 0.20f, 1f),
-        "logo.png"
+        "logo/logo_sparkle_pink.png"
     ),
     Camo(
         "camo",

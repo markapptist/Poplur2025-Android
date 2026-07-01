@@ -2,6 +2,9 @@ package com.apptists.poplur2025.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.apptists.poplur2025.data.AccountType
+import com.apptists.poplur2025.data.BusinessAccountService
+import com.apptists.poplur2025.data.BusinessProfile
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -44,12 +47,38 @@ class AuthViewModel : ViewModel() {
             }
     }
 
-    fun signUp(email: String, password: String, onResult: (Boolean, String?) -> Unit) {
+    fun signUp(
+        email: String,
+        password: String,
+        accountType: AccountType = AccountType.User,
+        businessProfile: BusinessProfile? = null,
+        onResult: (Boolean, String?) -> Unit
+    ) {
         val firebaseAuth = auth ?: FirebaseAuth.getInstance().also { auth = it }
         firebaseAuth.createUserWithEmailAndPassword(email.trim(), password)
             .addOnCompleteListener { task ->
-                _isSignedIn.value = task.isSuccessful
-                onResult(task.isSuccessful, task.exception?.localizedMessage)
+                if (!task.isSuccessful) {
+                    _isSignedIn.value = false
+                    onResult(false, task.exception?.localizedMessage)
+                    return@addOnCompleteListener
+                }
+
+                val uid = task.result?.user?.uid
+                if (uid == null) {
+                    _isSignedIn.value = false
+                    onResult(false, "Could not create your Poplur account.")
+                    return@addOnCompleteListener
+                }
+
+                BusinessAccountService.saveAccount(
+                    uid = uid,
+                    email = email,
+                    accountType = accountType,
+                    businessProfile = businessProfile
+                ) { ok, message ->
+                    _isSignedIn.value = ok
+                    onResult(ok, message)
+                }
             }
     }
 

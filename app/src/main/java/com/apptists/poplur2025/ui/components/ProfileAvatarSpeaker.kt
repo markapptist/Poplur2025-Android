@@ -8,6 +8,7 @@ import android.view.View
 import android.view.View.OnAttachStateChangeListener
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -497,15 +498,12 @@ private fun ThemedProfileHead(
     modifier: Modifier = Modifier
 ) {
     val palette = skin.profileHeadPalette()
-    if (is3D) {
-        MarkHeadGdxView(
-            isSpeaking = isSpeaking,
-            modifier = modifier
-        )
-        return
-    }
-
-    Box(contentAlignment = Alignment.Center, modifier = modifier) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .clip(RoundedCornerShape(30.dp))
+            .background(palette.fill)
+    ) {
         if (palette.hasHalo) {
             Box(
                 modifier = Modifier
@@ -514,9 +512,66 @@ private fun ThemedProfileHead(
                     .background(palette.accent.copy(alpha = 0.16f))
             )
         }
-        ProfileTalkingHeadGdxView(
-            isSpeaking = isSpeaking,
-            modifier = Modifier.fillMaxSize()
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize(if (is3D) 0.82f else 0.74f)
+                .clip(CircleShape)
+                .background(palette.face.copy(alpha = if (isSpeaking) 0.98f else 0.88f))
+                .border(2.dp, palette.line.copy(alpha = 0.58f), CircleShape)
+        )
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = if (is3D) 14.dp else 18.dp)
+                .fillMaxWidth(0.58f)
+                .height(if (is3D) 34.dp else 26.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(palette.hair.copy(alpha = 0.94f))
+        )
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(if (isSpeaking) 14.dp else 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.offset(y = (-4).dp)
+        ) {
+            repeat(2) {
+                Box(
+                    modifier = Modifier
+                        .size(if (isSpeaking) 13.dp else 10.dp)
+                        .clip(CircleShape)
+                        .background(palette.line)
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .offset(y = if (isSpeaking) 26.dp else 24.dp)
+                .width(if (isSpeaking) 34.dp else 42.dp)
+                .height(if (isSpeaking) 18.dp else 8.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(palette.line.copy(alpha = 0.88f))
+        )
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(0.72f)
+                .height(if (is3D) 32.dp else 25.dp)
+                .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
+                .background(palette.shirt)
+        )
+
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .border(
+                    width = if (isSpeaking) 3.dp else 1.5.dp,
+                    color = (if (isSpeaking) accentColor else palette.accent).copy(alpha = if (isSpeaking) 0.92f else 0.54f),
+                    shape = RoundedCornerShape(30.dp)
+                )
         )
     }
 }
