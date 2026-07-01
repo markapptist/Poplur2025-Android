@@ -18,3 +18,13 @@ keystore/
 *.jks
 *.keystore
 google-services-secret.json
+*.apk
+*.aab
+*.apks
+*.ipa
+*.dSYM.zip
+mapping.txt
+build/
+.gradle/
+.idea/
+local.properties
