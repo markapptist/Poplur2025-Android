@@ -35,6 +35,7 @@ val CubeSkin.appIconResId: Int
 
 object AppIconThemeManager {
     private const val EXPLICIT_LAUNCH_ALIAS = "IconDefaultAlias"
+    private val manifestEnabledLaunchAlias = CubeSkin.Default.appIconAliasName
     private val allAliasNames = CubeSkin.entries.map { it.appIconAliasName }
     private var lastAppliedSkinId: String? = null
 
@@ -67,10 +68,8 @@ object AppIconThemeManager {
                 return
             }
 
-            val isDefaultAlias = alias == "IconDefaultLauncherAlias"
-            
-            // Determine if the component is effectively correct based on its manifest default
-            val isCorrectIfDefault = if (isDefaultAlias) {
+            val isManifestEnabledAlias = alias == manifestEnabledLaunchAlias
+            val isCorrectIfDefault = if (isManifestEnabledAlias) {
                 state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED
             } else {
                 state == PackageManager.COMPONENT_ENABLED_STATE_DISABLED

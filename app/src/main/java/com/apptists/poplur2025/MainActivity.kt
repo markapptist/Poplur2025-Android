@@ -124,9 +124,15 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
     override fun showPersistentCubeOverlay(config: PersistentCubeOverlayConfig) {
         runOnUiThread {
             val container = cubeContainer ?: return@runOnUiThread
-            container.visibility = View.VISIBLE
-            container.bringToFront()
-            container.layoutParams = cubeOverlayLayoutParams()
+            if (container.visibility != View.VISIBLE) {
+                container.visibility = View.VISIBLE
+                container.bringToFront()
+            }
+            
+            val params = cubeOverlayLayoutParams()
+            if (container.layoutParams.width != params.width || container.layoutParams.height != params.height) {
+                container.layoutParams = params
+            }
 
             val existing = supportFragmentManager.findFragmentById(cubeContainerId) as? GdxNavigationFragment
             if (existing == null || existing.isRemoving) {
@@ -136,10 +142,12 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                     .replace(cubeContainerId, fragment)
                     .commitNowAllowingStateLoss()
             } else {
-                lastCubeSkin = config.cubeSkin
+                if (lastCubeSkin != config.cubeSkin) {
+                    lastCubeSkin = config.cubeSkin
+                    existing.setSkin(config.cubeSkin)
+                }
                 applyCubeConfig(existing, config)
             }
-            container.requestLayout()
         }
     }
 

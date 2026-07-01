@@ -2,6 +2,7 @@ package com.apptists.poplur2025.ui.components
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -74,7 +75,7 @@ fun PersistentCubeOverlay(
         channelObjectPopToken = channelObjectPopToken
     )
 
-    SideEffect {
+    LaunchedEffect(config) {
         host?.showPersistentCubeOverlay(config)
     }
 

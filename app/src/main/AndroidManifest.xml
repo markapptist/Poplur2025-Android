@@ -40,7 +40,7 @@
 
         <activity-alias
             android:name=".IconDefaultLauncherAlias"
-            android:enabled="true"
+            android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:label="Poplur"
@@ -53,7 +53,7 @@
         </activity-alias>
         <activity-alias
             android:name=".IconGoldAlias"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_gold"
             android:label="Poplur"

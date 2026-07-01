@@ -63,7 +63,16 @@ public class TransparentGLTextureView extends TextureView implements TextureView
     public void onDestroy() {
         GLThread thread = glThread;
         glThread = null;
-        if (thread != null) thread.shutdown();
+        if (thread != null) {
+            thread.shutdown();
+            try {
+                // Wait for the thread to finish EGL release to avoid race with new instances.
+                // 200ms limit to prevent blocking the main thread if GL is truly stuck.
+                thread.join(200L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
     }
 
     @Override

@@ -135,9 +135,9 @@ fun FeedLaunchCover(
     val particleEffects = remember(particleSeed) {
         listOf(LoadingParticleEffect.Confetti)
     }
-    val ambientParticles = remember(particleSeed) { buildAmbientParticles(particleSeed, count = 150) }
-    val confettiParticles = remember(particleSeed) { buildRainParticles(particleSeed + 17, count = 110) }
-    val burstParticles = remember(particleSeed) { buildBurstConfetti(particleSeed + 29, count = 30) }
+    val ambientParticles = remember(particleSeed) { buildAmbientParticles(particleSeed, count = 40) }
+    val confettiParticles = remember(particleSeed) { buildRainParticles(particleSeed + 17, count = 30) }
+    val burstParticles = remember(particleSeed) { buildBurstConfetti(particleSeed + 29, count = 15) }
 
     // InfiniteTransition for particles + rotation — more efficient than while(true)+animateTo
     // and avoids the 1-billion-ms tween that can confuse Compose's animation scheduler.
