@@ -19,6 +19,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.apptists.poplur2025.ui.PopularObjectCatalog
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -185,7 +186,7 @@ fun FeedScreen(
     val currentChannelForObject by rememberUpdatedState(
         when (val slot = currentSlot) {
             is FeedSlot.PostSlot -> slot.channelCategory
-            is FeedSlot.AdSlot -> slot.creative.creativeKind
+            is FeedSlot.AdSlot -> slot.creative.channelCategory
         }
     )
 
@@ -220,7 +221,7 @@ fun FeedScreen(
             PoplurEQSync.end(PoplurEQSync.Lane.FeedVideo)
         }
     }
-    
+
     val mediaPlayer = remember {
         if (isInspectionMode) null else {
             MediaPlayer().apply {
@@ -488,9 +489,10 @@ fun FeedScreen(
                     is FeedSlot.AdSlot -> UserInfoOverlay(
                         displayName = slot.creative.brandName,
                         location = slot.creative.locationName,
-                        channelNumber = 100,
-                        channelEmoji = "📢",
-                        channelCategory = slot.creative.creativeKind
+                        channelNumber = slot.creative.channelNumber,
+                        channelEmoji = slot.creative.channelEmoji,
+                        channelCategory = slot.creative.channelCategory,
+                        channelIconResId = slot.creative.channelIconResId
                     )
                 }
             }
@@ -881,39 +883,28 @@ private fun TVStaticTransitionOverlay(channelNumber: Int, channelCategory: Strin
             .background(Color.Black),
         contentAlignment = Alignment.Center
     ) {
-        // Real animated static noise
+        // Static noise background - optimized to reduce per-frame Random calls
         ComposeCanvas(modifier = Modifier.fillMaxSize()) {
-            @Suppress("UNUSED_VARIABLE") val t = noiseTime.value
-            val lineH = 4.dp.toPx()
+            val t = (noiseTime.value * 1000).toInt()
+            val random = Random(t)
+            val lineH = 6.dp.toPx()
             var y = 0f
             while (y < size.height) {
-                val v = Random.nextFloat()
+                val v = random.nextFloat()
                 drawRect(
-                    Color(v, v, v, 0.55f + Random.nextFloat() * 0.45f),
+                    Color(v, v, v, 0.45f + random.nextFloat() * 0.35f),
                     topLeft = Offset(0f, y),
                     size = Size(size.width, lineH)
                 )
-                // Occasional color burst pixels in a scan band
-                if (Random.nextFloat() > 0.88f) {
-                    repeat(6) {
-                        drawRect(
-                            Color(Random.nextFloat(), Random.nextFloat(), Random.nextFloat(), 0.7f),
-                            topLeft = Offset(Random.nextFloat() * size.width, y + Random.nextFloat() * lineH),
-                            size = Size(lineH * 1.5f, lineH * 1.5f)
-                        )
-                    }
-                }
                 y += lineH
             }
-            // Glitch bands
-            repeat(4) {
-                if (Random.nextFloat() > 0.72f) {
-                    val bY = Random.nextFloat() * size.height
-                    drawRect(
-                        Color.White.copy(alpha = 0.08f + Random.nextFloat() * 0.38f),
-                        Offset(0f, bY), Size(size.width, 2f + Random.nextFloat() * 18f)
-                    )
-                }
+            // Glitch bands - fewer than before
+            repeat(2) {
+                val bY = random.nextFloat() * size.height
+                drawRect(
+                    Color.White.copy(alpha = 0.12f + random.nextFloat() * 0.22f),
+                    Offset(0f, bY), Size(size.width, 4f + random.nextFloat() * 22f)
+                )
             }
         }
         // Scanline overlay
@@ -1135,30 +1126,27 @@ private fun TVStaticTransitionOverlay3D(channelNumber: Int, channelCategory: Str
             .background(Color.Black),
         contentAlignment = Alignment.Center
     ) {
-        // Animated static noise background (same as 2D)
+        // Animated static noise background - optimized
         ComposeCanvas(modifier = Modifier.fillMaxSize()) {
-            @Suppress("UNUSED_VARIABLE") val t = noiseTime.value
-            val lineH = 4.dp.toPx()
+            val t = (noiseTime.value * 1000).toInt()
+            val random = Random(t)
+            val lineH = 6.dp.toPx()
             var y = 0f
             while (y < size.height) {
-                val v = Random.nextFloat()
-                drawRect(Color(v, v, v, 0.55f + Random.nextFloat() * 0.45f), Offset(0f, y), Size(size.width, lineH))
-                if (Random.nextFloat() > 0.88f) {
-                    repeat(6) {
-                        drawRect(
-                            Color(Random.nextFloat(), Random.nextFloat(), Random.nextFloat(), 0.7f),
-                            Offset(Random.nextFloat() * size.width, y + Random.nextFloat() * lineH),
-                            Size(lineH * 1.5f, lineH * 1.5f)
-                        )
-                    }
-                }
+                val v = random.nextFloat()
+                drawRect(
+                    Color(v, v, v, 0.45f + random.nextFloat() * 0.35f),
+                    topLeft = Offset(0f, y),
+                    size = Size(size.width, lineH)
+                )
                 y += lineH
             }
-            repeat(4) {
-                if (Random.nextFloat() > 0.72f) {
-                    val bY = Random.nextFloat() * size.height
-                    drawRect(Color.White.copy(alpha = 0.08f + Random.nextFloat() * 0.38f), Offset(0f, bY), Size(size.width, 2f + Random.nextFloat() * 18f))
-                }
+            repeat(2) {
+                val bY = random.nextFloat() * size.height
+                drawRect(
+                    Color.White.copy(alpha = 0.12f + random.nextFloat() * 0.22f),
+                    Offset(0f, bY), Size(size.width, 4f + random.nextFloat() * 22f)
+                )
             }
         }
         // Scanline overlay
@@ -1295,23 +1283,7 @@ private fun TVStaticTransitionOverlay3D(channelNumber: Int, channelCategory: Str
 }
 
 private fun randomChannelCubeObject(category: String): String {
-    val normalized = category.lowercase()
-    val options = when {
-        normalized == "food" -> listOf("banana", "cake", "fruit")
-        normalized == "beauty" || normalized == "style" -> listOf("lipstick", "compact", "sparkle")
-        normalized == "sports" || normalized == "fitness" -> listOf("ball", "trophy", "dumbbell")
-        normalized == "modelling" -> listOf("camera", "spotlight", "star")
-        normalized == "fashion" || normalized == "shopping" -> listOf("dress", "shoe", "bag")
-        normalized == "music" -> listOf("microphone", "note", "speaker")
-        normalized == "tech" || normalized == "gaming" -> listOf("laptop", "chip", "controller")
-        normalized == "news" -> listOf("newspaper", "globe", "camera")
-        normalized == "french" -> listOf("eiffel", "croissant", "beret")
-        normalized == "spanish" -> listOf("guitar", "sun", "fan")
-        normalized.contains("3d") || normalized.contains("ad") || normalized.contains("creative") ->
-            listOf("banana", "camera", "globe", "spotlight")
-        else -> listOf("star", "globe", "sparkle")
-    }
-    return options.random()
+    return PopularObjectCatalog.randomObjectForChannel(category)
 }
 
 private fun Modifier.feedDoubleTapDetector(
@@ -2788,6 +2760,7 @@ private fun FeedTvGuideRow(
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 private fun GuidePipVideoPane(
     channel: FeedTvGuideChannel,
@@ -2801,16 +2774,31 @@ private fun GuidePipVideoPane(
 
     val fallbackPlayer = remember(videoUrl, activeFeedPlayer) {
         if (activeFeedPlayer != null || videoUrl == null) null
-        else ExoPlayer.Builder(context).build().apply {
-            val item = MediaItem.fromUri(videoUrl)
-            setMediaItem(item)
-            volume = 0f
-            repeatMode = ExoPlayer.REPEAT_MODE_ALL
-            prepare()
-            playWhenReady = true
+        else ExoPlayer.Builder(context)
+            .setReleaseTimeoutMs(FEED_PLAYER_RELEASE_TIMEOUT_MS)
+            .setDetachSurfaceTimeoutMs(FEED_PLAYER_DETACH_SURFACE_TIMEOUT_MS)
+            .build()
+            .apply {
+                val item = MediaItem.fromUri(videoUrl)
+                setMediaItem(item)
+                volume = 0f
+                repeatMode = ExoPlayer.REPEAT_MODE_ALL
+                prepare()
+                playWhenReady = true
+            }
+    }
+    DisposableEffect(fallbackPlayer) {
+        onDispose {
+            fallbackPlayer?.let { player ->
+                runCatching {
+                    player.pause()
+                    player.clearVideoSurface()
+                    player.clearMediaItems()
+                    player.release()
+                }.onFailure { it.printStackTrace() }
+            }
         }
     }
-    DisposableEffect(fallbackPlayer) { onDispose { fallbackPlayer?.release() } }
 
     val pipPlayer = activeFeedPlayer ?: fallbackPlayer
 
@@ -2900,9 +2888,15 @@ private const val ENABLE_FEED_VIDEO_AUTOPLAY = true
 private const val FEED_VIDEO_FIRST_FRAME_TIMEOUT_MS = 6_500L
 private const val FEED_IMAGE_CREDITS_DELAY_MS = 6_300L
 private const val FEED_IMAGE_MAX_VISIBLE_MS = 10_000L
+private const val FEED_PLAYER_RELEASE_TIMEOUT_MS = 500L
+private const val FEED_PLAYER_DETACH_SURFACE_TIMEOUT_MS = 500L
+
+private fun googleDriveMediaUrl(fileId: String): String =
+    "https://drive.google.com/uc?export=download&id=$fileId&type=video"
 
 private data class PoplurAdCreative(
     val id: String,
+    val channelId: String,
     val brandName: String,
     val headline: String,
     val body: String,
@@ -2916,28 +2910,195 @@ private data class PoplurAdCreative(
     val radius: Int,
     val postsCount: Int,
     val radiusChange: Int,
+    val channelNumber: Int = 100,
+    val channelEmoji: String = "📢",
+    val channelCategory: String = "Sponsored",
+    val channelIconResId: Int? = null,
     val driveFileId: String? = null
+)
+
+private val POPLUR_CHANNEL_AD_CREATIVES = mapOf(
+    "food" to PoplurAdCreative(
+        id = "food-drive-ad",
+        channelId = "food",
+        brandName = "Poplur Food",
+        headline = "Poplur Food is serving nearby",
+        body = "Food creators, cravings, and local spots are live inside the Poplur radius.",
+        callToAction = "Watch Food",
+        creativeKind = "Food channel ad",
+        posterUrl = googleDriveMediaUrl("1cNOqd9w6gGpeoU7oMC1xf7iuUcv0l94E"),
+        videoUrl = googleDriveMediaUrl("1cNOqd9w6gGpeoU7oMC1xf7iuUcv0l94E"),
+        locationName = "Tokyo, Japan",
+        latitude = 35.6762,
+        longitude = 139.6503,
+        radius = 1350,
+        postsCount = 1010,
+        radiusChange = 21,
+        channelNumber = 101,
+        channelEmoji = "🍔",
+        channelCategory = "Food",
+        channelIconResId = R.drawable.poplur_channel_101_food,
+        driveFileId = "1cNOqd9w6gGpeoU7oMC1xf7iuUcv0l94E"
+    ),
+    "sports" to PoplurAdCreative(
+        id = "sports-drive-ad",
+        channelId = "sports",
+        brandName = "Poplur Sports",
+        headline = "Sports energy is live",
+        body = "Follow the plays, fans, and stadium moments moving through Poplur.",
+        callToAction = "Watch Sports",
+        creativeKind = "Sports channel ad",
+        posterUrl = googleDriveMediaUrl("1FmRd8-hKDd-pkOueGXjDuDS-SpGeIL27"),
+        videoUrl = googleDriveMediaUrl("1FmRd8-hKDd-pkOueGXjDuDS-SpGeIL27"),
+        locationName = "New York, NY",
+        latitude = 40.8296,
+        longitude = -73.9262,
+        radius = 1600,
+        postsCount = 1104,
+        radiusChange = 24,
+        channelNumber = 104,
+        channelEmoji = "⚽",
+        channelCategory = "Sports",
+        channelIconResId = R.drawable.poplur_channel_104_sports,
+        driveFileId = "1FmRd8-hKDd-pkOueGXjDuDS-SpGeIL27"
+    ),
+    "shopping" to PoplurAdCreative(
+        id = "shopping-drive-ad",
+        channelId = "shopping",
+        brandName = "Poplur Shopping",
+        headline = "Shopping drops are nearby",
+        body = "Sales, hauls, and local shopping moments are popping up on Poplur.",
+        callToAction = "Watch Shopping",
+        creativeKind = "Shopping channel ad",
+        posterUrl = googleDriveMediaUrl("1nKmjGcUTQW1gn1FVkFMWVwn9ErtH7XmM"),
+        videoUrl = googleDriveMediaUrl("1nKmjGcUTQW1gn1FVkFMWVwn9ErtH7XmM"),
+        locationName = "Toronto, ON",
+        latitude = 43.6544,
+        longitude = -79.3807,
+        radius = 1250,
+        postsCount = 980,
+        radiusChange = 19,
+        channelNumber = 112,
+        channelEmoji = "🛍️",
+        channelCategory = "Shopping",
+        channelIconResId = R.drawable.poplur_channel_112_shopping,
+        driveFileId = "1nKmjGcUTQW1gn1FVkFMWVwn9ErtH7XmM"
+    ),
+    "music" to PoplurAdCreative(
+        id = "music-drive-ad",
+        channelId = "music",
+        brandName = "Poplur Music",
+        headline = "Music is moving through the city",
+        body = "Studios, stages, and creator sounds are broadcasting through Poplur.",
+        callToAction = "Watch Music",
+        creativeKind = "Music channel ad",
+        posterUrl = googleDriveMediaUrl("1tfukw5oiNk1VtqEy4wcgToHKNzTq22kT"),
+        videoUrl = googleDriveMediaUrl("1tfukw5oiNk1VtqEy4wcgToHKNzTq22kT"),
+        locationName = "Los Angeles, CA",
+        latitude = 34.0522,
+        longitude = -118.2437,
+        radius = 1500,
+        postsCount = 1070,
+        radiusChange = 20,
+        channelNumber = 107,
+        channelEmoji = "🎵",
+        channelCategory = "Music",
+        channelIconResId = R.drawable.poplur_channel_107_music,
+        driveFileId = "1tfukw5oiNk1VtqEy4wcgToHKNzTq22kT"
+    ),
+    "cartoon" to PoplurAdCreative(
+        id = "cartoon-drive-ad",
+        channelId = "cartoon",
+        brandName = "Poplur Cartoon",
+        headline = "Cartoon worlds are live",
+        body = "2D and 3D Poplur stories turn the feed into a bright animated channel.",
+        callToAction = "Watch Cartoon",
+        creativeKind = "Cartoon channel ad",
+        posterUrl = googleDriveMediaUrl("1NyDZewxeHe6R-aiziY5yBVCnwdeFTfZS"),
+        videoUrl = googleDriveMediaUrl("1NyDZewxeHe6R-aiziY5yBVCnwdeFTfZS"),
+        locationName = "Burbank, CA",
+        latitude = 34.1381,
+        longitude = -118.3534,
+        radius = 1180,
+        postsCount = 875,
+        radiusChange = 16,
+        channelNumber = 113,
+        channelEmoji = "🎨",
+        channelCategory = "Cartoon",
+        channelIconResId = R.drawable.poplur_channel_113_cartoon,
+        driveFileId = "1NyDZewxeHe6R-aiziY5yBVCnwdeFTfZS"
+    ),
+    "kids" to PoplurAdCreative(
+        id = "kids-drive-ad",
+        channelId = "kids",
+        brandName = "Poplur Kids",
+        headline = "Kids channel is playing",
+        body = "Friendly Poplur moments for games, cartoons, learning, and family-safe fun.",
+        callToAction = "Watch Kids",
+        creativeKind = "Kids channel ad",
+        posterUrl = googleDriveMediaUrl("1rx5BE095nIuA5lyZHictzB09-VsdiAIk"),
+        videoUrl = googleDriveMediaUrl("1rx5BE095nIuA5lyZHictzB09-VsdiAIk"),
+        locationName = "Orlando, FL",
+        latitude = 28.5384,
+        longitude = -81.3789,
+        radius = 1100,
+        postsCount = 820,
+        radiusChange = 15,
+        channelNumber = 114,
+        channelEmoji = "🧸",
+        channelCategory = "Kids",
+        channelIconResId = R.drawable.poplur_channel_114_kids,
+        driveFileId = "1rx5BE095nIuA5lyZHictzB09-VsdiAIk"
+    ),
+    "comedy" to PoplurAdCreative(
+        id = "comedy-drive-ad",
+        channelId = "comedy",
+        brandName = "Poplur Comedy",
+        headline = "Comedy is going live",
+        body = "Sketches, reactions, and funny local moments are ready on Poplur.",
+        callToAction = "Watch Comedy",
+        creativeKind = "Comedy channel ad",
+        posterUrl = googleDriveMediaUrl("1Byb1h62MEdDd4xnPb6Ao-_dQXK9T02sX"),
+        videoUrl = googleDriveMediaUrl("1Byb1h62MEdDd4xnPb6Ao-_dQXK9T02sX"),
+        locationName = "Chicago, IL",
+        latitude = 41.8781,
+        longitude = -87.6298,
+        radius = 1200,
+        postsCount = 925,
+        radiusChange = 17,
+        channelNumber = 115,
+        channelEmoji = "😂",
+        channelCategory = "Comedy",
+        channelIconResId = R.drawable.poplur_channel_115_comedy,
+        driveFileId = "1Byb1h62MEdDd4xnPb6Ao-_dQXK9T02sX"
+    )
 )
 
 private val POPLUR_AD_CREATIVES = listOf(
     PoplurAdCreative(
-        id = "nearby-reel",
+        id = "news-first",
+        channelId = "news",
         brandName = "Poplur Ad",
-        headline = "Real people are already nearby",
-        body = "Human-first Poplur ad slot for finding pop-ups, food, and people around you.",
-        callToAction = "Open the map",
-        creativeKind = "Live human creative",
-        posterUrl = "file:///android_asset/feed_ads/poplur_ad_real_humans.jpg",
+        headline = "Poplur News is live",
+        body = "Real Poplur ad creative for the News channel, built to feel native inside the feed.",
+        callToAction = "Open News",
+        creativeKind = "News creative",
+        posterUrl = "file:///android_asset/feed_ads/poplur_ad_news_first.jpg",
         videoUrl = null,
         locationName = "New York, NY",
         latitude = 40.7128,
         longitude = -74.0060,
         radius = 1250,
         postsCount = 840,
-        radiusChange = 18
+        radiusChange = 18,
+        channelNumber = 109,
+        channelEmoji = "📰",
+        channelCategory = "News",
+        channelIconResId = R.drawable.poplur_channel_109_news
     ),
     PoplurAdCreative(
         id = "three-d-city-tour",
+        channelId = "sponsored",
         brandName = "Poplur Ad",
         headline = "Your city is already talking",
         body = "3D human figures bring local radius discovery into a premium city ad slot.",
@@ -2954,6 +3115,7 @@ private val POPLUR_AD_CREATIVES = listOf(
     ),
     PoplurAdCreative(
         id = "radius-hero",
+        channelId = "sponsored",
         brandName = "Poplur Ad",
         headline = "Post it where it matters",
         body = "Dimensional creator-led ad slot for radius sharing, local discovery, and city energy.",
@@ -2973,6 +3135,9 @@ private val POPLUR_AD_CREATIVES = listOf(
 private fun poplurAdCreativeForIndex(index: Int): PoplurAdCreative =
     POPLUR_AD_CREATIVES[Math.floorMod(index, POPLUR_AD_CREATIVES.size)]
 
+private fun poplurAdCreativeForChannel(channel: FeedChannel): PoplurAdCreative? =
+    POPLUR_CHANNEL_AD_CREATIVES[channel.category.lowercase(Locale.US)]
+
 private fun PoplurAdCreative.toPost(slotId: String): Post = Post(
     id = slotId,
     userId = "poplur_ad_$id",
@@ -2989,7 +3154,8 @@ private fun PoplurAdCreative.toPost(slotId: String): Post = Post(
     comments = max(12, postsCount / 12),
     radius = radius,
     totalRadius = radius * 4,
-    radiusChange = radiusChange
+    radiusChange = radiusChange,
+    channelId = channelCategory.lowercase(Locale.US)
 )
 
 
@@ -3013,7 +3179,11 @@ private val FEED_CHANNELS = listOf(
     FeedChannel(108, "💻", "Tech", R.drawable.poplur_channel_108_tech),
     FeedChannel(109, "📰", "News", R.drawable.poplur_channel_109_news),
     FeedChannel(110, "🇫🇷", "French", R.drawable.poplur_channel_110_french, sourceLanguageCode = "fr", videoUrl = languageChannelVideoUrl("French")),
-    FeedChannel(111, "🇪🇸", "Spanish", R.drawable.poplur_channel_111_spanish, sourceLanguageCode = "es", videoUrl = languageChannelVideoUrl("Spanish"))
+    FeedChannel(111, "🇪🇸", "Spanish", R.drawable.poplur_channel_111_spanish, sourceLanguageCode = "es", videoUrl = languageChannelVideoUrl("Spanish")),
+    FeedChannel(112, "🛍️", "Shopping", R.drawable.poplur_channel_112_shopping),
+    FeedChannel(113, "🎨", "Cartoon", R.drawable.poplur_channel_113_cartoon),
+    FeedChannel(114, "🧸", "Kids", R.drawable.poplur_channel_114_kids),
+    FeedChannel(115, "😂", "Comedy", R.drawable.poplur_channel_115_comedy)
 )
 
 private sealed interface FeedSlot {
@@ -3079,6 +3249,8 @@ private fun feedIndexForChannelNumber(currentIndex: Int, channelNumber: Int): In
     return currentIndex
 }
 
+private val feedSlotCache = mutableMapOf<Int, FeedSlot>()
+
 private fun resolveFeedSlot(index: Int): FeedSlot {
     val normalized = if (index < 0) {
         val cycle = AD_FREQUENCY * DemoPostStore.posts.size
@@ -3086,67 +3258,78 @@ private fun resolveFeedSlot(index: Int): FeedSlot {
     } else {
         index
     }
-    if ((normalized + 1) % AD_FREQUENCY == 0) {
-        return FeedSlot.AdSlot(
+
+    feedSlotCache[normalized]?.let { return it }
+
+    val slot = if ((normalized + 1) % AD_FREQUENCY == 0) {
+        val channelForAd = FEED_CHANNELS[Math.floorMod(normalized / AD_FREQUENCY, FEED_CHANNELS.size)]
+        FeedSlot.AdSlot(
             id = "poplur-ad-$normalized",
-            creative = poplurAdCreativeForIndex(normalized)
+            creative = poplurAdCreativeForChannel(channelForAd) ?: poplurAdCreativeForIndex(normalized)
         )
-    }
-    val adsBefore = (normalized + 1) / AD_FREQUENCY
-    val postIndex = normalized - adsBefore
-    val ch = FEED_CHANNELS[Math.floorMod(postIndex, FEED_CHANNELS.size)]
-    val basePost = DemoPostStore.getPostForIndex(postIndex)
-    if (ch.category.equals("Live", ignoreCase = true)) {
-        val visibleLivePosts = DemoPostStore.visibleLivePostsForViewer(basePost, limit = 8)
-        val livePost = if (visibleLivePosts.isNotEmpty()) {
-            visibleLivePosts[Math.floorMod(postIndex / FEED_CHANNELS.size, visibleLivePosts.size)]
+    } else {
+        val adsBefore = (normalized + 1) / AD_FREQUENCY
+        val postIndex = normalized - adsBefore
+        val ch = FEED_CHANNELS[Math.floorMod(postIndex, FEED_CHANNELS.size)]
+        val basePost = DemoPostStore.getPostForIndex(postIndex)
+
+        if (ch.category.equals("Live", ignoreCase = true)) {
+            val visibleLivePosts = DemoPostStore.visibleLivePostsForViewer(basePost, limit = 8)
+            val livePost = if (visibleLivePosts.isNotEmpty()) {
+                visibleLivePosts[Math.floorMod(postIndex / FEED_CHANNELS.size, visibleLivePosts.size)]
+            } else {
+                DemoPostStore.livePosts.firstOrNull() ?: basePost.copy(
+                    id = "live_placeholder_$postIndex",
+                    displayName = "Poplur Live",
+                    caption = "No live broadcasts in this radius",
+                    channelId = "live",
+                    isLiveStream = true,
+                    liveStartedAtMillis = System.currentTimeMillis(),
+                    liveRadiusMeters = basePost.radius.coerceAtLeast(5_000)
+                )
+            }
+            FeedSlot.PostSlot(
+                post = livePost.copy(
+                    channelId = "live",
+                    isLiveStream = true,
+                    videoUrl = null,
+                    mediaUrl = null
+                ),
+                channelNumber = ch.number,
+                channelEmoji = ch.emoji,
+                channelCategory = ch.category,
+                channelIconResId = ch.iconResId
+            )
         } else {
-            DemoPostStore.livePosts.firstOrNull() ?: basePost.copy(
-                id = "live_placeholder_$postIndex",
-                displayName = "Poplur Live",
-                caption = "No live broadcasts in this radius",
-                channelId = "live",
-                isLiveStream = true,
-                liveStartedAtMillis = System.currentTimeMillis(),
-                liveRadiusMeters = basePost.radius.coerceAtLeast(5_000)
+            val langVideoUrls = languageChannelVideoUrls(ch.category)
+            val effectiveSourceCode = if (langVideoUrls.isNotEmpty())
+                languageChannelSourceCode(ch.category, postIndex)
+            else
+                ch.sourceLanguageCode
+            val effectiveVideoUrl = if (langVideoUrls.isNotEmpty())
+                langVideoUrls[Math.floorMod(postIndex, langVideoUrls.size)]
+            else
+                ch.videoUrl
+            val post = basePost.copy(
+                id = if (effectiveVideoUrl == null) basePost.id else "${basePost.id}_${effectiveSourceCode}_channel",
+                displayName = languageChannelDisplayName(ch.category) ?: basePost.displayName,
+                caption = languageChannelProgram(ch.category) ?: basePost.caption,
+                sourceLanguageCode = effectiveSourceCode,
+                videoUrl = effectiveVideoUrl ?: basePost.videoUrl
+            )
+            FeedSlot.PostSlot(
+                post = post,
+                channelNumber = ch.number,
+                channelEmoji = ch.emoji,
+                channelCategory = ch.category,
+                channelIconResId = ch.iconResId
             )
         }
-        return FeedSlot.PostSlot(
-            post = livePost.copy(
-                channelId = "live",
-                isLiveStream = true,
-                videoUrl = null,
-                mediaUrl = null
-            ),
-            channelNumber = ch.number,
-            channelEmoji = ch.emoji,
-            channelCategory = ch.category,
-            channelIconResId = ch.iconResId
-        )
     }
-    val langVideoUrls = languageChannelVideoUrls(ch.category)
-    val effectiveSourceCode = if (langVideoUrls.isNotEmpty())
-        languageChannelSourceCode(ch.category, postIndex)
-    else
-        ch.sourceLanguageCode
-    val effectiveVideoUrl = if (langVideoUrls.isNotEmpty())
-        langVideoUrls[Math.floorMod(postIndex, langVideoUrls.size)]
-    else
-        ch.videoUrl
-    val post = basePost.copy(
-        id = if (effectiveVideoUrl == null) basePost.id else "${basePost.id}_${effectiveSourceCode}_channel",
-        displayName = languageChannelDisplayName(ch.category) ?: basePost.displayName,
-        caption = languageChannelProgram(ch.category) ?: basePost.caption,
-        sourceLanguageCode = effectiveSourceCode,
-        videoUrl = effectiveVideoUrl ?: basePost.videoUrl
-    )
-    return FeedSlot.PostSlot(
-        post = post,
-        channelNumber = ch.number,
-        channelEmoji = ch.emoji,
-        channelCategory = ch.category,
-        channelIconResId = ch.iconResId
-    )
+
+    if (feedSlotCache.size > 200) feedSlotCache.clear() // Prevent infinite growth
+    feedSlotCache[normalized] = slot
+    return slot
 }
 
 private fun languageChannelVideoUrl(category: String): String? =
@@ -3562,6 +3745,8 @@ fun MediaContent(
                         ExoPlayer.Builder(context)
                             .setMediaSourceFactory(mediaSourceFactory)
                             .setAudioAttributes(audioAttributes, true)
+                            .setReleaseTimeoutMs(FEED_PLAYER_RELEASE_TIMEOUT_MS)
+                            .setDetachSurfaceTimeoutMs(FEED_PLAYER_DETACH_SURFACE_TIMEOUT_MS)
                             .build().apply {
                                 val mediaItem = MediaItem.Builder()
                                     .setUri(post.videoUrl)
@@ -3624,8 +3809,12 @@ fun MediaContent(
                     DisposableEffect(exoPlayer) {
                         onDispose {
                             onActivePlayerChanged(null)
-                            exoPlayer.pause()
-                            exoPlayer.release()
+                            runCatching {
+                                exoPlayer.pause()
+                                exoPlayer.clearVideoSurface()
+                                exoPlayer.clearMediaItems()
+                                exoPlayer.release()
+                            }.onFailure { it.printStackTrace() }
                         }
                     }
 
@@ -3691,16 +3880,20 @@ fun MediaContent(
                                 isFocusable = false
                                 alpha = 0f
                                 visibility = View.INVISIBLE
-                                if (!useExternalVideoSurface) {
-                                    exoPlayer.setVideoTextureView(this)
-                                }
+                                // Don't set player here, wait for update
                             }
                         },
                         update = { textureView ->
-                            if (!useExternalVideoSurface) {
+                            // Only attach if not already attached to this specific view
+                            // ExoPlayer doesn't expose the current view, so we use a tag to track it.
+                            if (!useExternalVideoSurface && textureView.tag != exoPlayer) {
+                                textureView.tag = exoPlayer
                                 exoPlayer.setVideoTextureView(textureView)
                             }
+
+                            // Only re-apply transform if video size changed or first attachment
                             textureView.applyCenterCropTransform(videoSize)
+
                             textureView.alpha = if (hasRenderedVideo) 1f else 0f
                             textureView.visibility = if (hasRenderedVideo) View.VISIBLE else View.INVISIBLE
                         },
@@ -3907,13 +4100,8 @@ private fun TextureView.applyCenterCropTransform(videoSize: VideoSize?) {
 }
 
 private fun Drawable.hasLikelyBlackBars(): Boolean {
-    // If it's a BitmapDrawable, handle hardware bitmaps safely
     if (this is android.graphics.drawable.BitmapDrawable) {
-        val bm = this.bitmap
-        if (bm != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && bm.config == Bitmap.Config.HARDWARE) {
-            val softwareBitmap = bm.copy(Bitmap.Config.ARGB_8888, false)
-            return softwareBitmap?.hasLikelyBlackBars() ?: false
-        }
+        return bitmap?.hasLikelyBlackBars() ?: false
     }
 
     val sourceWidth = intrinsicWidth
@@ -3926,15 +4114,17 @@ private fun Drawable.hasLikelyBlackBars(): Boolean {
     val canvas = Canvas(bitmap)
     val previousBounds = android.graphics.Rect(bounds)
     setBounds(0, 0, sampleWidth, sampleHeight)
-    draw(canvas)
+    runCatching { draw(canvas) }.getOrElse {
+        setBounds(previousBounds)
+        return false
+    }
     setBounds(previousBounds)
     return bitmap.hasLikelyBlackBars()
 }
 
 private fun Bitmap.hasLikelyBlackBars(): Boolean {
-    // If it's a hardware bitmap, we must copy it to a software bitmap to access pixels
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && config == Bitmap.Config.HARDWARE) {
-        val softwareBitmap = copy(Bitmap.Config.ARGB_8888, false)
+        val softwareBitmap = runCatching { copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
         return softwareBitmap?.hasLikelyBlackBars() ?: false
     }
 
@@ -3953,7 +4143,7 @@ private fun Bitmap.hasLikelyBlackBars(): Boolean {
 
         for (y in yRange) {
             for (x in xRange) {
-                val pixel = getPixel(x, y)
+                val pixel = runCatching { getPixel(x, y) }.getOrNull() ?: return 0f
                 if (AndroidColor.alpha(pixel) <= 32) continue
 
                 countedPixels += 1
