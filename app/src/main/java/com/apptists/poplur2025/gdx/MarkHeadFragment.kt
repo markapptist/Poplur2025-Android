@@ -34,7 +34,7 @@ class MarkHeadFragment : AndroidFragmentApplication() {
             useCompass = false
             useImmersiveMode = false
             disableAudio = true
-            useGL30 = true
+            useGL30 = false
             r = 8; g = 8; b = 8; a = 8
         }
         val head = MarkHeadAdapter().also {
@@ -43,6 +43,10 @@ class MarkHeadFragment : AndroidFragmentApplication() {
         adapter = head
 
         val gdxView = initializeTransparentForView(head, config)
+
+        // Force continuous rendering directly on the TextureView so the head always animates.
+        // GdxNavigationFragment (cube) also writes to Gdx.graphics, so we bypass the global here.
+        textureView?.setRenderMode(android.opengl.GLSurfaceView.RENDERMODE_CONTINUOUSLY)
 
         return FrameLayout(requireContext()).apply {
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -69,17 +73,22 @@ class MarkHeadFragment : AndroidFragmentApplication() {
         
         val transparentView = TransparentGLTextureView(requireContext()).apply {
             setRenderer(graphics as GLSurfaceView.Renderer, if (config.useGL30) 3 else 2)
-            setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY)
+            setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY)
             isFocusable = false
             isFocusableInTouchMode = false
         }
-        
+
+        // Robustly swap fields to prevent LibGDX standard view logic from crashing
         runCatching {
-            val field = AndroidGraphics::class.java.getDeclaredField("view")
-            field.isAccessible = true
-            field.set(graphics, transparentView)
+            val graphicsClass = com.badlogic.gdx.backends.android.AndroidGraphics::class.java
+            graphicsClass.getDeclaredField("view").apply { isAccessible = true }.set(graphics, transparentView)
+            
+            // Nulling out these fields ensures AndroidGraphics methods like onPause/onResume/setContinuousRendering
+            // don't try to call methods on the standard GLSurfaceViews which might not be fully initialized.
+            runCatching { graphicsClass.getDeclaredField("view20").apply { isAccessible = true }.set(graphics, null) }
+            runCatching { graphicsClass.getDeclaredField("viewAPI18").apply { isAccessible = true }.set(graphics, null) }
         }
-        
+
         textureView = transparentView
         input = createInput(this, requireActivity(), transparentView, config)
         audio = createAudio(requireActivity(), config)
@@ -106,20 +115,40 @@ class MarkHeadFragment : AndroidFragmentApplication() {
     }
 
     private class TransparentAndroidGraphics(
-        application: MarkHeadFragment,
+        private val application: MarkHeadFragment,
         config: AndroidApplicationConfiguration,
         resolutionStrategy: ResolutionStrategy
     ) : AndroidGraphics(application, config, resolutionStrategy, false) {
-        override fun onResumeGLSurfaceView() {}
-        override fun onPauseGLSurfaceView() {}
+        override fun onResumeGLSurfaceView() {
+            application.textureView?.onResume()
+        }
+        override fun onPauseGLSurfaceView() {
+            application.textureView?.onPause()
+        }
+        override fun setContinuousRendering(isContinuous: Boolean) {
+            val mode = if (isContinuous) {
+                android.opengl.GLSurfaceView.RENDERMODE_CONTINUOUSLY
+            } else {
+                android.opengl.GLSurfaceView.RENDERMODE_WHEN_DIRTY
+            }
+            application.textureView?.setRenderMode(mode)
+        }
+        override fun requestRendering() {
+            application.textureView?.requestRender()
+        }
         override fun createGLSurfaceView(
             application: AndroidApplicationBase,
             resolutionStrategy: ResolutionStrategy
         ): GLSurfaceView20 {
             val glesVersion = if (config.useGL30) 3 else 2
             setTargetGlesVersion(glesVersion)
+            // Return a dummy GLSurfaceView20 that ignores calls.
+            // This prevents a background render thread from starting and avoids crashes if setRenderMode is called.
             return object : GLSurfaceView20(application.context, true, config.depth, config.stencil, resolutionStrategy) {
-                override fun setRenderer(renderer: GLSurfaceView.Renderer?) {}
+                override fun setRenderer(renderer: android.opengl.GLSurfaceView.Renderer?) {}
+                override fun setRenderMode(renderMode: Int) {}
+                override fun onPause() {}
+                override fun onResume() {}
             }
         }
         private fun setTargetGlesVersion(version: Int) {
@@ -138,12 +167,33 @@ class MarkHeadFragment : AndroidFragmentApplication() {
 
     override fun onPause() {
         textureView?.onPause()
-        super.onPause()
+        runCatching {
+            super.onPause()
+        }.onFailure { error ->
+            markFragmentLifecycleCalled()
+            if (error !is NullPointerException) throw error
+            android.util.Log.w("MarkHeadFragment", "Ignoring LibGDX GLSurfaceView pause for transparent TextureView", error)
+        }
     }
 
     override fun onResume() {
-        super.onResume()
+        runCatching {
+            super.onResume()
+        }.onFailure { error ->
+            markFragmentLifecycleCalled()
+            if (error !is NullPointerException) throw error
+            android.util.Log.w("MarkHeadFragment", "Ignoring LibGDX GLSurfaceView resume for transparent TextureView", error)
+        }
         textureView?.onResume()
+        textureView?.requestRender()  // guarantee at least one frame after every resume
+    }
+
+    private fun markFragmentLifecycleCalled() {
+        runCatching {
+            val field = androidx.fragment.app.Fragment::class.java.getDeclaredField("mCalled")
+            field.isAccessible = true
+            field.setBoolean(this, true)
+        }
     }
 
     override fun onDestroyView() {

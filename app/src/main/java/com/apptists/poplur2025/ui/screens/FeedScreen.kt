@@ -70,6 +70,7 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -93,9 +94,14 @@ import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.apptists.poplur2025.data.DemoPostStore
+import com.apptists.poplur2025.data.FeedAdPlacementKind
+import com.apptists.poplur2025.data.FeedAdProbability
+import com.apptists.poplur2025.data.FeedAdProbabilityConfig
 
 import com.apptists.poplur2025.data.Post
 import com.apptists.poplur2025.data.UserProfile
@@ -158,7 +164,12 @@ fun FeedScreen(
     val context = LocalContext.current
     val isInspectionMode = LocalInspectionMode.current
     val liveBroadcastRevision = DemoPostStore.liveBroadcastRevision.intValue
-    val currentSlot = remember(currentPostIndex, liveBroadcastRevision) { resolveFeedSlot(currentPostIndex) }
+    val adProbabilityConfig = remember(currentPostIndex, liveBroadcastRevision) {
+        FeedAdProbability.currentConfig(context)
+    }
+    val currentSlot = remember(currentPostIndex, liveBroadcastRevision, adProbabilityConfig) {
+        resolveFeedSlot(currentPostIndex, adProbabilityConfig)
+    }
     val guideChannels = remember(liveBroadcastRevision) { buildFeedTvGuideChannels() }
     var showTimelineView by remember { mutableStateOf(false) }
     var showTvGuide by remember { mutableStateOf(false) }
@@ -187,6 +198,7 @@ fun FeedScreen(
         when (val slot = currentSlot) {
             is FeedSlot.PostSlot -> slot.channelCategory
             is FeedSlot.AdSlot -> slot.creative.channelCategory
+            is FeedSlot.GoogleMobileAdSlot -> "Sponsored"
         }
     )
 
@@ -290,8 +302,8 @@ fun FeedScreen(
         triggerChannelButtonPop(direction)
         playFeedPop()
 
-        val targetIndex = adjacentChannelFeedIndex(currentPostIndex, direction)
-        when (val targetSlot = resolveFeedSlot(targetIndex)) {
+        val targetIndex = adjacentChannelFeedIndex(currentPostIndex, direction, adProbabilityConfig)
+        when (val targetSlot = resolveFeedSlot(targetIndex, adProbabilityConfig)) {
             is FeedSlot.PostSlot -> {
                 tvTransitionChannelNumber = targetSlot.channelNumber
                 tvTransitionChannelCategory = targetSlot.channelCategory
@@ -300,6 +312,11 @@ fun FeedScreen(
             is FeedSlot.AdSlot -> {
                 tvTransitionChannelNumber = 100
                 tvTransitionChannelCategory = targetSlot.creative.creativeKind
+                tvTransitionChannelIconResId = null
+            }
+            is FeedSlot.GoogleMobileAdSlot -> {
+                tvTransitionChannelNumber = 100
+                tvTransitionChannelCategory = "Google Ad"
                 tvTransitionChannelIconResId = null
             }
         }
@@ -316,7 +333,7 @@ fun FeedScreen(
         tvTransitionChannelCategory = targetChannel.category
         tvTransitionChannelIconResId = targetChannel.iconResId
         tvTransitionToken += 1
-        onIndexChange(feedIndexForChannelNumber(currentPostIndex, targetChannel.number))
+        onIndexChange(feedIndexForChannelNumber(currentPostIndex, targetChannel.number, adProbabilityConfig))
     }
 
     fun advanceToNextPost() {
@@ -330,6 +347,11 @@ fun FeedScreen(
             is FeedSlot.AdSlot -> {
                 tvTransitionChannelNumber = 100
                 tvTransitionChannelCategory = s.creative.creativeKind
+                tvTransitionChannelIconResId = null
+            }
+            is FeedSlot.GoogleMobileAdSlot -> {
+                tvTransitionChannelNumber = 100
+                tvTransitionChannelCategory = "Google Ad"
                 tvTransitionChannelIconResId = null
             }
         }
@@ -387,6 +409,7 @@ fun FeedScreen(
             activeFeedPlayer = null
             allowFeedVideoPlayback = false
             PoplurEQSync.end(PoplurEQSync.Lane.FeedVideo)
+            FeedBumperService.dismiss()
             return@LaunchedEffect
         }
         delay(1_400)
@@ -422,6 +445,7 @@ fun FeedScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color.Black)
     ) {
         if (!showingTimelineSide) {
             Box(modifier = Modifier.fillMaxSize()) {
@@ -460,6 +484,7 @@ fun FeedScreen(
                         onCreditsVisibilityChanged = { showCommentCredits = it },
                         onAdvanceToNext = { advanceToNextPost() }
                     )
+                    is FeedSlot.GoogleMobileAdSlot -> GoogleMobileAdContent(slot = slot)
                 }
             }
         }
@@ -494,6 +519,13 @@ fun FeedScreen(
                         channelCategory = slot.creative.channelCategory,
                         channelIconResId = slot.creative.channelIconResId
                     )
+                    is FeedSlot.GoogleMobileAdSlot -> UserInfoOverlay(
+                        displayName = "Google Ad",
+                        location = "Nearby",
+                        channelNumber = 100,
+                        channelEmoji = "📢",
+                        channelCategory = "Sponsored"
+                    )
                 }
             }
 
@@ -519,6 +551,12 @@ fun FeedScreen(
                         modifier = Modifier,
                         contentColor = Color.White
                     )
+                    is FeedSlot.GoogleMobileAdSlot -> TrendingDisplay(
+                        postsCount = 500,
+                        radiusChange = 0,
+                        modifier = Modifier,
+                        contentColor = Color.White
+                    )
                 }
             }
 
@@ -535,6 +573,7 @@ fun FeedScreen(
                     radius = when (slot) {
                         is FeedSlot.PostSlot -> slot.post.radius
                         is FeedSlot.AdSlot -> slot.creative.radius
+                        is FeedSlot.GoogleMobileAdSlot -> 1000
                     },
                     unit = "mi"
                 )
@@ -558,19 +597,6 @@ fun FeedScreen(
             }
         }
 
-        if (!showingTimelineSide && !showTvGuide) {
-            FeedChannelStepperOverlay(
-                cubeSkin = cubeSkin,
-                activeDirection = channelButtonPopDirection,
-                onUp = { changeChannel(FeedChannelStepDirection.Up) },
-                onDown = { changeChannel(FeedChannelStepDirection.Down) },
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 20.dp)
-                    .zIndex(92f)
-            )
-        }
-
         val deliveryEligiblePost = (currentSlot as? FeedSlot.PostSlot)
             ?.post
             ?.takeIf { it.isDeliveryEligible() }
@@ -584,6 +610,19 @@ fun FeedScreen(
                     onUserInteraction()
                     deliveryPost = deliveryEligiblePost
                 }
+            )
+        }
+
+        if (!homeChromeInactive && !showingTimelineSide && !showTvGuide) {
+            FeedChannelStepperOverlay(
+                popDirection = channelButtonPopDirection,
+                popToken = channelButtonPopToken,
+                onUp = { changeChannel(FeedChannelStepDirection.Up) },
+                onDown = { changeChannel(FeedChannelStepDirection.Down) },
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp, bottom = 120.dp)
+                    .zIndex(86f)
             )
         }
 
@@ -663,18 +702,11 @@ fun FeedScreen(
 
         if (tvTransitionToken > 0) {
             key(tvTransitionToken) {
-                val use3D = remember { kotlin.random.Random.nextBoolean() }
-                if (use3D) {
-                    TVStaticTransitionOverlay3D(
-                        channelNumber = tvTransitionChannelNumber,
-                        channelCategory = tvTransitionChannelCategory,
-                        channelIconResId = tvTransitionChannelIconResId
-                    )
-                } else {
-                    TVStaticTransitionOverlay(
-                        channelNumber = tvTransitionChannelNumber,
-                        channelCategory = tvTransitionChannelCategory,
-                        channelIconResId = tvTransitionChannelIconResId
+                var transitionVisible by remember { mutableStateOf(true) }
+                if (transitionVisible) {
+                    StripeTransitionOverlay(
+                        onMidpoint = { },
+                        onComplete = { transitionVisible = false }
                     )
                 }
             }
@@ -684,6 +716,7 @@ fun FeedScreen(
             val currentPostName = when (val slot = currentSlot) {
                 is FeedSlot.PostSlot -> slot.post.displayName
                 is FeedSlot.AdSlot -> slot.creative.brandName
+                is FeedSlot.GoogleMobileAdSlot -> "Google Ad"
             }
             FeedTvGuideOverlay(
                 channels = guideChannels,
@@ -834,28 +867,23 @@ private fun FeedEntryLogoPop() {
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 private fun TVStaticTransitionOverlay(channelNumber: Int, channelCategory: String, channelIconResId: Int? = null) {
     val context = LocalContext.current
-    val logoBitmap = remember {
-        runCatching {
-            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
-        }.getOrNull()
-    }
     val overlayAlpha = remember { Animatable(1f) }
-    // noiseTime drives per-frame Canvas redraws via state tracking
-    val noiseTime = remember { Animatable(0f) }
-    var logoVisible by remember { mutableStateOf(true) }
-    var channelVisible by remember { mutableStateOf(true) }
     val logoScale = remember { Animatable(0.82f) }
     val channelScale = remember { Animatable(0.86f) }
 
+    val player = remember {
+        ExoPlayer.Builder(context).build().apply {
+            val uri = android.net.Uri.parse("android.resource://${context.packageName}/raw/tv_static")
+            setMediaItem(MediaItem.fromUri(uri)); prepare(); play()
+        }
+    }
+    DisposableEffect(player) { onDispose { player.release() } }
+
     LaunchedEffect(Unit) {
-        // Noise driver (infinite, cancelled when scope ends)
-        launch { noiseTime.animateTo(9999f, infiniteRepeatable(tween(99999, easing = LinearEasing))) }
-        // Audio
-        launch(kotlinx.coroutines.Dispatchers.IO) { playTVStaticAudio() }
-        // Logo and channel identity begin on the first frames so the feed never outruns the tune card.
         launch {
             logoScale.animateTo(1.22f, tween(70, easing = FastOutSlowInEasing))
             logoScale.animateTo(0.92f, tween(50, easing = FastOutSlowInEasing))
@@ -868,7 +896,6 @@ private fun TVStaticTransitionOverlay(channelNumber: Int, channelCategory: Strin
             channelScale.animateTo(1.03f, tween(40, easing = FastOutSlowInEasing))
             channelScale.animateTo(1.0f, tween(30, easing = FastOutSlowInEasing))
         }
-        // Fade only after the channel number/logo have had a readable beat.
         delay(500)
         overlayAlpha.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
     }
@@ -879,407 +906,55 @@ private fun TVStaticTransitionOverlay(channelNumber: Int, channelCategory: Strin
         modifier = Modifier
             .fillMaxSize()
             .zIndex(900f)
-            .graphicsLayer { alpha = overlayAlpha.value }
-            .background(Color.Black),
+            .graphicsLayer { alpha = overlayAlpha.value },
         contentAlignment = Alignment.Center
     ) {
-        // Static noise background - optimized to reduce per-frame Random calls
-        ComposeCanvas(modifier = Modifier.fillMaxSize()) {
-            val t = (noiseTime.value * 1000).toInt()
-            val random = Random(t)
-            val lineH = 6.dp.toPx()
-            var y = 0f
-            while (y < size.height) {
-                val v = random.nextFloat()
-                drawRect(
-                    Color(v, v, v, 0.45f + random.nextFloat() * 0.35f),
-                    topLeft = Offset(0f, y),
-                    size = Size(size.width, lineH)
-                )
-                y += lineH
-            }
-            // Glitch bands - fewer than before
-            repeat(2) {
-                val bY = random.nextFloat() * size.height
-                drawRect(
-                    Color.White.copy(alpha = 0.12f + random.nextFloat() * 0.22f),
-                    Offset(0f, bY), Size(size.width, 4f + random.nextFloat() * 22f)
-                )
-            }
-        }
-        // Scanline overlay
-        ComposeCanvas(modifier = Modifier.fillMaxSize()) {
-            val gap = 3.dp.toPx()
-            var y = 0f
-            while (y < size.height) {
-                drawRect(Color.Black.copy(alpha = 0.30f), Offset(0f, y), Size(size.width, 1.dp.toPx()))
-                y += gap
-            }
-        }
-        // Channel identity card
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    this.player = player
+                    useController = false
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+        // Channel identity overlay
         if (channelIconResId != null) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (logoVisible) {
-                    androidx.compose.foundation.Image(
-                        painter = painterResource(channelIconResId),
-                        contentDescription = "CH $channelNumber $channelCategory",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxWidth(0.72f)
-                            .wrapContentHeight()
-                            .graphicsLayer { scaleX = logoScale.value; scaleY = logoScale.value }
-                    )
-                }
+                androidx.compose.foundation.Image(
+                    painter = painterResource(channelIconResId),
+                    contentDescription = "CH $channelNumber $channelCategory",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth(0.72f)
+                        .wrapContentHeight()
+                        .graphicsLayer { scaleX = logoScale.value; scaleY = logoScale.value }
+                )
                 Spacer(modifier = Modifier.height(18.dp))
-                if (channelVisible) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.graphicsLayer { scaleX = channelScale.value; scaleY = channelScale.value }
-                    ) {
-                        ShaderNumberText(
-                            text = "CH $channelNumber",
-                            color = Color(0xFF4EFF40),
-                            fontSize = 40.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        ShaderNumberText(
-                            text = channelCategory.uppercase(),
-                            color = Color(0xFF4EFF40),
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 2.sp
-                        )
-                    }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.graphicsLayer { scaleX = channelScale.value; scaleY = channelScale.value }
+                ) {
+                    ShaderNumberText("CH $channelNumber", color = Color(0xFF4EFF40), fontSize = 40.sp, fontWeight = FontWeight.Black)
+                    ShaderNumberText(channelCategory.uppercase(), color = Color(0xFF4EFF40), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp)
                 }
             }
         } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (logoVisible) {
-                    Box(
-                        modifier = Modifier
-                            .size(160.dp)
-                            .graphicsLayer { scaleX = logoScale.value; scaleY = logoScale.value },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (logoBitmap != null) {
-                            androidx.compose.foundation.Image(
-                                bitmap = logoBitmap,
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .fillMaxSize(1.40f)
-                                    .graphicsLayer {
-                                        alpha = 0.35f
-                                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
-                                            Color(0xFFFF40C8),
-                                            androidx.compose.ui.graphics.BlendMode.Modulate
-                                        )
-                                    }
-                            )
-                            androidx.compose.foundation.Image(
-                                bitmap = logoBitmap,
-                                contentDescription = "Poplur",
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            ShaderNumberText("POPLUR", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Black)
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(20.dp))
-                if (channelVisible) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.graphicsLayer { scaleX = channelScale.value; scaleY = channelScale.value }
-                    ) {
-                        ShaderNumberText(
-                            text = "CH $channelNumber",
-                            color = Color(0xFF4EFF40),
-                            fontSize = 40.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        ShaderNumberText(
-                            text = channelCategory.uppercase(),
-                            color = Color(0xFF4EFF40),
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 2.sp
-                        )
-                    }
-                }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.graphicsLayer { scaleX = channelScale.value; scaleY = channelScale.value }
+            ) {
+                ShaderNumberText("CH $channelNumber", color = Color(0xFF4EFF40), fontSize = 40.sp, fontWeight = FontWeight.Black)
+                ShaderNumberText(channelCategory.uppercase(), color = Color(0xFF4EFF40), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 2.sp)
             }
         }
     }
 }
-
-private fun playTVStaticAudio() {
-    try {
-        val sampleRate = 22050
-        val durationMs = 680
-        val numSamples = sampleRate * durationMs / 1000
-        val buffer = ByteArray(numSamples * 2)
-        for (i in 0 until numSamples) {
-            val fadeIn = minOf(1f, i / 480f)
-            val fadeOut = minOf(1f, (numSamples - i) / 1100f)
-            val env = minOf(fadeIn, fadeOut)
-            val noise = (Random.nextFloat() * 2 - 1) * 0.28f * env
-            val hum = (kotlin.math.sin(2.0 * Math.PI * 59.94 * i / sampleRate) * 0.07).toFloat()
-            val sample = ((noise + hum) * Short.MAX_VALUE).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
-            buffer[i * 2] = (sample and 0xFF).toByte()
-            buffer[i * 2 + 1] = ((sample ushr 8) and 0xFF).toByte()
-        }
-        val minBuf = android.media.AudioTrack.getMinBufferSize(
-            sampleRate,
-            android.media.AudioFormat.CHANNEL_OUT_MONO,
-            android.media.AudioFormat.ENCODING_PCM_16BIT
-        )
-        val audioTrack = android.media.AudioTrack(
-            android.media.AudioAttributes.Builder()
-                .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build(),
-            android.media.AudioFormat.Builder()
-                .setSampleRate(sampleRate)
-                .setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
-                .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO)
-                .build(),
-            maxOf(buffer.size, minBuf),
-            android.media.AudioTrack.MODE_STATIC,
-            android.media.AudioManager.AUDIO_SESSION_ID_GENERATE
-        )
-        audioTrack.write(buffer, 0, buffer.size)
-        audioTrack.play()
-        Thread.sleep(durationMs.toLong() + 120)
-        audioTrack.stop()
-        audioTrack.release()
-    } catch (_: Exception) {}
-}
-
-// MARK: - 3D perspective TV static transition (graphicsLayer rotationY / rotationX)
 
 @Composable
 private fun TVStaticTransitionOverlay3D(channelNumber: Int, channelCategory: String, channelIconResId: Int? = null) {
-    val context = LocalContext.current
-    val logoBitmap = remember {
-        runCatching {
-            context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
-        }.getOrNull()
-    }
-
-    val overlayAlpha = remember { Animatable(1f) }
-    val noiseTime    = remember { Animatable(0f) }
-
-    // Logo 3D flip: Y rotation from 90° (edge-on) → bounce to 0° (face-on)
-    var logoVisible by remember { mutableStateOf(true) }
-    val logoRotY  = remember { Animatable(16f) }
-    val logoScale = remember { Animatable(0.92f) }
-
-    // Text 3D tilt-in: rotationX from -40° (facing up/away) → 0°, plus rise from below
-    var textVisible by remember { mutableStateOf(true) }
-    val textRotX   = remember { Animatable(-12f) }
-    val textTransY = remember { Animatable(22f) }
-    val textScale  = remember { Animatable(0.90f) }
-
-    LaunchedEffect(Unit) {
-        // Noise driver
-        launch { noiseTime.animateTo(9999f, infiniteRepeatable(tween(99999, easing = LinearEasing))) }
-        // Audio
-        launch(kotlinx.coroutines.Dispatchers.IO) { playTVStaticAudio() }
-
-        launch {
-            logoRotY.animateTo(-8f, tween(90, easing = FastOutSlowInEasing))
-            logoRotY.animateTo(4f,  tween(60, easing = FastOutSlowInEasing))
-            logoRotY.animateTo(0f,  tween(40, easing = FastOutSlowInEasing))
-        }
-        launch {
-            logoScale.animateTo(1.16f, tween(70, easing = FastOutSlowInEasing))
-            logoScale.animateTo(0.94f, tween(50, easing = FastOutSlowInEasing))
-            logoScale.animateTo(1.0f,  tween(40, easing = FastOutSlowInEasing))
-        }
-
-        launch {
-            textRotX.animateTo(6f,  tween(90, easing = FastOutSlowInEasing))
-            textRotX.animateTo(-3f, tween(50, easing = FastOutSlowInEasing))
-            textRotX.animateTo(0f,  tween(40, easing = FastOutSlowInEasing))
-        }
-        launch {
-            textTransY.animateTo(-8f, tween(90, easing = FastOutSlowInEasing))
-            textTransY.animateTo(4f,  tween(50, easing = FastOutSlowInEasing))
-            textTransY.animateTo(0f,  tween(40, easing = FastOutSlowInEasing))
-        }
-        launch {
-            textScale.animateTo(1.15f, tween(70, easing = FastOutSlowInEasing))
-            textScale.animateTo(0.95f, tween(50, easing = FastOutSlowInEasing))
-            textScale.animateTo(1.0f,  tween(40, easing = FastOutSlowInEasing))
-        }
-
-        delay(500)
-        overlayAlpha.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
-    }
-
-    if (overlayAlpha.value <= 0f) return
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .zIndex(900f)
-            .graphicsLayer { alpha = overlayAlpha.value }
-            .background(Color.Black),
-        contentAlignment = Alignment.Center
-    ) {
-        // Animated static noise background - optimized
-        ComposeCanvas(modifier = Modifier.fillMaxSize()) {
-            val t = (noiseTime.value * 1000).toInt()
-            val random = Random(t)
-            val lineH = 6.dp.toPx()
-            var y = 0f
-            while (y < size.height) {
-                val v = random.nextFloat()
-                drawRect(
-                    Color(v, v, v, 0.45f + random.nextFloat() * 0.35f),
-                    topLeft = Offset(0f, y),
-                    size = Size(size.width, lineH)
-                )
-                y += lineH
-            }
-            repeat(2) {
-                val bY = random.nextFloat() * size.height
-                drawRect(
-                    Color.White.copy(alpha = 0.12f + random.nextFloat() * 0.22f),
-                    Offset(0f, bY), Size(size.width, 4f + random.nextFloat() * 22f)
-                )
-            }
-        }
-        // Scanline overlay
-        ComposeCanvas(modifier = Modifier.fillMaxSize()) {
-            val gap = 3.dp.toPx()
-            var y = 0f
-            while (y < size.height) {
-                drawRect(Color.Black.copy(alpha = 0.30f), Offset(0f, y), Size(size.width, 1.dp.toPx()))
-                y += gap
-            }
-        }
-
-        if (channelIconResId != null) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (logoVisible) {
-                    val density = LocalDensity.current.density
-                    androidx.compose.foundation.Image(
-                        painter = painterResource(channelIconResId),
-                        contentDescription = "CH $channelNumber $channelCategory",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxWidth(0.72f)
-                            .wrapContentHeight()
-                            .graphicsLayer {
-                                rotationY = logoRotY.value
-                                scaleX = logoScale.value
-                                scaleY = logoScale.value
-                                cameraDistance = 10f * density
-                            }
-                    )
-                }
-                Spacer(modifier = Modifier.height(18.dp))
-                if (textVisible) {
-                    val density = LocalDensity.current.density
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.graphicsLayer {
-                            rotationX = textRotX.value
-                            translationY = textTransY.value * density
-                            scaleX = textScale.value
-                            scaleY = textScale.value
-                            cameraDistance = 10f * density
-                        }
-                    ) {
-                        ShaderNumberText(
-                            text = "CH $channelNumber",
-                            color = Color(0xFF4EFF40),
-                            fontSize = 40.sp,
-                            fontWeight = FontWeight.Black,
-                            intensity = 0.92f
-                        )
-                        PoplurText(
-                            text = channelCategory.uppercase(),
-                            color = Color(0xFF4EFF40),
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            letterSpacing = 2.sp,
-                            intensity = 0.82f
-                        )
-                    }
-                }
-            }
-        } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                // 3D logo flip
-                if (logoVisible && logoBitmap != null) {
-                    val density = LocalDensity.current.density
-                    Box(
-                        modifier = Modifier
-                            .size(160.dp)
-                            .graphicsLayer {
-                                rotationY = logoRotY.value
-                                scaleX = logoScale.value
-                                scaleY = logoScale.value
-                                cameraDistance = 10f * density
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        androidx.compose.foundation.Image(
-                            bitmap = logoBitmap,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(1.40f).graphicsLayer {
-                                alpha = 0.32f
-                                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
-                                    Color(0xFFFF40C8), androidx.compose.ui.graphics.BlendMode.Modulate
-                                )
-                            }
-                        )
-                        androidx.compose.foundation.Image(
-                            bitmap = logoBitmap,
-                            contentDescription = "Poplur",
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // 3D channel text tilt-in
-                if (textVisible) {
-                    val density = LocalDensity.current.density
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.graphicsLayer {
-                            rotationX = textRotX.value
-                            translationY = textTransY.value * density
-                            scaleX = textScale.value
-                            scaleY = textScale.value
-                            cameraDistance = 10f * density
-                        }
-                    ) {
-                        ShaderNumberText(
-                            text = "CH $channelNumber",
-                            color = Color(0xFF4EFF40),
-                            fontSize = 40.sp,
-                            fontWeight = FontWeight.Black,
-                            intensity = 0.92f
-                        )
-                        PoplurText(
-                            text = channelCategory.uppercase(),
-                            color = Color(0xFF4EFF40),
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            letterSpacing = 2.sp,
-                            intensity = 0.82f
-                        )
-                    }
-                }
-            }
-        }
-    }
+    TVStaticTransitionOverlay(channelNumber, channelCategory, channelIconResId)
 }
 
 private fun randomChannelCubeObject(category: String): String {
@@ -1323,150 +998,6 @@ private fun Modifier.feedSwipeDetector(
             }
         }
     )
-}
-
-@Composable
-private fun FeedChannelStepperOverlay(
-    cubeSkin: CubeSkin,
-    activeDirection: FeedChannelStepDirection?,
-    onUp: () -> Unit,
-    onDown: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier.width(82.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        FeedChannelImageButton(
-            cubeSkin = cubeSkin,
-            direction = FeedChannelStepDirection.Up,
-            activeDirection = activeDirection,
-            onClick = onUp
-        )
-
-        FeedChannelCenterButton(cubeSkin = cubeSkin, isActive = activeDirection != null)
-
-        FeedChannelImageButton(
-            cubeSkin = cubeSkin,
-            direction = FeedChannelStepDirection.Down,
-            activeDirection = activeDirection,
-            onClick = onDown
-        )
-    }
-}
-
-@Composable
-private fun FeedChannelImageButton(
-    cubeSkin: CubeSkin,
-    direction: FeedChannelStepDirection,
-    activeDirection: FeedChannelStepDirection?,
-    onClick: () -> Unit
-) {
-    val isActive = activeDirection == direction
-    val theme = cubeSkin.uiTheme()
-    val scale by animateFloatAsState(
-        targetValue = if (isActive) 1.22f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "feed-channel-step-scale"
-    )
-    val glowAlpha by animateFloatAsState(
-        targetValue = if (isActive) 0.62f else 0.26f,
-        animationSpec = tween(150, easing = FastOutSlowInEasing),
-        label = "feed-channel-step-glow"
-    )
-    val icon = when (direction) {
-        FeedChannelStepDirection.Up -> Icons.Filled.KeyboardArrowUp
-        FeedChannelStepDirection.Down -> Icons.Filled.KeyboardArrowDown
-    }
-    val cornerRadius = when (cubeSkin) {
-        CubeSkin.Toy -> 13.dp
-        CubeSkin.Ice -> 16.dp
-        CubeSkin.Camo, CubeSkin.Chocolate, CubeSkin.Gold -> 10.dp
-        else -> 17.dp
-    }
-    val tint = when (cubeSkin) {
-        CubeSkin.Toy -> if (direction == FeedChannelStepDirection.Up) Color(0xFF084CAC) else Color(0xFFE6262B)
-        CubeSkin.Rainbow, CubeSkin.Default -> Color.White
-        else -> theme.primaryText
-    }
-
-    ThemedSkinPlate(
-        skin = cubeSkin,
-        active = isActive,
-        cornerRadius = cornerRadius,
-        modifier = Modifier
-            .size(76.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .shadow((6f + glowAlpha * 12f).dp, RoundedCornerShape(cornerRadius))
-            .clickable(onClick = onClick)
-    ) {
-        ShaderIcon(
-            imageVector = icon,
-            contentDescription = if (direction == FeedChannelStepDirection.Up) "Channel up" else "Channel down",
-            tint = tint,
-            modifier = Modifier
-                .size(54.dp)
-                .graphicsLayer {
-                    shadowElevation = if (isActive) 14f else 7f
-                    alpha = if (isActive) 1f else 0.9f
-                }
-        )
-    }
-}
-
-@Composable
-private fun FeedChannelCenterButton(
-    cubeSkin: CubeSkin,
-    isActive: Boolean
-) {
-    val theme = cubeSkin.uiTheme()
-    val scale by animateFloatAsState(
-        targetValue = if (isActive) 1.08f else 1f,
-        animationSpec = tween(140, easing = FastOutSlowInEasing),
-        label = "feed-channel-ch-scale"
-    )
-    ThemedSkinPlate(
-        skin = cubeSkin,
-        active = isActive,
-        cornerRadius = when (cubeSkin) {
-            CubeSkin.Camo, CubeSkin.Chocolate, CubeSkin.Gold -> 8.dp
-            CubeSkin.Toy -> 10.dp
-            else -> 13.dp
-        },
-        modifier = Modifier
-            .width(66.dp)
-            .height(38.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-    ) {
-        PoplurText(
-            text = "CH",
-            color = when (cubeSkin) {
-                CubeSkin.Toy -> Color(0xFFE6262B)
-                CubeSkin.Rainbow, CubeSkin.Default -> Color.White
-                else -> theme.primaryText
-            },
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Black,
-            intensity = 0.78f,
-            style = TextStyle(
-                shadow = Shadow(
-                    color = theme.shadow,
-                    offset = Offset(0f, 2f),
-                    blurRadius = if (isActive) 14f else 8f
-                )
-            )
-        )
-    }
 }
 
 private data class FeedCommentCredit(
@@ -1563,6 +1094,7 @@ private val FeedSlot.feedSlotId: String
     get() = when (this) {
         is FeedSlot.PostSlot -> post.id
         is FeedSlot.AdSlot -> id
+        is FeedSlot.GoogleMobileAdSlot -> id
     }
 
 private fun Post.toUserProfile(): UserProfile =
@@ -1625,6 +1157,7 @@ private fun seedCommentCredits(slot: FeedSlot): List<FeedCommentCredit> {
     val displayName = when (slot) {
         is FeedSlot.PostSlot -> slot.post.displayName.ifBlank { slot.post.username }
         is FeedSlot.AdSlot -> slot.creative.brandName
+        is FeedSlot.GoogleMobileAdSlot -> "Google Ad"
     }.ifBlank { "this" }
     val samples = listOf(
         FeedCommentCredit("credit-1", "vi.xi.mmvi", "this is live right now"),
@@ -2892,7 +2425,11 @@ private const val FEED_PLAYER_RELEASE_TIMEOUT_MS = 500L
 private const val FEED_PLAYER_DETACH_SURFACE_TIMEOUT_MS = 500L
 
 private fun googleDriveMediaUrl(fileId: String): String =
-    "https://drive.google.com/uc?export=download&id=$fileId&type=video"
+    // "&type=video" is not a real Google Drive parameter and previously made this an invalid
+    // endpoint; ExoPlayer/Coil would receive Drive's HTML page instead of media bytes and
+    // silently fail. The file also must be shared as "Anyone with the link" — Drive still
+    // serves an HTML sign-in/scan-warning page for private or very large files.
+    "https://drive.google.com/uc?export=download&id=$fileId"
 
 private data class PoplurAdCreative(
     val id: String,
@@ -2918,7 +2455,7 @@ private data class PoplurAdCreative(
 )
 
 private val POPLUR_CHANNEL_AD_CREATIVES = mapOf(
-    "food" to PoplurAdCreative(
+    "food" to listOf(PoplurAdCreative(
         id = "food-drive-ad",
         channelId = "food",
         brandName = "Poplur Food",
@@ -2939,8 +2476,8 @@ private val POPLUR_CHANNEL_AD_CREATIVES = mapOf(
         channelCategory = "Food",
         channelIconResId = R.drawable.poplur_channel_101_food,
         driveFileId = "1cNOqd9w6gGpeoU7oMC1xf7iuUcv0l94E"
-    ),
-    "sports" to PoplurAdCreative(
+    )),
+    "sports" to listOf(PoplurAdCreative(
         id = "sports-drive-ad",
         channelId = "sports",
         brandName = "Poplur Sports",
@@ -2961,8 +2498,8 @@ private val POPLUR_CHANNEL_AD_CREATIVES = mapOf(
         channelCategory = "Sports",
         channelIconResId = R.drawable.poplur_channel_104_sports,
         driveFileId = "1FmRd8-hKDd-pkOueGXjDuDS-SpGeIL27"
-    ),
-    "shopping" to PoplurAdCreative(
+    )),
+    "shopping" to listOf(PoplurAdCreative(
         id = "shopping-drive-ad",
         channelId = "shopping",
         brandName = "Poplur Shopping",
@@ -2983,8 +2520,8 @@ private val POPLUR_CHANNEL_AD_CREATIVES = mapOf(
         channelCategory = "Shopping",
         channelIconResId = R.drawable.poplur_channel_112_shopping,
         driveFileId = "1nKmjGcUTQW1gn1FVkFMWVwn9ErtH7XmM"
-    ),
-    "music" to PoplurAdCreative(
+    )),
+    "music" to listOf(PoplurAdCreative(
         id = "music-drive-ad",
         channelId = "music",
         brandName = "Poplur Music",
@@ -3005,8 +2542,8 @@ private val POPLUR_CHANNEL_AD_CREATIVES = mapOf(
         channelCategory = "Music",
         channelIconResId = R.drawable.poplur_channel_107_music,
         driveFileId = "1tfukw5oiNk1VtqEy4wcgToHKNzTq22kT"
-    ),
-    "cartoon" to PoplurAdCreative(
+    )),
+    "cartoon" to listOf(PoplurAdCreative(
         id = "cartoon-drive-ad",
         channelId = "cartoon",
         brandName = "Poplur Cartoon",
@@ -3027,8 +2564,8 @@ private val POPLUR_CHANNEL_AD_CREATIVES = mapOf(
         channelCategory = "Cartoon",
         channelIconResId = R.drawable.poplur_channel_113_cartoon,
         driveFileId = "1NyDZewxeHe6R-aiziY5yBVCnwdeFTfZS"
-    ),
-    "kids" to PoplurAdCreative(
+    )),
+    "kids" to listOf(PoplurAdCreative(
         id = "kids-drive-ad",
         channelId = "kids",
         brandName = "Poplur Kids",
@@ -3049,8 +2586,8 @@ private val POPLUR_CHANNEL_AD_CREATIVES = mapOf(
         channelCategory = "Kids",
         channelIconResId = R.drawable.poplur_channel_114_kids,
         driveFileId = "1rx5BE095nIuA5lyZHictzB09-VsdiAIk"
-    ),
-    "comedy" to PoplurAdCreative(
+    )),
+    "comedy" to listOf(PoplurAdCreative(
         id = "comedy-drive-ad",
         channelId = "comedy",
         brandName = "Poplur Comedy",
@@ -3071,7 +2608,97 @@ private val POPLUR_CHANNEL_AD_CREATIVES = mapOf(
         channelCategory = "Comedy",
         channelIconResId = R.drawable.poplur_channel_115_comedy,
         driveFileId = "1Byb1h62MEdDd4xnPb6Ao-_dQXK9T02sX"
-    )
+    )),
+    "spanish" to listOf(
+        PoplurAdCreative(
+            id = "spanish-drive-ad-1",
+            channelId = "spanish",
+            brandName = "Poplur Español",
+            headline = "El canal en español está en vivo",
+            body = "Creadores, música, y momentos locales en español están activos en Poplur.",
+            callToAction = "Ver en Español",
+            creativeKind = "Spanish channel ad",
+            posterUrl = googleDriveMediaUrl("17YgYn6c2i2kxrssF-6UrBO6X4h6nHIRd"),
+            videoUrl = googleDriveMediaUrl("17YgYn6c2i2kxrssF-6UrBO6X4h6nHIRd"),
+            locationName = "Madrid, Spain",
+            latitude = 40.4168,
+            longitude = -3.7038,
+            radius = 1300,
+            postsCount = 940,
+            radiusChange = 18,
+            channelNumber = 111,
+            channelEmoji = "🇪🇸",
+            channelCategory = "Spanish",
+            channelIconResId = R.drawable.poplur_channel_111_spanish,
+            driveFileId = "17YgYn6c2i2kxrssF-6UrBO6X4h6nHIRd"
+        ),
+        PoplurAdCreative(
+            id = "spanish-drive-ad-2",
+            channelId = "spanish",
+            brandName = "Poplur Español",
+            headline = "Contenido en español cerca de ti",
+            body = "Descubre creadores y momentos en español dentro de tu radio de Poplur.",
+            callToAction = "Ver en Español",
+            creativeKind = "Spanish channel ad",
+            posterUrl = googleDriveMediaUrl("1q1lMCstW1QxxWmStwO8_YF2R5iImcl6O"),
+            videoUrl = googleDriveMediaUrl("1q1lMCstW1QxxWmStwO8_YF2R5iImcl6O"),
+            locationName = "Mexico City, Mexico",
+            latitude = 19.4326,
+            longitude = -99.1332,
+            radius = 1400,
+            postsCount = 1015,
+            radiusChange = 20,
+            channelNumber = 111,
+            channelEmoji = "🇪🇸",
+            channelCategory = "Spanish",
+            channelIconResId = R.drawable.poplur_channel_111_spanish,
+            driveFileId = "1q1lMCstW1QxxWmStwO8_YF2R5iImcl6O"
+        ),
+        PoplurAdCreative(
+            id = "spanish-drive-ad-3",
+            channelId = "spanish",
+            brandName = "Poplur Español",
+            headline = "La energía latina está en vivo",
+            body = "Sigue las tendencias y creadores del canal en español en Poplur.",
+            callToAction = "Ver en Español",
+            creativeKind = "Spanish channel ad",
+            posterUrl = googleDriveMediaUrl("1Z_Neqsj5eoDdDWQD_-J1S-_PTuCPrWq9"),
+            videoUrl = googleDriveMediaUrl("1Z_Neqsj5eoDdDWQD_-J1S-_PTuCPrWq9"),
+            locationName = "Bogotá, Colombia",
+            latitude = 4.7110,
+            longitude = -74.0721,
+            radius = 1200,
+            postsCount = 865,
+            radiusChange = 16,
+            channelNumber = 111,
+            channelEmoji = "🇪🇸",
+            channelCategory = "Spanish",
+            channelIconResId = R.drawable.poplur_channel_111_spanish,
+            driveFileId = "1Z_Neqsj5eoDdDWQD_-J1S-_PTuCPrWq9"
+        )
+    ),
+    "french" to listOf(PoplurAdCreative(
+        id = "french-drive-ad",
+        channelId = "french",
+        brandName = "Poplur Français",
+        headline = "La chaîne française est en direct",
+        body = "Créateurs, musique, et moments locaux en français sont en direct sur Poplur.",
+        callToAction = "Regarder en Français",
+        creativeKind = "French channel ad",
+        posterUrl = googleDriveMediaUrl("1s_o1GcEjIl25uw4rlRtvE_VhpSf_EJjz"),
+        videoUrl = googleDriveMediaUrl("1s_o1GcEjIl25uw4rlRtvE_VhpSf_EJjz"),
+        locationName = "Paris, France",
+        latitude = 48.8566,
+        longitude = 2.3522,
+        radius = 1300,
+        postsCount = 955,
+        radiusChange = 19,
+        channelNumber = 110,
+        channelEmoji = "🇫🇷",
+        channelCategory = "French",
+        channelIconResId = R.drawable.poplur_channel_110_french,
+        driveFileId = "1s_o1GcEjIl25uw4rlRtvE_VhpSf_EJjz"
+    ))
 )
 
 private val POPLUR_AD_CREATIVES = listOf(
@@ -3135,8 +2762,11 @@ private val POPLUR_AD_CREATIVES = listOf(
 private fun poplurAdCreativeForIndex(index: Int): PoplurAdCreative =
     POPLUR_AD_CREATIVES[Math.floorMod(index, POPLUR_AD_CREATIVES.size)]
 
-private fun poplurAdCreativeForChannel(channel: FeedChannel): PoplurAdCreative? =
-    POPLUR_CHANNEL_AD_CREATIVES[channel.category.lowercase(Locale.US)]
+private fun poplurAdCreativeForChannel(channel: FeedChannel, index: Int): PoplurAdCreative? {
+    val creatives = POPLUR_CHANNEL_AD_CREATIVES[channel.category.lowercase(Locale.US)]
+    if (creatives.isNullOrEmpty()) return null
+    return creatives[Math.floorMod(index, creatives.size)]
+}
 
 private fun PoplurAdCreative.toPost(slotId: String): Post = Post(
     id = slotId,
@@ -3195,13 +2825,19 @@ private sealed interface FeedSlot {
         val channelIconResId: Int?
     ) : FeedSlot
     data class AdSlot(val id: String, val creative: PoplurAdCreative) : FeedSlot
+    data class GoogleMobileAdSlot(val id: String) : FeedSlot
 }
 
-private fun adjacentChannelFeedIndex(currentIndex: Int, direction: FeedChannelStepDirection): Int {
-    val currentSlot = resolveFeedSlot(currentIndex)
+private fun adjacentChannelFeedIndex(
+    currentIndex: Int,
+    direction: FeedChannelStepDirection,
+    adConfig: FeedAdProbabilityConfig
+): Int {
+    val currentSlot = resolveFeedSlot(currentIndex, adConfig)
     val currentChannelIndex = when (currentSlot) {
         is FeedSlot.PostSlot -> FEED_CHANNELS.indexOfFirst { it.number == currentSlot.channelNumber }
         is FeedSlot.AdSlot -> -1
+        is FeedSlot.GoogleMobileAdSlot -> -1
     }.takeIf { it >= 0 } ?: 0
     val targetChannel = FEED_CHANNELS[
         Math.floorMod(
@@ -3212,7 +2848,7 @@ private fun adjacentChannelFeedIndex(currentIndex: Int, direction: FeedChannelSt
     val step = if (direction == FeedChannelStepDirection.Up) 1 else -1
     var candidate = currentIndex + step
     repeat(AD_FREQUENCY * FEED_CHANNELS.size * 3) {
-        val slot = resolveFeedSlot(candidate)
+        val slot = resolveFeedSlot(candidate, adConfig)
         if (slot is FeedSlot.PostSlot && slot.channelNumber == targetChannel.number) {
             return candidate
         }
@@ -3237,10 +2873,14 @@ private fun feedChannelForQuery(query: String): FeedChannel? {
     }
 }
 
-private fun feedIndexForChannelNumber(currentIndex: Int, channelNumber: Int): Int {
+private fun feedIndexForChannelNumber(
+    currentIndex: Int,
+    channelNumber: Int,
+    adConfig: FeedAdProbabilityConfig
+): Int {
     var candidate = currentIndex
     repeat(AD_FREQUENCY * FEED_CHANNELS.size * 4) {
-        val slot = resolveFeedSlot(candidate)
+        val slot = resolveFeedSlot(candidate, adConfig)
         if (slot is FeedSlot.PostSlot && slot.channelNumber == channelNumber) {
             return candidate
         }
@@ -3249,9 +2889,12 @@ private fun feedIndexForChannelNumber(currentIndex: Int, channelNumber: Int): In
     return currentIndex
 }
 
-private val feedSlotCache = mutableMapOf<Int, FeedSlot>()
+private val feedSlotCache = mutableMapOf<String, FeedSlot>()
 
-private fun resolveFeedSlot(index: Int): FeedSlot {
+private fun resolveFeedSlot(
+    index: Int,
+    adConfig: FeedAdProbabilityConfig = FeedAdProbabilityConfig()
+): FeedSlot {
     val normalized = if (index < 0) {
         val cycle = AD_FREQUENCY * DemoPostStore.posts.size
         (cycle + (index % cycle)) % cycle
@@ -3259,76 +2902,31 @@ private fun resolveFeedSlot(index: Int): FeedSlot {
         index
     }
 
-    feedSlotCache[normalized]?.let { return it }
+    val normalizedConfig = adConfig.normalized
+    val cacheKey = "$normalized:${normalizedConfig.poplurAdPercent}:${normalizedConfig.googleMobileAdPercent}"
+    feedSlotCache[cacheKey]?.let { return it }
 
-    val slot = if ((normalized + 1) % AD_FREQUENCY == 0) {
-        val channelForAd = FEED_CHANNELS[Math.floorMod(normalized / AD_FREQUENCY, FEED_CHANNELS.size)]
+    val placement = FeedAdProbability.placement(normalized, "android-feed", normalizedConfig)
+    val slot = if (placement == FeedAdPlacementKind.PoplurAd) {
+        val channelForAd = FEED_CHANNELS[Math.floorMod(normalized, FEED_CHANNELS.size)]
         FeedSlot.AdSlot(
             id = "poplur-ad-$normalized",
-            creative = poplurAdCreativeForChannel(channelForAd) ?: poplurAdCreativeForIndex(normalized)
+            creative = poplurAdCreativeForChannel(channelForAd, normalized) ?: poplurAdCreativeForIndex(normalized)
         )
+    } else if (placement == FeedAdPlacementKind.GoogleMobileAd) {
+        FeedSlot.GoogleMobileAdSlot(id = "google-mobile-ad-$normalized")
+    } else if (normalized % 3 == 2) {
+        FeedSlot.GoogleMobileAdSlot(id = "google-mobile-ad-$normalized")
     } else {
-        val adsBefore = (normalized + 1) / AD_FREQUENCY
-        val postIndex = normalized - adsBefore
-        val ch = FEED_CHANNELS[Math.floorMod(postIndex, FEED_CHANNELS.size)]
-        val basePost = DemoPostStore.getPostForIndex(postIndex)
-
-        if (ch.category.equals("Live", ignoreCase = true)) {
-            val visibleLivePosts = DemoPostStore.visibleLivePostsForViewer(basePost, limit = 8)
-            val livePost = if (visibleLivePosts.isNotEmpty()) {
-                visibleLivePosts[Math.floorMod(postIndex / FEED_CHANNELS.size, visibleLivePosts.size)]
-            } else {
-                DemoPostStore.livePosts.firstOrNull() ?: basePost.copy(
-                    id = "live_placeholder_$postIndex",
-                    displayName = "Poplur Live",
-                    caption = "No live broadcasts in this radius",
-                    channelId = "live",
-                    isLiveStream = true,
-                    liveStartedAtMillis = System.currentTimeMillis(),
-                    liveRadiusMeters = basePost.radius.coerceAtLeast(5_000)
-                )
-            }
-            FeedSlot.PostSlot(
-                post = livePost.copy(
-                    channelId = "live",
-                    isLiveStream = true,
-                    videoUrl = null,
-                    mediaUrl = null
-                ),
-                channelNumber = ch.number,
-                channelEmoji = ch.emoji,
-                channelCategory = ch.category,
-                channelIconResId = ch.iconResId
-            )
-        } else {
-            val langVideoUrls = languageChannelVideoUrls(ch.category)
-            val effectiveSourceCode = if (langVideoUrls.isNotEmpty())
-                languageChannelSourceCode(ch.category, postIndex)
-            else
-                ch.sourceLanguageCode
-            val effectiveVideoUrl = if (langVideoUrls.isNotEmpty())
-                langVideoUrls[Math.floorMod(postIndex, langVideoUrls.size)]
-            else
-                ch.videoUrl
-            val post = basePost.copy(
-                id = if (effectiveVideoUrl == null) basePost.id else "${basePost.id}_${effectiveSourceCode}_channel",
-                displayName = languageChannelDisplayName(ch.category) ?: basePost.displayName,
-                caption = languageChannelProgram(ch.category) ?: basePost.caption,
-                sourceLanguageCode = effectiveSourceCode,
-                videoUrl = effectiveVideoUrl ?: basePost.videoUrl
-            )
-            FeedSlot.PostSlot(
-                post = post,
-                channelNumber = ch.number,
-                channelEmoji = ch.emoji,
-                channelCategory = ch.category,
-                channelIconResId = ch.iconResId
-            )
-        }
+        val channelForAd = FEED_CHANNELS[Math.floorMod(normalized, FEED_CHANNELS.size)]
+        FeedSlot.AdSlot(
+            id = "poplur-ad-$normalized",
+            creative = poplurAdCreativeForChannel(channelForAd, normalized) ?: poplurAdCreativeForIndex(normalized)
+        )
     }
 
     if (feedSlotCache.size > 200) feedSlotCache.clear() // Prevent infinite growth
-    feedSlotCache[normalized] = slot
+    feedSlotCache[cacheKey] = slot
     return slot
 }
 
@@ -3392,10 +2990,7 @@ private fun FeedAdContent(
     onAdvanceToNext: () -> Unit = {}
 ) {
     val adPost = remember(slot.id) { slot.creative.toPost(slot.id) }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
         MediaContent(
             post = adPost,
             isVisible = isVisible,
@@ -3482,15 +3077,92 @@ private fun PoplurAdOverlay(creative: PoplurAdCreative) {
     }
 }
 
+@Composable
+private fun GoogleMobileAdContent(slot: FeedSlot.GoogleMobileAdSlot) {
+    val context = LocalContext.current
+    var nativeAd by remember(slot.id) { mutableStateOf<NativeAd?>(null) }
+    var didFail by remember(slot.id) { mutableStateOf(false) }
+
+    LaunchedEffect(slot.id) {
+        didFail = false
+        nativeAd = null
+        AdManager.loadNativeAd(
+            context = context,
+            adUnitId = FEED_NATIVE_AD_UNIT_ID,
+            onLoaded = { ad -> nativeAd = ad },
+            onFailed = { didFail = true }
+        )
+    }
+
+    DisposableEffect(nativeAd) {
+        onDispose {
+            // Google's native ad video (MediaView) plays independently of Poplur's own
+            // FeedAudioManager/activeFeedPlayer tracking — without this, its audio keeps
+            // playing after the user scrolls to the next (non-ad) post.
+            runCatching { nativeAd?.mediaContent?.videoController?.stop() }
+            nativeAd?.destroy()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        val loadedAd = nativeAd
+        if (loadedAd != null) {
+            AndroidView(
+                factory = { createFullScreenNativeAdView(it) },
+                update = { view -> bindFullScreenNativeAd(view, loadedAd) },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFF120019), Color(0xFFFF1685), Color.Black)
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(28.dp)
+                ) {
+                    if (!didFail) {
+                        CircularProgressIndicator(color = Color(0xFF68FF4F))
+                    }
+                    PoplurText(
+                        text = if (didFail) "Sponsored slot unavailable" else "Loading sponsored signal",
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Black,
+                        textAlign = TextAlign.Center,
+                        intensity = 0.76f
+                    )
+                }
+            }
+        }
+    }
+}
+
 
 
 private fun createFullScreenNativeAdView(context: Context): NativeAdView {
     val adView = NativeAdView(context)
+    // The native ad's internal video surface can be promoted to its own hardware layer, which
+    // composites outside the normal view-draw order and can paint above sibling Compose overlays
+    // regardless of their zIndex. Forcing no layer type keeps it in the standard draw pass.
+    adView.setLayerType(View.LAYER_TYPE_NONE, null)
     val displayMetrics = context.resources.displayMetrics
     val cardHeight = displayMetrics.heightPixels
     val media = MediaView(context).apply {
         tag = NativeAdAsset.Media
         setImageScaleType(ImageView.ScaleType.CENTER_CROP)
+        setLayerType(View.LAYER_TYPE_NONE, null)
     }
     val icon = ImageView(context).apply { tag = NativeAdAsset.Icon }
     val sponsoredText = TextView(context)
@@ -3653,6 +3325,30 @@ private fun roundedDrawable(color: Int, radius: Float): GradientDrawable =
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
+private fun LoadingStaticOverlay(modifier: Modifier = Modifier.fillMaxSize()) {
+    val context = LocalContext.current
+    val player = remember {
+        ExoPlayer.Builder(context).build().apply {
+            val uri = android.net.Uri.parse("android.resource://${context.packageName}/raw/tv_static")
+            setMediaItem(MediaItem.fromUri(uri))
+            repeatMode = Player.REPEAT_MODE_ONE
+            prepare(); play()
+        }
+    }
+    DisposableEffect(player) { onDispose { player.release() } }
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                this.player = player
+                useController = false
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            }
+        },
+        modifier = modifier
+    )
+}
+
+@Composable
 fun MediaContent(
     post: Post,
     isVisible: Boolean = true,
@@ -3674,6 +3370,8 @@ fun MediaContent(
     var posterFailed by remember(post.id) { mutableStateOf(false) }
     var imageUrl by remember(post.id) { mutableStateOf(post.mediaUrl ?: fallbackFeedImageUrl(post.id)) }
     var videoSize by remember(post.id) { mutableStateOf<VideoSize?>(null) }
+    var showEndTransition by remember(post.id) { mutableStateOf(false) }
+    var didHandleVideoEnd by remember(post.id) { mutableStateOf(false) }
     val showingStillImage = isInspectionMode || !allowVideoPlayback || !ENABLE_FEED_VIDEO_AUTOPLAY || post.videoUrl == null || videoFailed
 
     if (post.isLiveStream && post.videoUrl == null) {
@@ -3715,7 +3413,12 @@ fun MediaContent(
         onAdvanceToNext()
     }
 
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
         if (isInspectionMode) {
             // Show poster in inspection mode to avoid black screen
             AsyncImage(
@@ -3748,14 +3451,7 @@ fun MediaContent(
                             .setReleaseTimeoutMs(FEED_PLAYER_RELEASE_TIMEOUT_MS)
                             .setDetachSurfaceTimeoutMs(FEED_PLAYER_DETACH_SURFACE_TIMEOUT_MS)
                             .build().apply {
-                                val mediaItem = MediaItem.Builder()
-                                    .setUri(post.videoUrl)
-                                    .setClippingConfiguration(
-                                        MediaItem.ClippingConfiguration.Builder()
-                                            .setStartPositionMs(1_500L)
-                                            .build()
-                                    )
-                                    .build()
+                                val mediaItem = MediaItem.fromUri(post.videoUrl)
                                 setMediaItem(mediaItem)
                                 repeatMode = Player.REPEAT_MODE_OFF
                                 videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
@@ -3763,8 +3459,11 @@ fun MediaContent(
                                 addListener(object : Player.Listener {
                                     override fun onPlaybackStateChanged(state: Int) {
                                         isLoading = state == Player.STATE_BUFFERING || (state == Player.STATE_READY && !hasRenderedVideo)
-                                        if (state == Player.STATE_ENDED) {
-                                            onAdvanceToNext()
+                                        if (state == Player.STATE_ENDED && !didHandleVideoEnd) {
+                                            didHandleVideoEnd = true
+                                            onCreditsVisibilityChanged(false)
+                                            pause()
+                                            showEndTransition = true
                                         }
                                     }
 
@@ -3901,6 +3600,19 @@ fun MediaContent(
                             .fillMaxSize()
                             .zIndex(1f)
                     )
+
+                    if (showEndTransition) {
+                        FeedEndTransitionOverlay(
+                            isMuted = isMuted,
+                            onComplete = {
+                                showEndTransition = false
+                                onAdvanceToNext()
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(6f)
+                        )
+                    }
                 }
                 imageUrl.isNotBlank() -> {
                     AsyncImage(
@@ -3932,6 +3644,10 @@ fun MediaContent(
             }
         }
 
+        if (isLoading && !hasError) {
+            LoadingStaticOverlay(modifier = Modifier.fillMaxSize().zIndex(3f))
+        }
+
         if (hasError) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 ShaderIcon(
@@ -3950,6 +3666,159 @@ fun MediaContent(
             }
         }
 
+    }
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun FeedEndTransitionOverlay(
+    isMuted: Boolean,
+    onComplete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var hasCompleted by remember { mutableStateOf(false) }
+    val transitionAssetPath = remember(context) {
+        "feed_transitions/feed_end_transition.mp4".takeIf { path ->
+            runCatching {
+                context.assets.openFd(path).use { }
+            }.isSuccess
+        }
+    }
+
+    fun finishOnce() {
+        if (!hasCompleted) {
+            hasCompleted = true
+            onComplete()
+        }
+    }
+
+    Box(
+        modifier = modifier.background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        if (transitionAssetPath != null) {
+            val transitionPlayer = remember(transitionAssetPath) {
+                ExoPlayer.Builder(context)
+                    .setMediaSourceFactory(DefaultMediaSourceFactory(context))
+                    .setReleaseTimeoutMs(FEED_PLAYER_RELEASE_TIMEOUT_MS)
+                    .setDetachSurfaceTimeoutMs(FEED_PLAYER_DETACH_SURFACE_TIMEOUT_MS)
+                    .build().apply {
+                        setMediaItem(MediaItem.fromUri("asset:///$transitionAssetPath"))
+                        repeatMode = Player.REPEAT_MODE_OFF
+                        videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+                        volume = if (isMuted) 0f else 1f
+                        addListener(object : Player.Listener {
+                            override fun onPlaybackStateChanged(state: Int) {
+                                if (state == Player.STATE_ENDED) finishOnce()
+                            }
+
+                            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                                finishOnce()
+                            }
+                        })
+                        prepare()
+                        playWhenReady = true
+                    }
+            }
+
+            LaunchedEffect(transitionPlayer, isMuted) {
+                transitionPlayer.volume = if (isMuted) 0f else 1f
+                transitionPlayer.playWhenReady = true
+                transitionPlayer.play()
+            }
+
+            LaunchedEffect(transitionPlayer) {
+                delay(2_200)
+                finishOnce()
+            }
+
+            DisposableEffect(transitionPlayer) {
+                onDispose {
+                    runCatching {
+                        transitionPlayer.pause()
+                        transitionPlayer.clearVideoSurface()
+                        transitionPlayer.clearMediaItems()
+                        transitionPlayer.release()
+                    }
+                }
+            }
+
+            AndroidView(
+                factory = { viewContext ->
+                    TextureView(viewContext).apply {
+                        isOpaque = false
+                        alpha = 1f
+                        transitionPlayer.setVideoTextureView(this)
+                    }
+                },
+                update = { textureView ->
+                    transitionPlayer.setVideoTextureView(textureView)
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            val transition = rememberInfiniteTransition(label = "feedEndTransition")
+            val pulse by transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(620, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "pulse"
+            )
+
+            LaunchedEffect(Unit) {
+                delay(1_150)
+                finishOnce()
+            }
+
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFFFF2193),
+                                Color(0xFF1EEBFF),
+                                Color(0xFFFFC829)
+                            )
+                        )
+                    )
+                    .graphicsLayer {
+                        scaleX = 0.92f + pulse * 0.18f
+                        scaleY = 0.92f + pulse * 0.18f
+                        alpha = 0.92f
+                    }
+            )
+            Box(
+                Modifier
+                    .size((88 + pulse * 190).dp)
+                    .border(
+                        width = 4.dp,
+                        color = Color.White.copy(alpha = 0.82f * (1f - pulse)),
+                        shape = CircleShape
+                    )
+            )
+            Text(
+                text = "P",
+                fontSize = 96.sp,
+                fontWeight = FontWeight.Black,
+                color = Color.White,
+                style = TextStyle(
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.28f),
+                        offset = Offset(0f, 10f),
+                        blurRadius = 16f
+                    )
+                ),
+                modifier = Modifier.graphicsLayer {
+                    scaleX = 0.72f + pulse * 0.28f
+                    scaleY = 0.72f + pulse * 0.28f
+                }
+            )
+        }
     }
 }
 
@@ -4110,7 +3979,8 @@ private fun Drawable.hasLikelyBlackBars(): Boolean {
 
     val sampleWidth = minOf(sourceWidth, 96)
     val sampleHeight = minOf(sourceHeight, 96)
-    val bitmap = Bitmap.createBitmap(sampleWidth, sampleHeight, Bitmap.Config.ARGB_8888)
+    val bitmap = runCatching { Bitmap.createBitmap(sampleWidth, sampleHeight, Bitmap.Config.ARGB_8888) }.getOrNull()
+        ?: return false
     val canvas = Canvas(bitmap)
     val previousBounds = android.graphics.Rect(bounds)
     setBounds(0, 0, sampleWidth, sampleHeight)
@@ -4168,6 +4038,94 @@ private fun Bitmap.hasLikelyBlackBars(): Boolean {
     return (hasLetterbox || hasPillarbox) && center < 0.75f
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARK: Feed Channel Stepper Overlay (right-side CH+/CH- buttons)
+// Mirrors iOS FeedChannelStepper3D / overlayChrome
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun FeedChannelStepperOverlay(
+    popDirection: FeedChannelStepDirection?,
+    popToken: Int,
+    onUp: () -> Unit,
+    onDown: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val upScale = remember { Animatable(1f) }
+    val downScale = remember { Animatable(1f) }
+
+    LaunchedEffect(popToken) {
+        if (popToken <= 0) return@LaunchedEffect
+        val target = if (popDirection == FeedChannelStepDirection.Up) upScale else downScale
+        target.snapTo(1.38f)
+        target.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessHigh))
+    }
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // CH+ (up) button
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .graphicsLayer { scaleX = upScale.value; scaleY = upScale.value }
+                .shadow(8.dp, RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.Black.copy(alpha = 0.62f))
+                .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
+                .clickable { onUp() },
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                ShaderIcon(
+                    imageVector = Icons.Default.KeyboardArrowUp,
+                    contentDescription = "Channel Up",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+                ShaderNumberText(
+                    text = "CH",
+                    color = Color.White.copy(alpha = 0.74f),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 0.5.sp
+                )
+            }
+        }
+
+        // CH- (down) button
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .graphicsLayer { scaleX = downScale.value; scaleY = downScale.value }
+                .shadow(8.dp, RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.Black.copy(alpha = 0.62f))
+                .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
+                .clickable { onDown() },
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                ShaderNumberText(
+                    text = "CH",
+                    color = Color.White.copy(alpha = 0.74f),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 0.5.sp
+                )
+                ShaderIcon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Channel Down",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
+    }
+}
 
 @Preview(showBackground = true)
 @Composable

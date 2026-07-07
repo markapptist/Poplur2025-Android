@@ -30,7 +30,8 @@
             android:exported="true"
             android:theme="@style/Theme.Poplur.Starting"
             android:launchMode="singleTask"
-            android:screenOrientation="portrait" />
+            android:screenOrientation="portrait">
+        </activity>
 
         <activity-alias
             android:name=".IconDefaultAlias"

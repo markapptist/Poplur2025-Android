@@ -1,5 +1,6 @@
 package com.apptists.poplur2025.ui.components
 
+import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -10,6 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,10 +32,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -44,7 +48,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import coil.compose.AsyncImage
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.holdMenuAssetPath
 import com.apptists.poplur2025.ui.usePerItemTint
@@ -127,10 +130,17 @@ class CubeMenuWheelController(
 
     fun scrub(deltaX: Float, deltaY: Float, layout: CubeMenuLayout) {
         if (!isVisible || items.size <= 1) return
-        val primaryDelta = if (layout == CubeMenuLayout.Horizontal) deltaX else deltaY
+        val useVerticalScrub = abs(deltaY) >= abs(deltaX)
+        val primaryDelta = if (useVerticalScrub) {
+            deltaY
+        } else if (layout == CubeMenuLayout.Horizontal) {
+            deltaX
+        } else {
+            deltaY
+        }
         if (abs(primaryDelta) <= 0.25f) return
 
-        val stepDistance = if (layout == CubeMenuLayout.Horizontal) horizontalScrubStepPx else verticalScrubStepPx
+        val stepDistance = if (useVerticalScrub || layout == CubeMenuLayout.Vertical) verticalScrubStepPx else horizontalScrubStepPx
         scrubRemainder += primaryDelta
 
         var steps = 0
@@ -273,7 +283,7 @@ private fun iconTintForSkin(skin: CubeSkin): Color = when (skin) {
 fun BoxScope.CubeMenuWheelOverlay(
     controller: CubeMenuWheelController,
     modifier: Modifier = Modifier,
-    layout: CubeMenuLayout = CubeMenuLayout.Horizontal,
+    layout: CubeMenuLayout = CubeMenuLayout.Vertical,
     cubeSkin: CubeSkin = CubeSkin.Default
 ) {
     val menuProgress by animateFloatAsState(
@@ -326,8 +336,8 @@ private fun CubeNeonMenu(
             menuSkinColors(cubeSkin)
         }
         val assetPath = cubeSkin.holdMenuAssetPath
-        val horizontalSpacing = clampDp(maxWidth * 0.23f, 86.dp, 112.dp)
-        val verticalSpacing = clampDp(maxHeight * 0.11f, 92.dp, 118.dp)
+        val horizontalSpacing = clampDp(maxWidth * 0.30f, 122.dp, 158.dp)
+        val verticalSpacing = clampDp(maxHeight * 0.13f, 118.dp, 146.dp)
         val horizontalLiftFromBottom = clampDp(maxHeight * 0.24f, 226.dp, 292.dp)
         val panelYOffset = when (layout) {
             CubeMenuLayout.Horizontal -> maxHeight * 0.5f - horizontalLiftFromBottom
@@ -338,7 +348,15 @@ private fun CubeNeonMenu(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White.copy(alpha = 0.10f * openProgress))
+                    .background(Color.Black.copy(alpha = 0.50f * openProgress))
+            )
+
+            HoldMenuScrubHint(
+                openProgress = openProgress,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 18.dp)
+                    .zIndex(10f)
             )
 
             visibleItems.forEach { visibleItem ->
@@ -393,7 +411,13 @@ private fun CubeNeonMenuTile(
     skinColors: MenuSkinColors,
     tileAssetPath: String
 ) {
+    val context = LocalContext.current
     val density = LocalDensity.current
+    val tileBitmap = androidx.compose.runtime.remember(context, tileAssetPath) {
+        runCatching {
+            context.assets.open(tileAssetPath).use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
+        }.getOrNull()
+    }
     val impulse = androidx.compose.runtime.remember { Animatable(0f) }
     androidx.compose.runtime.LaunchedEffect(tickCount, selected) {
         if (selected) {
@@ -451,12 +475,21 @@ private fun CubeNeonMenuTile(
             }
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            AsyncImage(
-                model = "file:///android_asset/$tileAssetPath",
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().clip(tileShape)
-            )
+            if (tileBitmap != null) {
+                Image(
+                    bitmap = tileBitmap,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(tileShape)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(tileShape)
+                        .background(skinColors.tileBgAccent)
+                )
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -570,19 +603,57 @@ private fun visibleMenuItems(
 }
 
 private fun cubeMenuTileWidth(selected: Boolean, layout: CubeMenuLayout): Dp = when {
-    selected && layout == CubeMenuLayout.Vertical -> 166.dp
+    selected && layout == CubeMenuLayout.Vertical -> 136.dp
     selected -> 132.dp
-    layout == CubeMenuLayout.Vertical -> 124.dp
+    layout == CubeMenuLayout.Vertical -> 106.dp
     else -> 98.dp
 }
 
 private fun cubeMenuTileHeight(selected: Boolean, layout: CubeMenuLayout): Dp = when {
-    selected && layout == CubeMenuLayout.Vertical -> 128.dp
+    selected && layout == CubeMenuLayout.Vertical -> 136.dp
     selected -> 132.dp
-    layout == CubeMenuLayout.Vertical -> 104.dp
+    layout == CubeMenuLayout.Vertical -> 106.dp
     else -> 98.dp
 }
 
+@Composable
+private fun HoldMenuScrubHint(
+    openProgress: Float,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .graphicsLayer { alpha = openProgress }
+            .background(Color.Black.copy(alpha = 0.32f), RoundedCornerShape(999.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        PoplurText(
+            "↑",
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Black,
+            lineHeight = 18.sp
+        )
+        PoplurText(
+            "SCRUB",
+            color = Color.White,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 0.8.sp,
+            modifier = Modifier.graphicsLayer { rotationZ = -90f }
+        )
+        PoplurText(
+            "↓",
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Black,
+            lineHeight = 18.sp
+        )
+    }
+}
 
 private fun clampDp(value: Dp, minimum: Dp, maximum: Dp): Dp {
     return value.coerceAtLeast(minimum).coerceAtMost(maximum)

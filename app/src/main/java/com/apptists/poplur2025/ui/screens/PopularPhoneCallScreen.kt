@@ -93,6 +93,7 @@ import com.apptists.poplur2025.ui.components.CubeMenuLayout
 import com.apptists.poplur2025.ui.components.CubeMenuWheelController
 import com.apptists.poplur2025.ui.components.CubeMenuWheelOverlay
 import com.apptists.poplur2025.ui.components.ShaderNumberText
+import com.apptists.poplur2025.util.PoplurEQSync
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -127,14 +128,7 @@ fun PopularPhoneCallScreen(
     val phoneXLMode = remember(settingsPrefs) {
         settingsPrefs.getBoolean(PHONE_XL_MODE_PREF_KEY, true)
     }
-    val cubeMenuLayout = remember(settingsPrefs) {
-        runCatching {
-            CubeMenuLayout.valueOf(
-                settingsPrefs.getString("cube_menu_layout", CubeMenuLayout.Horizontal.name)
-                    ?: CubeMenuLayout.Horizontal.name
-            )
-        }.getOrDefault(CubeMenuLayout.Horizontal)
-    }
+    val cubeMenuLayout = CubeMenuLayout.Vertical
     var isBooting by remember { mutableStateOf(true) }
     val toneGenerator = remember {
         try {
@@ -145,6 +139,7 @@ fun PopularPhoneCallScreen(
     }
     val colorWheelController = remember(colorWheelScope) {
         CubeMenuWheelController(scope = colorWheelScope) {
+            if (!PoplurEQSync.shouldPlayMenuTick()) return@CubeMenuWheelController
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             try {
                 toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP, 65)

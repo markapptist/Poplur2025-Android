@@ -6,11 +6,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 
 object PoplurEQSync {
+    @Volatile var isAppVisible: Boolean = true
+
     enum class Lane {
         MapRadio,
         FeedBumper,
         FeedVideo,
         RainAmbient,
+        ThunderAmbient,
         CityMusic,
         HoldMenu,
         TransientFx
@@ -39,6 +42,12 @@ object PoplurEQSync {
         else -> 1f
     }
 
+    fun thunderVolumeMultiplier(lanes: Set<Lane> = activeLanes.value): Float = when {
+        isVoiceActive(lanes) -> 0.10f
+        Lane.FeedVideo in lanes -> 0.30f
+        else -> 1f
+    }
+
     fun cityMusicMultiplier(lanes: Set<Lane> = activeLanes.value): Float = when {
         isVoiceActive(lanes) -> 0.11f
         Lane.RainAmbient in lanes -> 0.72f
@@ -50,6 +59,7 @@ object PoplurEQSync {
 
     @Synchronized
     fun shouldPlayMenuTick(lanes: Set<Lane> = activeLanes.value): Boolean {
+        if (!isAppVisible) return false
         if (isVoiceActive(lanes)) return false
         val now = SystemClock.elapsedRealtime()
         val minimumIntervalMs = if (Lane.HoldMenu in lanes) 60L else 75L
@@ -60,6 +70,7 @@ object PoplurEQSync {
 
     @Synchronized
     fun shouldPlayTransientSound(minimumIntervalMs: Long = 120L, lanes: Set<Lane> = activeLanes.value): Boolean {
+        if (!isAppVisible) return false
         if (isVoiceActive(lanes)) return false
         val now = SystemClock.elapsedRealtime()
         if (now - lastTransientAtMs < minimumIntervalMs) return false

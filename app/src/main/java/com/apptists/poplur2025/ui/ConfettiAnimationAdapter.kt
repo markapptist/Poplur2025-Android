@@ -2,130 +2,332 @@ package com.apptists.poplur2025.ui
 
 import com.badlogic.gdx.ApplicationAdapter
 import com.badlogic.gdx.Gdx
+import com.badlogic.gdx.audio.Sound
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.OrthographicCamera
-import com.badlogic.gdx.graphics.glutils.ShapeRenderer
+import com.badlogic.gdx.graphics.VertexAttributes.Usage
+import com.badlogic.gdx.graphics.g3d.Environment
+import com.badlogic.gdx.graphics.g3d.Material
+import com.badlogic.gdx.graphics.g3d.Model
+import com.badlogic.gdx.graphics.g3d.ModelBatch
+import com.badlogic.gdx.graphics.g3d.ModelInstance
+import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute
+import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight
+import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder
 import com.badlogic.gdx.math.MathUtils
+import com.badlogic.gdx.math.Vector3
+import com.badlogic.gdx.math.Vector2
 
 class ConfettiAnimationAdapter : ApplicationAdapter() {
     private var camera: OrthographicCamera? = null
-    private var shapeRenderer: ShapeRenderer? = null
+    private var modelBatch: ModelBatch? = null
+    private var environment: Environment? = null
+    private var confettiModel: Model? = null
     private val pieces = mutableListOf<ConfettiPiece>()
-    private var restartPending = false
+    private val fireworks = mutableListOf<Firework>()
+    private var lastWidth = 0
+    private var lastHeight = 0
+    private var fireworkTimer = 0f
+    private var spawnTimer = 0f
+    private var crackleSound: Sound? = null
+    
+    @Volatile
+    var isMuted: Boolean = false
 
     override fun create() {
         Gdx.graphics.setContinuousRendering(true)
-        shapeRenderer = ShapeRenderer()
-        resetCamera()
-        populatePieces()
-    }
-
-    fun restart() {
-        if (shapeRenderer == null) {
-            restartPending = true
-            return
+        modelBatch = ModelBatch()
+        
+        environment = Environment().apply {
+            set(ColorAttribute(ColorAttribute.AmbientLight, 0.7f, 0.7f, 0.7f, 1f))
+            add(DirectionalLight().set(0.8f, 0.8f, 0.8f, -0.5f, -0.5f, -0.5f))
         }
-        Gdx.graphics.setContinuousRendering(true)
-        restartPending = false
-        populatePieces()
-        Gdx.graphics.requestRendering()
+
+        val modelBuilder = ModelBuilder()
+        confettiModel = modelBuilder.createRect(
+            -0.5f, -0.5f, 0f,
+            0.5f, -0.5f, 0f,
+            0.5f, 0.5f, 0f,
+            -0.5f, 0.5f, 0f,
+            0f, 0f, 1f,
+            Material(ColorAttribute.createDiffuse(Color.WHITE)),
+            (Usage.Position or Usage.Normal).toLong()
+        )
+
+        runCatching {
+            // Explicitly logging or attempting alternative load if this fails
+            val file = Gdx.files.internal("Firework-crackling-noise.mp3")
+            if (file.exists()) {
+                crackleSound = Gdx.audio.newSound(file)
+            } else {
+                android.util.Log.e("ConfettiAdapter", "FIREWORK SOUND FILE MISSING AT: Firework-crackling-noise.mp3")
+            }
+        }.onFailure { 
+            android.util.Log.e("ConfettiAdapter", "FAILED TO LOAD FIREWORK SOUND", it)
+        }
+
+        resetCamera()
+        populateInitialPieces()
     }
 
-    private fun populatePieces() {
+    private fun populateInitialPieces() {
         pieces.clear()
-        repeat(110) { pieces += newPiece(initial = true) }
+        // Dense sprinkle to match iOS's confetti. The old lag came from per-frame ModelInstance
+        // allocation (now cached below), so a higher count is safe.
+        repeat(180) {
+            pieces += ConfettiPiece().apply {
+                reset(fullScreen = true)
+            }
+        }
     }
 
     override fun resize(width: Int, height: Int) {
+        lastWidth = width
+        lastHeight = height
         resetCamera()
     }
 
-    override fun render() {
-        val width = Gdx.graphics.width.toFloat().coerceAtLeast(1f)
-        val height = Gdx.graphics.height.toFloat().coerceAtLeast(1f)
-        val delta = Gdx.graphics.deltaTime.coerceAtMost(1f / 30f)
-
-        if (restartPending) restart()
-        Gdx.graphics.setContinuousRendering(true)
-
-        Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
-        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT)
-        Gdx.gl.glEnable(GL20.GL_BLEND)
-        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA)
-
-        shapeRenderer?.projectionMatrix = camera?.combined
-        shapeRenderer?.begin(ShapeRenderer.ShapeType.Filled)
-        pieces.forEach { piece ->
-            piece.y -= piece.speed * delta
-            piece.x += piece.drift * delta
-            piece.rotation += piece.spin * delta
-            if (piece.y < -piece.size * 2f) piece.reset(width, height)
-
-            shapeRenderer?.color = piece.color
-            shapeRenderer?.identity()
-            shapeRenderer?.translate(piece.x, piece.y, 0f)
-            shapeRenderer?.rotate(0f, 0f, 1f, piece.rotation)
-            shapeRenderer?.rect(
-                -piece.size * 0.5f,
-                -piece.size * 0.18f,
-                piece.size,
-                piece.size * 0.36f
-            )
-        }
-        shapeRenderer?.end()
-    }
-
-    override fun dispose() {
-        shapeRenderer?.dispose()
-    }
-
     private fun resetCamera() {
-        val width = Gdx.graphics.width.toFloat().coerceAtLeast(1f)
-        val height = Gdx.graphics.height.toFloat().coerceAtLeast(1f)
-        camera = OrthographicCamera(width, height).apply {
-            setToOrtho(false, width, height)
+        val w = Gdx.graphics.width.toFloat().coerceAtLeast(1f)
+        val h = Gdx.graphics.height.toFloat().coerceAtLeast(1f)
+        camera = OrthographicCamera(w, h).apply {
+            position.set(w / 2f, h / 2f, 0f)
             update()
         }
     }
 
-    private fun newPiece(initial: Boolean): ConfettiPiece {
-        val width = Gdx.graphics.width.toFloat().coerceAtLeast(1f)
-        val height = Gdx.graphics.height.toFloat().coerceAtLeast(1f)
-        return ConfettiPiece().apply {
-            reset(width, height)
-            if (initial) y = MathUtils.random(-height * 0.15f, height * 1.15f)
+    override fun render() {
+        val delta = Gdx.graphics.deltaTime.coerceAtMost(1f / 30f)
+        val w = lastWidth.toFloat()
+        val h = lastHeight.toFloat()
+
+        if (w < 1f || h < 1f) return
+
+        // Light continuous sprinkle — was 1000/sec up to a cap of 2500, which (combined with
+        // per-frame ModelInstance allocation) is what made this screen lag.
+        spawnTimer += delta
+        val spawnInterval = 1f / 70f // ~70 particles/sec — dense continuous sprinkle like iOS
+        while (spawnTimer > spawnInterval) {
+            if (pieces.size < 350) { // cached ModelInstances make this cheap
+                pieces += ConfettiPiece().apply { reset(fullScreen = false) }
+            }
+            spawnTimer -= spawnInterval
         }
+
+        // Occasional firework rather than a constant barrage.
+        fireworkTimer += delta
+        if (fireworkTimer > 3.5f) {
+            fireworks += Firework()
+            fireworkTimer = 0f
+        }
+
+        Gdx.gl.glClearColor(0f, 0f, 0f, 0f)
+        Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
+
+        modelBatch?.begin(camera)
+        
+        val iterator = pieces.iterator()
+        while (iterator.hasNext()) {
+            val piece = iterator.next()
+            piece.update(delta)
+            if (piece.isDead(h)) {
+                iterator.remove()
+                continue
+            }
+
+            // Reuse the piece's own cached ModelInstance instead of allocating a new one
+            // every frame — with up to 150 pieces at 60fps that was ~9,000 allocations/sec
+            // and the main source of GC-driven lag on this screen.
+            val instance = piece.modelInstance
+            instance.transform.setToTranslation(piece.position)
+            instance.transform.rotate(Vector3.X, piece.rotation.x)
+            instance.transform.rotate(Vector3.Y, piece.rotation.y)
+            instance.transform.rotate(Vector3.Z, piece.rotation.z)
+            // Delicate scaling
+            val densityScale = w / 640f
+            instance.transform.scale(piece.size.x * densityScale, piece.size.y * densityScale, 1f)
+
+            modelBatch?.render(instance, environment)
+        }
+
+        val fwIterator = fireworks.iterator()
+        while (fwIterator.hasNext()) {
+            val fw = fwIterator.next()
+            fw.update(delta)
+            if (fw.isDead()) {
+                fwIterator.remove()
+                continue
+            }
+
+            val densityScale = w / 480f
+            if (fw.state == 0) {
+                val instance = fw.modelInstance
+                instance.transform.setToTranslation(fw.position)
+                instance.transform.scale(2.5f * densityScale, 2.5f * densityScale, 1f)
+                modelBatch?.render(instance, environment)
+            } else {
+                fw.sparks.forEach { spark ->
+                    val instance = spark.modelInstance
+                    instance.transform.setToTranslation(spark.position)
+                    instance.transform.scale(1.8f * densityScale, 1.8f * densityScale, 1f)
+                    modelBatch?.render(instance, environment)
+                }
+            }
+        }
+
+        modelBatch?.end()
     }
 
-    private class ConfettiPiece {
-        var x = 0f
-        var y = 0f
-        var size = 18f
-        var speed = 160f
-        var drift = 0f
-        var spin = 0f
-        var rotation = 0f
-        var color = Color.WHITE
+    override fun dispose() {
+        modelBatch?.dispose()
+        confettiModel?.dispose()
+        crackleSound?.dispose()
+    }
 
-        fun reset(width: Float, height: Float) {
-            x = MathUtils.random(-40f, width + 40f)
-            y = MathUtils.random(height, height + 260f)
-            size = MathUtils.random(16f, 34f)
-            speed = MathUtils.random(95f, 230f)
-            drift = MathUtils.random(-55f, 55f)
-            spin = MathUtils.random(-180f, 180f)
-            rotation = MathUtils.random(0f, 360f)
-            color = CONFETTI_COLORS[MathUtils.random(CONFETTI_COLORS.lastIndex)]
+    fun restart() {
+        populateInitialPieces()
+        fireworks.clear()
+        fireworkTimer = 0f
+    }
+
+    private inner class ConfettiPiece {
+        val position = Vector3()
+        val velocity = Vector3()
+        val acceleration = Vector3(25f, -220f, 0f)
+        val rotation = Vector3()
+        val spin = Vector3()
+        var color = Color.WHITE
+        var lifetime = 0f
+        val maxLifetime = 5.5f
+        val size = Vector2(3f, 7f) // Thinner, more elegant
+        // Created once per piece instead of once per frame — see render().
+        val modelInstance = ModelInstance(confettiModel!!)
+
+        fun reset(fullScreen: Boolean) {
+            val w = lastWidth.toFloat()
+            val h = lastHeight.toFloat()
+            
+            position.x = MathUtils.random(0f, w)
+            if (fullScreen) {
+                position.y = MathUtils.random(0f, h)
+                lifetime = MathUtils.random(0f, maxLifetime)
+            } else {
+                position.y = h + 20f
+                lifetime = 0f
+            }
+            position.z = MathUtils.random(-5f, 5f)
+
+            val baseSpeed = h * 0.18f + MathUtils.random(-h * 0.05f, h * 0.05f)
+            val angle = MathUtils.random(-25f, 25f) * MathUtils.degreesToRadians
+            velocity.set(MathUtils.sin(angle) * baseSpeed, -MathUtils.cos(angle) * baseSpeed, 0f)
+
+            spin.set(
+                MathUtils.random(-4f, 4f) * 180f,
+                MathUtils.random(-4f, 4f) * 180f,
+                MathUtils.random(-4f, 4f) * 180f
+            )
+            
+            rotation.set(MathUtils.random(360f), MathUtils.random(360f), MathUtils.random(360f))
+            
+            color = CONFETTI_PALETTE[MathUtils.random(CONFETTI_PALETTE.size - 1)]
+            modelInstance.materials.first().set(ColorAttribute.createDiffuse(color))
+        }
+
+        fun update(delta: Float) {
+            velocity.add(acceleration.x * delta, acceleration.y * delta, acceleration.z * delta)
+            position.add(velocity.x * delta, velocity.y * delta, velocity.z * delta)
+            rotation.add(spin.x * delta, spin.y * delta, spin.z * delta)
+            lifetime += delta
+        }
+
+        fun isDead(screenHeight: Float) = lifetime > maxLifetime || position.y < -100f
+    }
+
+    private inner class Firework {
+        val sparks = mutableListOf<Spark>()
+        var state = 0
+        val position = Vector3()
+        val velocity = Vector3()
+        val burstHeight: Float
+        // Created once instead of once per frame — see render().
+        val modelInstance = ModelInstance(confettiModel!!).apply {
+            materials.first().set(ColorAttribute.createDiffuse(Color.WHITE))
+        }
+
+        init {
+            val w = lastWidth.toFloat()
+            val h = lastHeight.toFloat()
+            position.set(MathUtils.random(w * 0.25f, w * 0.75f), -20f, 0f)
+            burstHeight = h * MathUtils.random(0.65f, 0.9f)
+            velocity.set(0f, h * 0.55f, 0f)
+        }
+
+        fun update(delta: Float) {
+            if (state == 0) {
+                position.add(0f, velocity.y * delta, 0f)
+                if (position.y >= burstHeight) {
+                    burst()
+                }
+            } else {
+                val iterator = sparks.iterator()
+                while (iterator.hasNext()) {
+                    val spark = iterator.next()
+                    spark.update(delta)
+                    if (spark.lifetime > 1.4f) {
+                        iterator.remove()
+                    }
+                }
+            }
+        }
+
+        private fun burst() {
+            state = 1
+            if (!isMuted) {
+                // High volume for explosion
+                crackleSound?.play(1.0f, 1.0f, (position.x / lastWidth) * 2f - 1f)
+            }
+            repeat(20) {
+                val spark = Spark(position)
+                val angle = MathUtils.random(0f, 360f) * MathUtils.degreesToRadians
+                val speed = lastHeight * 0.12f * MathUtils.random(0.5f, 1.4f)
+                spark.velocity.set(
+                    MathUtils.cos(angle) * speed * 0.7f,
+                    MathUtils.sin(angle) * speed,
+                    MathUtils.random(-8f, 8f)
+                )
+                spark.color = CONFETTI_PALETTE[MathUtils.random(CONFETTI_PALETTE.size - 1)]
+                spark.modelInstance.materials.first().set(ColorAttribute.createDiffuse(spark.color))
+                sparks += spark
+            }
+        }
+
+        fun isDead() = state == 1 && sparks.isEmpty()
+    }
+
+    private inner class Spark(startPos: Vector3) {
+        val position = Vector3().set(startPos)
+        val velocity = Vector3()
+        var lifetime = 0f
+        var color = Color.WHITE
+        // Created once instead of once per frame — see render().
+        val modelInstance = ModelInstance(confettiModel!!)
+
+        fun update(delta: Float) {
+            position.add(velocity.x * delta, velocity.y * delta, velocity.z * delta)
+            velocity.y -= Gdx.graphics.height * 0.12f * delta
+            lifetime += delta
         }
     }
 
     companion object {
-        private val CONFETTI_COLORS = arrayOf(
-            Color(0.96f, 0.30f, 0.34f, 0.92f),
-            Color(0.98f, 0.48f, 0.23f, 0.9f),
-            Color(1.0f, 0.72f, 0.22f, 0.92f),
-            Color(0.93f, 0.20f, 0.40f, 0.86f)
+        private val CONFETTI_PALETTE = arrayOf(
+            Color.valueOf("FF2D55"),
+            Color.valueOf("FF9500"),
+            Color.valueOf("FFCC00"),
+            Color.valueOf("34C759"),
+            Color.valueOf("007AFF"),
+            Color.valueOf("AF52DE")
         )
     }
 }

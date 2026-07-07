@@ -35,6 +35,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.PI
 import android.util.Log
 
 class CombinedGdxAdapter(
@@ -55,6 +56,10 @@ class CombinedGdxAdapter(
     private var modelBatch: ModelBatch? = null
     private var channelObjectModel: Model? = null
     private var channelObjectInstance: ModelInstance? = null
+    private var channelObjectSceneAsset: SceneAsset? = null
+    private var channelObjectScene: Scene? = null
+    private val channelObjectCenter = Vector3()
+    private var channelObjectBaseScale = 1f
     private var channelObjectEndMillis: Long = 0L
     private var channelObjectStartedMillis: Long = 0L
     private var channelObjectId: String = "star"
@@ -71,6 +76,16 @@ class CombinedGdxAdapter(
             if (field != value) {
                 field = value
                 modelDirty = true
+                appInstance?.postRunnable { Gdx.graphics.requestRendering() }
+            }
+        }
+
+    var modelAssetPathOverride: String? = null
+        set(value) {
+            if (field != value) {
+                field = value
+                modelDirty = true
+                appInstance?.postRunnable { Gdx.graphics.requestRendering() }
             }
         }
 
@@ -127,7 +142,7 @@ class CombinedGdxAdapter(
         }
     }
 
-    var yawDegrees: Float = -90f * initialTabIndex
+    var yawDegrees: Float = yawForPhysicalIndex(physicalIndexForTab(initialTabIndex))
         set(value) {
             if (field != value) {
                 field = value
@@ -145,7 +160,6 @@ class CombinedGdxAdapter(
             isRotation = false
             longPressSent = false
             longPressStarted = false
-            Gdx.graphics.setContinuousRendering(true)
             startBounceTo(continuousYawForTab(targetIndex))
             Gdx.graphics.requestRendering()
         }
@@ -156,10 +170,12 @@ class CombinedGdxAdapter(
             channelObjectId = objectId
             channelObjectStartedMillis = System.currentTimeMillis()
             channelObjectEndMillis = channelObjectStartedMillis + 2_000L
-            channelObjectModel?.dispose()
-            channelObjectModel = buildChannelObject(objectId)
-            channelObjectInstance = channelObjectModel?.let { ModelInstance(it) }
-            Gdx.graphics.setContinuousRendering(true)
+            disposeChannelObject()
+            PopularObjectCatalog.assetPath(objectId)?.let { loadChannelObjectScene(it) }
+            if (channelObjectScene == null) {
+                channelObjectModel = buildChannelObject(objectId)
+                channelObjectInstance = channelObjectModel?.let { ModelInstance(it) }
+            }
             Gdx.graphics.requestRendering()
         }
     }
@@ -195,11 +211,12 @@ class CombinedGdxAdapter(
     private var lastWidth = 0
     private var lastHeight = 0
     private var firstFrameReported = false
+    private var firstFrameTime = 0L
 
     override fun create() {
         try {
             appInstance = Gdx.app
-            Gdx.graphics.setContinuousRendering(true)
+            Gdx.graphics.setContinuousRendering(false)
             // Disable LibGDX asset management to avoid multi-instance conflicts
             com.badlogic.gdx.graphics.glutils.ShaderProgram.prependVertexCode = ""
             com.badlogic.gdx.graphics.glutils.ShaderProgram.prependFragmentCode = ""
@@ -236,9 +253,9 @@ class CombinedGdxAdapter(
                     if (!isInteractionEnabled) return false
                     if (pointer != 0) return false  // single-touch only — prevents multi-finger twists
                     if (!isInsideCubeTouchTarget(screenX.toFloat(), screenY.toFloat())) return false
-                    Gdx.graphics.setContinuousRendering(true)
                     dragging = true; isVerticalSwipe = false; isSwipeTriggered = false; isRotation = false; longPressSent = false; longPressStarted = false; bouncePhase = BouncePhase.Idle; downX = screenX.toFloat(); downY = screenY.toFloat(); lastX = screenX.toFloat(); lastY = screenY.toFloat(); touchStartMillis = System.currentTimeMillis()
                     if (peekPhase != PeekPhase.Idle) { peekPitchDegrees = 0f; peekPhase = PeekPhase.Idle; nextPeekSeconds = peekIntervalSeconds }
+                    Gdx.graphics.requestRendering()
                     return true
                 }
                 override fun touchDragged(screenX: Int, screenY: Int, pointer: Int): Boolean {
@@ -264,11 +281,13 @@ class CombinedGdxAdapter(
                     if (isRotation) {
                         currentYawDegrees += deltaX * 0.5f; targetYawDegrees = currentYawDegrees
                     }
+                    Gdx.graphics.requestRendering()
                     lastX = screenX.toFloat(); lastY = screenY.toFloat(); return true
                 }
                 override fun touchUp(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
                     if (pointer != 0) return false  // single-touch only
                     dragging = false
+                    Gdx.graphics.requestRendering()
                     if (longPressStarted) {
                         longPressStarted = false
                         appInstance?.postRunnable { onLongPressEnd?.invoke() }
@@ -280,8 +299,9 @@ class CombinedGdxAdapter(
                         appInstance?.postRunnable { onTap?.invoke() }
                         return true
                     }
-                    val snappedIndex = snappedTabIndex(currentYawDegrees)
-                    val canonicalYaw = -90f * snappedIndex
+                    val snappedPhysicalIndex = snappedPhysicalIndex(currentYawDegrees)
+                    val snappedIndex = tabIndexForPhysicalIndex(snappedPhysicalIndex)
+                    val canonicalYaw = yawForPhysicalIndex(snappedPhysicalIndex)
                     val nearestYaw = canonicalYaw + ((currentYawDegrees - canonicalYaw) / 360f).roundToInt() * 360f
                     startBounceTo(nearestYaw)
                     if (isRotation || abs(screenX - downX) > 15f) appInstance?.postRunnable { onTabSelected(snappedIndex) }
@@ -319,7 +339,7 @@ class CombinedGdxAdapter(
     }
 
     private fun rebuildModel() {
-        val modelPath = skin.modelAssetPath
+        val modelPath = modelAssetPathOverride ?: skin.modelAssetPath
 
         if (cubeScene == null || cubeSceneAssetPath != modelPath) {
             loadCubeScene(modelPath)
@@ -464,14 +484,48 @@ class CombinedGdxAdapter(
         )
     }
 
+    private fun loadChannelObjectScene(assetPath: String) {
+        try {
+            val file = Gdx.files.internal(assetPath)
+            if (!file.exists()) {
+                Log.e("CombinedGdxAdapter", "Popular object GLB missing: $assetPath")
+                return
+            }
+            val loadedAsset = GLBLoader().load(stripNormalTexturesFromGlb(file.readBytes())) ?: return
+            val loadedScene = Scene(loadedAsset.scene)
+            channelObjectSceneAsset = loadedAsset
+            channelObjectScene = loadedScene
+            prepareCubeMaterials(loadedScene)
+            fitChannelObjectScene(loadedScene)
+            Log.d("CombinedGdxAdapter", "Loaded popular object GLB: $assetPath")
+        } catch (error: Throwable) {
+            Log.e("CombinedGdxAdapter", "Popular object GLB failed to load: $assetPath", error)
+            channelObjectScene = null
+            channelObjectSceneAsset?.dispose()
+            channelObjectSceneAsset = null
+        }
+    }
+
+    private fun fitChannelObjectScene(loadedScene: Scene) {
+        val bounds = BoundingBox()
+        val dimensions = Vector3()
+        loadedScene.modelInstance.calculateTransforms()
+        loadedScene.modelInstance.calculateBoundingBox(bounds)
+        bounds.getCenter(channelObjectCenter)
+        bounds.getDimensions(dimensions)
+        val largestExtent = maxOf(dimensions.x, dimensions.y, dimensions.z).coerceAtLeast(0.001f)
+        channelObjectBaseScale = 2f / largestExtent
+    }
+
     private fun renderCubeScene(now: Long, popScale: Float) {
         val loadedScene = cubeScene ?: return
+
         val scale = cubeTransformScale() * cubeModelBaseScale * popScale
         loadedScene.modelInstance.transform
             .idt()
             .translate(
                 cubeSceneX(),
-                cubeSceneY() + kotlin.math.sin(time * 3.9f) * 0.035f,
+                cubeSceneY() + kotlin.math.sin(time * 3.9f) * 0.045f, // Increased hover amount
                 0f
             )
             .rotate(Vector3.X, cubeRestingPitchDegrees)
@@ -484,7 +538,7 @@ class CombinedGdxAdapter(
         modelBatch?.render(loadedScene.modelInstance, environment)
         modelBatch?.end()
         reportFirstFrameRendered()
-        if (now < channelObjectEndMillis || bouncePhase != BouncePhase.Idle || GdxState.tiltYawOffset != 0f) {
+        if (dragging || now < channelObjectEndMillis || bouncePhase != BouncePhase.Idle || GdxState.tiltYawOffset != 0f) {
             Gdx.graphics.requestRendering()
         }
     }
@@ -492,6 +546,7 @@ class CombinedGdxAdapter(
     private fun reportFirstFrameRendered() {
         if (firstFrameReported) return
         firstFrameReported = true
+        firstFrameTime = System.currentTimeMillis()
         Log.d("CombinedGdxAdapter", "Cube first frame rendered")
         onFirstFrameRendered?.invoke()
     }
@@ -931,7 +986,6 @@ class CombinedGdxAdapter(
     }
 
     private fun startBounceTo(target: Float) {
-        Gdx.graphics.setContinuousRendering(true)
         Gdx.graphics.requestRendering()
         startYawDegrees = currentYawDegrees; targetYawDegrees = target; animationTime = 0f; bouncePhase = BouncePhase.Overshoot
     }
@@ -999,7 +1053,19 @@ class CombinedGdxAdapter(
             }
 
             if (replacementActive) {
-                channelObjectInstance?.let { obj ->
+                channelObjectScene?.let { scene ->
+                    val scale = cubeTransformScale() * channelObjectBaseScale * popScale.coerceIn(0.08f, 1.18f)
+                    scene.modelInstance.transform
+                        .idt()
+                        .translate(cubeSceneX(), cubeSceneY() + kotlin.math.sin(time * 3.9f) * 0.035f, 0f)
+                        .rotate(Vector3.X, cubeRestingPitchDegrees)
+                        .rotate(Vector3.Y, currentYawDegrees + time * 28f)
+                        .scale(scale, scale, scale)
+                        .translate(-channelObjectCenter.x, -channelObjectCenter.y, -channelObjectCenter.z)
+                    scene.modelInstance.calculateTransforms()
+                    Gdx.gl.glDisable(GL20.GL_CULL_FACE)
+                    modelBatch?.begin(camera); modelBatch?.render(scene.modelInstance, environment); modelBatch?.end()
+                } ?: channelObjectInstance?.let { obj ->
                     val scale = cubeTransformScale() * popScale.coerceIn(0.08f, 1.18f)
                     obj.transform.setToTranslation(cubeSceneX(), cubeSceneY() + kotlin.math.sin(time * 3.9f) * 0.035f, 0f)
                         .rotate(Vector3.Y, currentYawDegrees + time * 28f)
@@ -1025,16 +1091,33 @@ class CombinedGdxAdapter(
     override fun dispose() {
         cubeSceneAsset?.dispose()
         modelBatch?.dispose()
-        channelObjectModel?.dispose()
+        disposeChannelObject()
     }
 
-    private fun snappedTabIndex(yaw: Float): Int {
+    private fun disposeChannelObject() {
+        channelObjectModel?.dispose()
+        channelObjectModel = null
+        channelObjectInstance = null
+        channelObjectScene = null
+        channelObjectSceneAsset?.dispose()
+        channelObjectSceneAsset = null
+    }
+
+    private fun snappedPhysicalIndex(yaw: Float): Int {
         val raw = (-yaw / 90f).roundToInt(); return ((raw % 4) + 4) % 4
     }
 
+    private fun physicalIndexForTab(tabIndex: Int): Int =
+        (tabIndex.coerceIn(0, 3) + CUBE_GLB_FACE_OFFSET) % 4
+
+    private fun tabIndexForPhysicalIndex(physicalIndex: Int): Int =
+        ((physicalIndex - CUBE_GLB_FACE_OFFSET) % 4 + 4) % 4
+
+    private fun yawForPhysicalIndex(physicalIndex: Int): Float = -90f * physicalIndex.coerceIn(0, 3)
+
     private fun continuousYawForTab(targetIndex: Int): Float {
-        val target = targetIndex.coerceIn(0, 3)
-        val currentIndex = snappedTabIndex(currentYawDegrees)
+        val target = physicalIndexForTab(targetIndex)
+        val currentIndex = snappedPhysicalIndex(currentYawDegrees)
         val forwardSteps = (target - currentIndex + 4) % 4
         val backwardSteps = (currentIndex - target + 4) % 4
         val signedSteps = when {
@@ -1042,7 +1125,7 @@ class CombinedGdxAdapter(
             forwardSteps <= backwardSteps -> forwardSteps
             else -> -backwardSteps
         }
-        val currentFaceYaw = -90f * currentIndex
+        val currentFaceYaw = yawForPhysicalIndex(currentIndex)
         val currentRevolution = ((currentYawDegrees - currentFaceYaw) / 360f).roundToInt() * 360f
         return currentFaceYaw + currentRevolution - (90f * signedSteps)
     }
@@ -1061,6 +1144,7 @@ class CombinedGdxAdapter(
         const val GLB_HEADER_BYTES = 12
         const val GLB_CHUNK_HEADER_BYTES = 8
         const val GLB_CHUNK_TYPE_JSON = 0x4E4F534A
+        const val CUBE_GLB_FACE_OFFSET = 1
         val GLB_JSON_PADDING_BYTE: Byte = 0x20
     }
 }

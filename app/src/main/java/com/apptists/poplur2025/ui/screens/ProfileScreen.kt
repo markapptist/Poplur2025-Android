@@ -45,6 +45,7 @@ import com.apptists.poplur2025.data.BusinessVerificationStatus
 import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.CubeSkin
+import com.apptists.poplur2025.ui.CubeSkinBackgroundLayer
 import com.apptists.poplur2025.ui.PoplurAIProfileSortOrder
 import com.apptists.poplur2025.ui.components.ProfileAvatarSpeaker
 import com.apptists.poplur2025.ui.components.RadiusDisplay
@@ -59,21 +60,9 @@ private enum class ProfilePanel {
     Notifications,
     Phone,
     Store,
-    Stats
-}
-
-enum class ProfileCubeMenuAction {
-    Phone,
-    Notifications,
-    Store,
     Stats,
-    GoHome
+    Creator
 }
-
-data class ProfileCubeMenuCommand(
-    val id: Int,
-    val action: ProfileCubeMenuAction
-)
 
 private data class PoplurCreditCardProduct(
     val id: String,
@@ -249,7 +238,7 @@ fun ProfileScreen(
     assistantSortToken: Int = 0,
     showHeyPoplurTutorial: Boolean = false,
     onHeyPoplurTutorialShown: () -> Unit = {},
-    onRequestAssistantTutorialPulse: () -> Unit = {}
+    onTutorialPulseRequest: () -> Unit = {}
 ) {
     ProfileScreenContent(
         profile = profile,
@@ -266,7 +255,7 @@ fun ProfileScreen(
         assistantSortToken = assistantSortToken,
         showHeyPoplurTutorial = showHeyPoplurTutorial,
         onHeyPoplurTutorialShown = onHeyPoplurTutorialShown,
-        onRequestAssistantTutorialPulse = onRequestAssistantTutorialPulse
+        onTutorialPulseRequest = onTutorialPulseRequest
     )
 }
 
@@ -286,7 +275,7 @@ fun ProfileScreenContent(
     assistantSortToken: Int = 0,
     showHeyPoplurTutorial: Boolean = false,
     onHeyPoplurTutorialShown: () -> Unit = {},
-    onRequestAssistantTutorialPulse: () -> Unit = {}
+    onTutorialPulseRequest: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var currentProfile by remember { mutableStateOf(profile) }
@@ -305,6 +294,7 @@ fun ProfileScreenContent(
             }
             ProfileCubeMenuAction.Store -> activePanel = ProfilePanel.Store
             ProfileCubeMenuAction.Stats -> activePanel = ProfilePanel.Stats
+            ProfileCubeMenuAction.Creator -> activePanel = ProfilePanel.Creator
             ProfileCubeMenuAction.GoHome -> activePanel = ProfilePanel.Home
             null -> Unit
         }
@@ -317,6 +307,7 @@ fun ProfileScreenContent(
                 ProfilePanel.Phone -> "Phone"
                 ProfilePanel.Store -> "Store"
                 ProfilePanel.Stats -> "Stats"
+                ProfilePanel.Creator -> "Credits"
                 ProfilePanel.Home -> null
             }
         )
@@ -358,6 +349,11 @@ fun ProfileScreenContent(
             onBack = { activePanel = ProfilePanel.Home }
         )
         ProfilePanel.Stats -> ProfileStatsScreen(profile = currentProfile)
+        ProfilePanel.Creator -> CreateEntryScreen(
+            onOriginalContent = { activePanel = ProfilePanel.Home },
+            onPoplurAI = { activePanel = ProfilePanel.Home },
+            onBack = { activePanel = ProfilePanel.Home }
+        )
         ProfilePanel.Home -> ProfileHome(
             profile = currentProfile,
             selectedTab = selectedTab,
@@ -377,7 +373,7 @@ fun ProfileScreenContent(
             radiusSortOrder = radiusSortOrder,
             showHeyPoplurTutorial = showHeyPoplurTutorial,
             onHeyPoplurTutorialShown = onHeyPoplurTutorialShown,
-            onRequestAssistantTutorialPulse = onRequestAssistantTutorialPulse
+            onTutorialPulseRequest = onTutorialPulseRequest
         )
     }
 }
@@ -399,7 +395,7 @@ private fun ProfileHome(
     radiusSortOrder: PoplurAIProfileSortOrder? = null,
     showHeyPoplurTutorial: Boolean = false,
     onHeyPoplurTutorialShown: () -> Unit = {},
-    onRequestAssistantTutorialPulse: () -> Unit = {}
+    onTutorialPulseRequest: () -> Unit = {}
 ) {
     val theme = cubeSkin.uiTheme()
     var didStartHeyPoplurTutorial by rememberSaveable { mutableStateOf(false) }
@@ -414,8 +410,9 @@ private fun ProfileHome(
     LaunchedEffect(showHeyPoplurTutorial) {
         if (showHeyPoplurTutorial && !didStartHeyPoplurTutorial) {
             didStartHeyPoplurTutorial = true
-            onRequestAssistantTutorialPulse()
-            delay(7_000)
+            delay(1_200)
+            onTutorialPulseRequest()
+            delay(5_800)
             onHeyPoplurTutorialShown()
         }
     }
@@ -423,8 +420,14 @@ private fun ProfileHome(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.White)
     ) {
+        CubeSkinBackgroundLayer(
+            skin = cubeSkin,
+            opacity = 0.16f,
+            baseColor = Color.White,
+            modifier = Modifier.matchParentSize()
+        )
+
         Column(Modifier.fillMaxSize().statusBarsPadding().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             ProfileAvatarSpeaker(
                 avatarUrl = profile.avatarUrl,
@@ -433,7 +436,8 @@ private fun ProfileHome(
                 size = if (avatarIs3D) 180.dp else 96.dp,
                 is3D = avatarIs3D,
                 accentColor = theme.accent,
-                cubeSkin = cubeSkin
+                cubeSkin = cubeSkin,
+                onWakeActivated = onTutorialPulseRequest
             )
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -834,7 +838,7 @@ private fun ProfileStorePanel(
                 Text(selectedCard.price, fontSize = 20.sp, fontWeight = FontWeight.Black, color = Color.Black)
             }
             Spacer(Modifier.height(12.dp))
-            Divider(color = Color.Black.copy(alpha = 0.12f))
+            HorizontalDivider(color = Color.Black.copy(alpha = 0.12f))
             Spacer(Modifier.height(12.dp))
             Row {
                 Text("Estimated shipping", color = Color.Black.copy(alpha = 0.58f), fontWeight = FontWeight.SemiBold)

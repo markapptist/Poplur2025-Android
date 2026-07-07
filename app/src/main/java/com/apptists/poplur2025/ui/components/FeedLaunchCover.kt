@@ -47,6 +47,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -119,16 +121,26 @@ private enum class LoadingParticleEffect {
 fun FeedLaunchCover(
     onPopSound: () -> Unit = {},
     showSlowDetails: Boolean = true,
+    use3D: Boolean = true,
     skinLogoPath: String = "logo.png",
+    skinBannerPath: String = "theme_banners/theme_banner_default.png",
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val logoSize = (LocalConfiguration.current.screenWidthDp * 0.60f).coerceAtMost(270f).dp
     val logoBitmap = remember(context, skinLogoPath) {
         context.assets.open(skinLogoPath).use { stream ->
             val bitmap = BitmapFactory.decodeStream(stream)
                 ?: error("Required launch logo asset could not be decoded: $skinLogoPath")
             bitmap.asImageBitmap()
         }
+    }
+    val bannerBitmap = remember(context, skinBannerPath) {
+        runCatching {
+            context.assets.open(skinBannerPath).use { stream ->
+                BitmapFactory.decodeStream(stream)?.asImageBitmap()
+            }
+        }.getOrNull()
     }
     val shuffledPhases = remember { LOADING_PHASES.shuffled() }
     val particleSeed = remember { Random.nextInt(1, Int.MAX_VALUE) }
@@ -180,8 +192,8 @@ fun FeedLaunchCover(
         logoScale.animateTo(1.00f, animationSpec = tween(80, easing = FastOutSlowInEasing))
     }
 
-    // Sound + burst — in its own LaunchedEffect so onPopSound() never blocks
-    // the scale animation coroutine (MediaPlayer.seekTo can stall briefly).
+    // Sound + burst — in its own LaunchedEffect so onPopSound() never blocks other coroutines
+    // (MediaPlayer.seekTo can stall briefly).
     LaunchedEffect(popGeneration) {
         if (popGeneration == 0) return@LaunchedEffect
         onPopSound()
@@ -234,6 +246,16 @@ fun FeedLaunchCover(
         modifier = modifier.fillMaxSize().background(Color.White),
         contentAlignment = Alignment.Center
     ) {
+        if (bannerBitmap != null) {
+            Image(
+                bitmap = bannerBitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                alpha = 0.86f,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         // Single Canvas: ambient particle effect + burst in one draw pass
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawLoadingParticleEffect(
@@ -250,12 +272,11 @@ fun FeedLaunchCover(
             }
         }
 
-        // --- Poplur Logo (raw image, matching iOS SKSpriteNode(imageNamed:"logo")) ---
         Image(
             bitmap = logoBitmap,
             contentDescription = "Poplur Logo",
             modifier = Modifier
-                .size(200.dp)
+                .size(logoSize)
                 .align(Alignment.Center)
                 .offset(y = (-60).dp)
                 .graphicsLayer {

@@ -1,0 +1,9 @@
+# Copy this file to local.properties (which is gitignored) and fill in real values.
+# local.properties is never committed — do not put real secrets in this .example file.
+
+sdk.dir=/path/to/Android/sdk
+
+# Required for the Android "Street View" feature (Mapillary street-level imagery).
+# Get a free client token at https://www.mapillary.com/dashboard/developers
+# Read by app/build.gradle.kts into BuildConfig.MAPILLARY_ACCESS_TOKEN.
+MAPILLARY_ACCESS_TOKEN=your_mapillary_access_token_here

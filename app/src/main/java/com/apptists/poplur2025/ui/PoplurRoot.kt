@@ -14,6 +14,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -22,6 +23,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas as ComposeCanvas
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.background
@@ -78,12 +80,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import com.apptists.poplur2025.R
-import com.apptists.poplur2025.ui.screens.ProfileCubeMenuAction
-import com.apptists.poplur2025.ui.screens.ProfileCubeMenuCommand
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.call.CallSessionManager
@@ -113,10 +114,15 @@ import com.apptists.poplur2025.util.PoplurEQSync
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.random.Random
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val PROFILE_AVATAR_3D_DEFAULT_PREF = "profile_avatar_3d_default_applied"
 private const val VOLUME_OVERLAY_MIN_RETRIGGER_MS = 900L
@@ -141,10 +147,25 @@ fun PoplurRoot(
     val settingsPrefs = remember(appContext) {
         appContext.getSharedPreferences("poplur_settings", Context.MODE_PRIVATE)
     }
+
+    // Background music + mute button for the whole pre-login area (Welcome/Login/SignUp).
+    val preLoginMusic = remember(appContext) {
+        com.apptists.poplur2025.ui.components.PreLoginMusicPlayer(appContext)
+    }
+    DisposableEffect(isSignedIn) {
+        if (isSignedIn == false) preLoginMusic.start() else preLoginMusic.stop()
+        onDispose { preLoginMusic.stop() }
+    }
     
     // --- Shared State (Must be declared before any early returns) ---
     var tab by remember { mutableStateOf(AppTab.Feed) }
     var previousTab by remember { mutableStateOf<AppTab?>(null) }
+    // Root stripe transition state
+    var rootStripeVisible by remember { mutableStateOf(false) }
+    var rootStripeMidpoint by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // Set to true when the user just signed up; skips the loading cover in favour of the stripe.
+    var isNewSignUp by remember { mutableStateOf(false) }
+    var rootLogoBitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     var currentPostIndex by remember { mutableIntStateOf(0) }
     var feedTvGuideRequest by remember { mutableIntStateOf(0) }
     var feedTargetChannelQuery by remember { mutableStateOf("") }
@@ -167,6 +188,9 @@ fun PoplurRoot(
         mutableStateOf(
             CubeSkin.entries.find { it.id == storedSkinId } ?: CubeSkin.Gold
         )
+    }
+    val use3DLoadingScreen = remember {
+        settingsPrefs.getBoolean("poplur_use3DLoadingScreen", true)
     }
     var cubeMenuLayout by rememberSaveable {
         mutableStateOf(
@@ -202,6 +226,7 @@ fun PoplurRoot(
     var showSlowInitializationDetails by remember { mutableStateOf(false) }
     var feedInteractionTick by remember { mutableIntStateOf(0) }
     var isFeedChromeAsleep by remember { mutableStateOf(false) }
+    var passiveVideoAdvanceCount by remember { mutableIntStateOf(0) }
     var channelObjectPopToken by remember { mutableIntStateOf(0) }
     var channelObjectId by remember { mutableStateOf("star") }
     var selectedProfile by remember { mutableStateOf(UserProfile()) }
@@ -219,6 +244,8 @@ fun PoplurRoot(
     var isFeedTvGuideVisible by remember { mutableStateOf(false) }
     var isCubeSurfaceReady by remember { mutableStateOf(false) }
     var isCubeFirstFrameReady by remember { mutableStateOf(false) }
+    var authCubeLabel by remember { mutableStateOf("Welcome") }
+    var authBackAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var profileCubeCommandId by remember { mutableIntStateOf(0) }
     var profileCubeMenuCommand by remember { mutableStateOf<ProfileCubeMenuCommand?>(null) }
     var profileCubeCommittedIconTitle by remember { mutableStateOf<String?>(null) }
@@ -231,6 +258,17 @@ fun PoplurRoot(
     }
     var phoneColorwaySelected by remember { mutableStateOf<Color?>(null) }
     var showGames by remember { mutableStateOf(false) }
+
+    // Cube entrance animation for Welcome screen
+    val cubeAlpha = remember { Animatable(0f) }
+    LaunchedEffect(isSignedIn) {
+        if (isSignedIn == false) {
+            delay(3800) // headStartMs(550) + cubeDelayMs(3250)
+            cubeAlpha.animateTo(1f, animationSpec = tween(900))
+        } else {
+            cubeAlpha.snapTo(1f)
+        }
+    }
     
     var capturedMediaUri by remember { mutableStateOf<android.net.Uri?>(null) }
     var isCapturedVideo by remember { mutableStateOf(false) }
@@ -253,7 +291,7 @@ fun PoplurRoot(
 
     val persistentCubeHost = context as? PersistentCubeOverlayHost
 
-    val shouldHideCube = !isCubeSurfaceReady || isSignedIn == false
+    val shouldHideCube = !isCubeSurfaceReady
     LaunchedEffect(shouldHideCube) {
         if (shouldHideCube) persistentCubeHost?.hidePersistentCubeOverlay()
     }
@@ -294,7 +332,7 @@ fun PoplurRoot(
     val onTabChange: (Int) -> Unit = { index ->
         val newTab = when (index) {
             0 -> AppTab.Map
-            1 -> AppTab.CreateEntry
+            1 -> AppTab.Camera
             2 -> AppTab.Feed
             3 -> AppTab.Profile
             else -> AppTab.Feed
@@ -335,7 +373,7 @@ fun PoplurRoot(
 
                 // x > 0 = tilted left, x < 0 = tilted right.
                 val direction = if (x > 0f) -1 else 1
-                val tabOrder = listOf(AppTab.Map, AppTab.CreateEntry, AppTab.Feed, AppTab.Profile)
+                val tabOrder = listOf(AppTab.Map, AppTab.Camera, AppTab.Feed, AppTab.Profile)
                 val currentIndex = tabOrder.indexOf(currentTab).takeIf { it >= 0 } ?: 2
                 val newIndex = (currentIndex + direction + tabOrder.size) % tabOrder.size
                 handler.post { currentTiltTabChange(newIndex) }
@@ -459,22 +497,79 @@ fun PoplurRoot(
         }
     }
 
+    // Combined Auth State Manager
     LaunchedEffect(isSignedIn) {
         when (isSignedIn) {
             true -> {
-                showAppInitializationCover = true
+                android.util.Log.d("PoplurRoot", "Auth resolved: SIGNED_IN. Preparing surfaces.")
+                // New sign-up uses the stripe; skip the loading cover for that case.
+                if (isNewSignUp) {
+                    isNewSignUp = false
+                    showAppInitializationCover = false
+                } else {
+                    showAppInitializationCover = true
+                }
                 showSlowInitializationDetails = false
+                isCubeFirstFrameReady = false
                 isCubeSurfaceReady = true
+                
+                // Fetch profile logic
+                val firebaseUser = FirebaseAuth.getInstance().currentUser
+                if (firebaseUser != null) {
+                    val defaultProfile = UserProfile()
+                    val fallbackUsername = firebaseUser.email
+                        ?.substringBefore("@")
+                        ?.takeIf { it.isNotBlank() }
+                        ?: defaultProfile.username
+                    val fallbackProfile = defaultProfile.copy(
+                        id = firebaseUser.uid,
+                        username = fallbackUsername,
+                        displayName = firebaseUser.displayName?.takeIf { it.isNotBlank() }
+                            ?: fallbackUsername.toDisplayNameFallback(),
+                        avatarUrl = firebaseUser.photoUrl?.toString()
+                    )
+
+                    currentUserProfile = fallbackProfile
+                    if (selectedProfile.id == "default" || selectedProfile.id == firebaseUser.uid) {
+                        selectedProfile = fallbackProfile
+                    }
+
+                    val db = FirebaseFirestore.getInstance()
+                    db.collection("users").document(firebaseUser.uid).get()
+                        .addOnSuccessListener { document ->
+                            val profileData = document.data.orEmpty()
+                            val profileFromDocument = currentUserProfile.copy(
+                                id = firebaseUser.uid,
+                                username = document.getString("username") ?: document.getString("handle") ?: currentUserProfile.username,
+                                displayName = document.getString("displayName") ?: document.getString("name") ?: currentUserProfile.displayName,
+                                bio = document.getString("bio") ?: currentUserProfile.bio,
+                                avatarUrl = document.getString("avatarUrl") ?: document.getString("photoURL") ?: currentUserProfile.avatarUrl,
+                                radius = document.numberValue("radius", "totalRadius") ?: currentUserProfile.radius,
+                                followers = document.numberValue("followers", "followerCount") ?: currentUserProfile.followers,
+                                posts = document.numberValue("posts", "postCount") ?: currentUserProfile.posts,
+                                accountType = profileData.poplurAccountType(),
+                                businessProfile = profileData.businessProfileOrNull()
+                            )
+                            currentUserProfile = profileFromDocument
+                            if (selectedProfile.id == "default" || selectedProfile.id == firebaseUser.uid) {
+                                selectedProfile = profileFromDocument
+                            }
+                        }
+                }
             }
             false -> {
-                isCubeSurfaceReady = false
+                android.util.Log.d("PoplurRoot", "Auth resolved: SIGNED_OUT. Showing Welcome screen.")
+                isCubeSurfaceReady = true // Keep ready for welcome screen cube
                 isCubeFirstFrameReady = false
                 showAppInitializationCover = false
                 showSlowInitializationDetails = false
+                currentUserProfile = UserProfile()
             }
             null -> {
-                // Wait for auth to resolve before starting heavy GL surfaces.
-                isCubeSurfaceReady = false
+                // Show the spinning login cube on the launch/loading cover too (when enabled in
+                // Settings), rather than hiding the cube surface until auth resolves.
+                isCubeSurfaceReady = use3DLoadingScreen
+                isCubeFirstFrameReady = false
             }
         }
     }
@@ -487,103 +582,15 @@ fun PoplurRoot(
         }
     }
 
-    LaunchedEffect(isSignedIn) {
-        if (isSignedIn == false) {
-            // Auth resolved as signed-out — reveal WelcomeScreen faster.
-            kotlinx.coroutines.delay(150)
-            if (isSignedIn == false) {
+    LaunchedEffect(isSignedIn, showAppInitializationCover) {
+        if (isSignedIn == true && showAppInitializationCover) {
+            kotlinx.coroutines.delay(3_500)
+            if (isSignedIn == true && showAppInitializationCover) {
+                android.util.Log.w("PoplurRoot", "Cube first frame timed out; showing app content")
                 showAppInitializationCover = false
                 showSlowInitializationDetails = false
             }
         }
-    }
-
-    LaunchedEffect(isSignedIn) {
-        if (isSignedIn != true) {
-            currentUserProfile = UserProfile()
-            return@LaunchedEffect
-        }
-
-        val firebaseUser = FirebaseAuth.getInstance().currentUser ?: return@LaunchedEffect
-        val defaultProfile = UserProfile()
-        val fallbackUsername = firebaseUser.email
-            ?.substringBefore("@")
-            ?.takeIf { it.isNotBlank() }
-            ?: defaultProfile.username
-        val fallbackProfile = defaultProfile.copy(
-            id = firebaseUser.uid,
-            username = fallbackUsername,
-            displayName = firebaseUser.displayName?.takeIf { it.isNotBlank() }
-                ?: fallbackUsername.toDisplayNameFallback(),
-            avatarUrl = firebaseUser.photoUrl?.toString()
-        )
-
-        currentUserProfile = fallbackProfile
-        if (selectedProfile.id == defaultProfile.id || selectedProfile.id == firebaseUser.uid) {
-            selectedProfile = fallbackProfile
-        }
-
-        val db = FirebaseFirestore.getInstance()
-        db.collection("users")
-            .document(firebaseUser.uid)
-            .get()
-            .addOnSuccessListener { document ->
-                val profileData = document.data.orEmpty()
-                val docRadius = document.numberValue("radius", "totalRadius", "totalRadiusMeters")
-                val docPosts = document.numberValue("posts", "postCount")
-                val profileFromDocument = currentUserProfile.copy(
-                    id = firebaseUser.uid,
-                    username = document.getString("username")
-                        ?: document.getString("handle")
-                        ?: currentUserProfile.username,
-                    displayName = document.getString("displayName")
-                        ?: document.getString("name")
-                        ?: currentUserProfile.displayName,
-                    bio = document.getString("bio") ?: currentUserProfile.bio,
-                    avatarUrl = document.getString("avatarUrl")
-                        ?: document.getString("photoURL")
-                        ?: currentUserProfile.avatarUrl,
-                    radius = docRadius ?: currentUserProfile.radius,
-                    followers = document.numberValue("followers", "followerCount") ?: currentUserProfile.followers,
-                    posts = docPosts ?: currentUserProfile.posts,
-                    accountType = profileData.poplurAccountType(),
-                    businessProfile = profileData.businessProfileOrNull()
-                )
-                currentUserProfile = profileFromDocument
-                if (selectedProfile.id == defaultProfile.id || selectedProfile.id == firebaseUser.uid) {
-                    selectedProfile = profileFromDocument
-                }
-            }
-            .addOnFailureListener { error ->
-                android.util.Log.w("PoplurRoot", "Could not load current user profile", error)
-            }
-
-        db.collection("posts")
-            .whereEqualTo("userID", firebaseUser.uid)
-            .get()
-            .addOnSuccessListener { snapshot ->
-                val uniqueDocuments = snapshot.documents.distinctBy { it.id }
-                val totalRadius = uniqueDocuments.sumOf { document ->
-                    document.numberValue("radius") ?: 0
-                }
-                val profileWithRadius = currentUserProfile.copy(
-                    radius = totalRadius.coerceAtLeast(0),
-                    posts = uniqueDocuments.size
-                )
-                currentUserProfile = profileWithRadius
-                if (selectedProfile.id == defaultProfile.id || selectedProfile.id == firebaseUser.uid) {
-                    selectedProfile = profileWithRadius
-                }
-            }
-            .addOnFailureListener { error ->
-                android.util.Log.w("PoplurRoot", "Could not load current radius", error)
-            }
-    }
-
-    LaunchedEffect(isSignedIn) {
-        val ready = isSignedIn == true
-        android.util.Log.d("PoplurRoot", "Cube Readiness Update: ready=$ready (isSignedIn=$isSignedIn, cover=$showAppInitializationCover)")
-        if (isSignedIn == false) isCubeSurfaceReady = false
     }
 
     // --- Lifecycle and UI State ---
@@ -591,9 +598,12 @@ fun PoplurRoot(
         val observer = LifecycleEventObserver { _, event ->
             isAppVisible = when (event) {
                 Lifecycle.Event.ON_RESUME -> true
-                Lifecycle.Event.ON_STOP -> false
+                // Stop audio on PAUSE (not just STOP) so the device goes silent the moment the
+                // user minimizes the app rather than waiting for the activity to fully stop.
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> false
                 else -> isAppVisible
             }
+            PoplurEQSync.isAppVisible = isAppVisible
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
@@ -684,6 +694,7 @@ fun PoplurRoot(
 
     val profileCubeIconTitle by remember {
         derivedStateOf {
+            if (isSignedIn == false) return@derivedStateOf authCubeLabel
             val preview = if (tab in profileCubeTabs && cubeMenuWheelController.isVisible) {
                 cubeMenuWheelController.selectedItem?.label
             } else {
@@ -695,6 +706,7 @@ fun PoplurRoot(
 
     val mapCubeFaceTitle by remember {
         derivedStateOf {
+            if (isSignedIn == false) return@derivedStateOf authCubeLabel
             if (tab == AppTab.Map && cubeMenuWheelController.isVisible) {
                 cubeMenuWheelController.selectedItem?.label ?: "Map"
             } else {
@@ -705,6 +717,7 @@ fun PoplurRoot(
 
     val cameraCubeFaceTitle by remember {
         derivedStateOf {
+            if (isSignedIn == false) return@derivedStateOf authCubeLabel
             if (tab in cameraCubeTabs && cubeMenuWheelController.isVisible) {
                 cubeMenuWheelController.selectedItem?.label ?: "Camera"
             } else {
@@ -722,6 +735,7 @@ fun PoplurRoot(
 
     val feedCubeFaceTitle by remember {
         derivedStateOf {
+            if (isSignedIn == false) return@derivedStateOf authCubeLabel
             if (tab == AppTab.Feed && cubeMenuWheelController.isVisible) {
                 cubeMenuWheelController.selectedItem?.label ?: "Feed"
             } else if (tab == AppTab.Feed && showFeedCommentComposer) {
@@ -750,6 +764,7 @@ fun PoplurRoot(
             ProfileCubeMenuAction.Notifications -> "Alerts"
             ProfileCubeMenuAction.Store -> "Store"
             ProfileCubeMenuAction.Stats -> "Stats"
+            ProfileCubeMenuAction.Creator -> "Credits"
             ProfileCubeMenuAction.GoHome -> null
         }
         profileCubeCommandId += 1
@@ -1043,6 +1058,12 @@ fun PoplurRoot(
                     icon = Icons.Default.ShoppingCart,
                     accent = Color(0xFFFF8C1A),
                     onSelected = { sendProfileCubeCommand(ProfileCubeMenuAction.Store) }
+                ),
+                CubeMenuWheelItem(
+                    label = "Credits",
+                    icon = Icons.Default.AutoAwesome,
+                    accent = Color(0xFF36FF6A),
+                    onSelected = { sendProfileCubeCommand(ProfileCubeMenuAction.Creator) }
                 )
             )
             if (isPhoneActive) {
@@ -1074,18 +1095,41 @@ fun PoplurRoot(
     }
 
     val onTapCube: () -> Unit = {
-        if (tab == AppTab.Camera) {
+        if (isSignedIn == false) {
+            authBackAction?.invoke()
+        } else if (tab == AppTab.Camera) {
             cameraPhotoTrigger++
         }
     }
 
-    val currentOnVerticalSwipe by rememberUpdatedState(onVerticalSwipe)
-    val currentOnLongPressCube by rememberUpdatedState(onLongPressCube)
-    val currentOnLongPressEndCube by rememberUpdatedState(onLongPressEndCube)
-    val currentOnTapCube by rememberUpdatedState(onTapCube)
-    val currentCubeTabChange by rememberUpdatedState(onTabChange)
+    val currentOnVerticalSwipe = rememberUpdatedState(onVerticalSwipe)
+    val currentOnLongPressCube = rememberUpdatedState(onLongPressCube)
+    val currentOnLongPressEndCube = rememberUpdatedState(onLongPressEndCube)
+    val currentOnTapCube = rememberUpdatedState(onTapCube)
+    val currentCubeTabChange = rememberUpdatedState(onTabChange)
+
+    val cubeSwipeLambda = remember { { isUp: Boolean -> if (!isPhoneActive) currentOnVerticalSwipe.value(isUp) } }
+    val cubeLongPressLambda = remember { { currentOnLongPressCube.value() } }
+    val cubeLongPressMoveLambda = remember { { dx: Float, dy: Float -> onLongPressMoveCube(dx, dy) } }
+    val cubeLongPressEndLambda = remember { { currentOnLongPressEndCube.value() } }
+    val cubeTapLambda = remember { { currentOnTapCube.value() } }
+    val cubeTapSelectedLambda = remember { { index: Int -> if (!isPhoneActive) currentCubeTabChange.value(index) } }
+    val cubeFirstFrameLambda = remember {
+        {
+            android.util.Log.d("PoplurRoot", "Cube first frame rendered")
+            isCubeFirstFrameReady = true
+        }
+    }
 
     // --- Side Effects ---
+    LaunchedEffect(Unit) {
+        rootLogoBitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                context.assets.open("logo.png").use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
+            }.getOrNull()
+        }
+    }
+
     LaunchedEffect(tab) {
         if (tab != AppTab.Feed) {
             showFeedCommentComposer = false
@@ -1105,6 +1149,25 @@ fun PoplurRoot(
     LaunchedEffect(tab, isFeedTvGuideVisible, showFeedCommentComposer) {
         isFeedChromeAsleep = tab == AppTab.Feed && (showFeedCommentComposer || isFeedTvGuideVisible)
     }
+
+    // Reset passive counter on any user interaction; wake chrome immediately
+    LaunchedEffect(feedInteractionTick) {
+        if (feedInteractionTick > 0) {
+            passiveVideoAdvanceCount = 0
+            if (isFeedChromeAsleep && tab == AppTab.Feed && !showFeedCommentComposer && !isFeedTvGuideVisible) {
+                isFeedChromeAsleep = false
+            }
+        }
+    }
+
+    // Sleep chrome after 3 passive video advances (no user touch)
+    LaunchedEffect(currentPostIndex) {
+        if (tab != AppTab.Feed || showFeedCommentComposer || isFeedTvGuideVisible) return@LaunchedEffect
+        passiveVideoAdvanceCount++
+        if (passiveVideoAdvanceCount >= 3) {
+            isFeedChromeAsleep = true
+        }
+    }
     
     // Start listening for incoming calls as soon as the user is signed in.
     LaunchedEffect(isSignedIn) {
@@ -1120,7 +1183,17 @@ fun PoplurRoot(
         if (!showAppInitializationCover) {
             if (isSignedIn == false) {
                 // Signed Out
-                WelcomeAuthScreen(authViewModel)
+                WelcomeAuthScreen(
+                    authViewModel = authViewModel,
+                    onLabelChange = { authCubeLabel = it },
+                    onBackAvailable = { authBackAction = it },
+                    onSignUpSuccess = {
+                        isNewSignUp = true
+                        rootStripeMidpoint = null
+                        rootStripeVisible = true
+                    },
+                    preLoginMusic = preLoginMusic
+                )
             } else if (isSignedIn == true) {
                 // Signed In
                 Box(Modifier.fillMaxSize().zIndex(0f)) {
@@ -1227,7 +1300,9 @@ fun PoplurRoot(
             FeedLaunchCover(
                 onPopSound = playPopSound,
                 showSlowDetails = showSlowInitializationDetails,
+                use3D = use3DLoadingScreen,
                 skinLogoPath = selectedCubeSkin.logoAssetPath,
+                skinBannerPath = selectedCubeSkin.bannerAssetPath,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -1254,32 +1329,105 @@ fun PoplurRoot(
         )
 
         if (isCubeSurfaceReady) {
+            val loginCubeAssetPath = if (isSignedIn != true) {
+                LOGIN_CUBE_ASSET_PATH
+            } else {
+                null
+            }
+            val displayTabIndex = if (isSignedIn == false) 3 else tab.cubeTabIndex()
             PersistentCubeOverlay(
-                modifier = Modifier.zIndex(200f),
-                selectedTabIndex = tab.cubeTabIndex(),
+                modifier = Modifier
+                    .zIndex(200f)
+                    .graphicsLayer { alpha = cubeAlpha.value },
+                selectedTabIndex = displayTabIndex,
                 mapCubeFaceTitle = mapCubeFaceTitle,
                 cameraCubeFaceTitle = cameraCubeFaceTitle,
                 feedCubeFaceTitle = feedCubeFaceTitle,
                 profileCubeIconTitle = profileCubeIconTitle,
                 cubeSkin = selectedCubeSkin,
-                isInteractive = isSignedIn == true && !showAppInitializationCover && !showFeedCommentComposer,
-                onVerticalSwipe = { isUp -> if (!isPhoneActive) currentOnVerticalSwipe(isUp) },
-                onLongPress = { currentOnLongPressCube() },
-                onLongPressMove = { deltaX, deltaY -> onLongPressMoveCube(deltaX, deltaY) },
-                onLongPressEnd = { currentOnLongPressEndCube() },
-                onTap = { currentOnTapCube() },
-                onTabSelected = { index -> if (!isPhoneActive) currentCubeTabChange(index) },
-                onFirstFrameRendered = {
-                    android.util.Log.d("PoplurRoot", "Cube first frame rendered")
-                    isCubeFirstFrameReady = true
-                },
+                isInteractive = (isSignedIn == true && !showAppInitializationCover && !showFeedCommentComposer) ||
+                    (isSignedIn == false && authBackAction != null),
+                onVerticalSwipe = cubeSwipeLambda,
+                onLongPress = cubeLongPressLambda,
+                onLongPressMove = cubeLongPressMoveLambda,
+                onLongPressEnd = cubeLongPressEndLambda,
+                onTap = cubeTapLambda,
+                onTabSelected = cubeTapSelectedLambda,
+                onFirstFrameRendered = cubeFirstFrameLambda,
                 channelObjectId = channelObjectId,
-                channelObjectPopToken = channelObjectPopToken
+                channelObjectPopToken = channelObjectPopToken,
+                modelAssetPathOverride = loginCubeAssetPath
             )
         }
 
+        // Edge swipe navigation — left/right 60dp strips trigger tab rotation
+        if (isSignedIn == true && !showAppInitializationCover && !isPhoneActive) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(400f)
+            ) {
+                // Left edge strip — swipe right → previous tab
+                Box(
+                    modifier = Modifier
+                        .width(60.dp)
+                        .fillMaxHeight()
+                        .align(Alignment.CenterStart)
+                        .pointerInput(tab) {
+                            var accDx = 0f
+                            var accDy = 0f
+                            var triggered = false
+                            detectDragGestures(
+                                onDragStart = { accDx = 0f; accDy = 0f; triggered = false },
+                                onDragEnd = {},
+                                onDragCancel = {},
+                                onDrag = { _, delta ->
+                                    if (!triggered) {
+                                        accDx += delta.x
+                                        accDy += delta.y
+                                        if (abs(accDx) > 80f && abs(accDx) > abs(accDy) * 2f && accDx > 0f) {
+                                            triggered = true
+                                            val prevIndex = (tab.cubeTabIndex() - 1 + 4) % 4
+                                            onTabChange(prevIndex)
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                )
+                // Right edge strip — swipe left → next tab
+                Box(
+                    modifier = Modifier
+                        .width(60.dp)
+                        .fillMaxHeight()
+                        .align(Alignment.CenterEnd)
+                        .pointerInput(tab) {
+                            var accDx = 0f
+                            var accDy = 0f
+                            var triggered = false
+                            detectDragGestures(
+                                onDragStart = { accDx = 0f; accDy = 0f; triggered = false },
+                                onDragEnd = {},
+                                onDragCancel = {},
+                                onDrag = { _, delta ->
+                                    if (!triggered) {
+                                        accDx += delta.x
+                                        accDy += delta.y
+                                        if (abs(accDx) > 80f && abs(accDx) > abs(accDy) * 2f && accDx < 0f) {
+                                            triggered = true
+                                            val nextIndex = (tab.cubeTabIndex() + 1) % 4
+                                            onTabChange(nextIndex)
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                )
+            }
+        }
+
         PoplurAIAssistantOverlay(
-            enabled = isSignedIn == true && !showAppInitializationCover,
+            enabled = isSignedIn == true && !showAppInitializationCover && isAppVisible,
             accent = selectedCubeSkin.uiTheme().accent,
             tutorialPulseToken = profileWakeTutorialPulse,
             modifier = Modifier
@@ -1293,6 +1441,18 @@ fun PoplurRoot(
             Box(Modifier.fillMaxSize().zIndex(800f)) {
                 GameLaunchScreen(onDismiss = { showGames = false })
             }
+        }
+
+        // Stripe transition overlay (above all screens, below volume HUD)
+        if (rootStripeVisible) {
+            StripeTransitionOverlay(
+                modifier = Modifier.fillMaxSize().zIndex(850f),
+                onMidpoint = {
+                    rootStripeMidpoint?.invoke()
+                    rootStripeMidpoint = null
+                },
+                onComplete = { rootStripeVisible = false }
+            )
         }
 
         // Volume meter — rendered last so it sits above everything, including the games screen
@@ -1530,7 +1690,6 @@ private fun DocumentSnapshot.numberValue(vararg keys: String): Int? =
 
 private val cameraCubeTabs = setOf(
     AppTab.Camera,
-    AppTab.CreateEntry,
     AppTab.CapturedOutput,
     AppTab.AIVideoStudio,
     AppTab.AIVideoProgress
@@ -1545,9 +1704,9 @@ private val profileCubeTabs = setOf(
 
 private fun AppTab.cubeTabIndex(): Int = when (this) {
     AppTab.Map -> 0
-    AppTab.Camera, AppTab.CreateEntry, AppTab.CapturedOutput, AppTab.AIVideoStudio, AppTab.AIVideoProgress -> 1
+    AppTab.Camera, AppTab.CapturedOutput, AppTab.AIVideoStudio, AppTab.AIVideoProgress -> 1
     AppTab.Feed -> 2
-    AppTab.Profile -> 3
+    AppTab.Profile, AppTab.CreateEntry -> 3
     else -> 2
 }
 
@@ -1577,6 +1736,7 @@ data class CaptureMapPoint(
 )
 
 private const val SYSTEM_VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
+private const val LOGIN_CUBE_ASSET_PATH = "login_cube/poplr_login_cube_equal_faces.glb"
 
 private fun Modifier.rootFeedSwipeDetector(
     currentPostIndex: Int,

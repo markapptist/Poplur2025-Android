@@ -31,16 +31,20 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import android.content.Context
+import com.apptists.poplur2025.data.FeedAdProbability
+import com.apptists.poplur2025.data.FeedAdProbabilityConfig
 import com.apptists.poplur2025.data.PoplurLanguage
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.AppIconThemeManager
+import com.apptists.poplur2025.ui.CubeSkinThemedBackground
 import com.apptists.poplur2025.ui.appIconResId
 import com.apptists.poplur2025.ui.components.CubeMenuLayout
 import com.apptists.poplur2025.ui.skinBackdropBrush
 import com.apptists.poplur2025.ui.uiTheme
+import kotlin.math.roundToInt
 
 private val LocalSettingsTheme = staticCompositionLocalOf { CubeSkin.Default.uiTheme() }
 
@@ -55,7 +59,7 @@ fun SettingsScreen(
     onClosedCaptionsChange: (Boolean) -> Unit = {},
     selectedCubeSkin: CubeSkin = CubeSkin.Default,
     onCubeSkinChange: (CubeSkin) -> Unit = {},
-    cubeMenuLayout: CubeMenuLayout = CubeMenuLayout.Horizontal,
+    cubeMenuLayout: CubeMenuLayout = CubeMenuLayout.Vertical,
     onCubeMenuLayoutChange: (CubeMenuLayout) -> Unit = {},
     isDarkMode: Boolean = true,
     onDarkModeChange: (Boolean) -> Unit = {},
@@ -78,11 +82,11 @@ fun SettingsScreen(
             contentColor = theme.primaryText,
             modifier = Modifier.fillMaxSize()
         ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(skinBackdropBrush(selectedCubeSkin))
-            ) {
+            Box(Modifier.fillMaxSize()) {
+                CubeSkinThemedBackground(
+                    skin = selectedCubeSkin,
+                    modifier = Modifier.matchParentSize()
+                )
                 Column(Modifier.statusBarsPadding()) {
                     Text(
                         "Settings",
@@ -144,6 +148,11 @@ private fun SettingsTab(
     val prefs = remember { ctx.getSharedPreferences("poplur_settings", Context.MODE_PRIVATE) }
     var phoneXLMode by remember { mutableStateOf(prefs.getBoolean("poplur_phoneXLMode", true)) }
     var tvGuideFlipAnimation by remember { mutableStateOf(prefs.getBoolean("tv_guide_flip_animation", true)) }
+    var customMapTheme by remember { mutableStateOf(prefs.getBoolean("poplur_customMapTheme", false)) }
+    var use3DLoadingScreen by remember { mutableStateOf(prefs.getBoolean("poplur_use3DLoadingScreen", true)) }
+    var adProbabilityConfig by remember {
+        mutableStateOf(FeedAdProbability.currentConfig(ctx))
+    }
     val theme = LocalSettingsTheme.current
 
     Column(
@@ -173,7 +182,15 @@ private fun SettingsTab(
             tvGuideFlipAnimation = value
             prefs.edit().putBoolean("tv_guide_flip_animation", value).apply()
         }
+        SettingsToggleRow("Custom Map Theme", customMapTheme) { value ->
+            customMapTheme = value
+            prefs.edit().putBoolean("poplur_customMapTheme", value).apply()
+        }
         SettingsToggleRow("Tilt Control", tiltControlEnabled, onTiltControlChange)
+        SettingsToggleRow("3D Loading Screen", use3DLoadingScreen) { value ->
+            use3DLoadingScreen = value
+            prefs.edit().putBoolean("poplur_use3DLoadingScreen", value).apply()
+        }
         SettingsProfileHeadModePicker(
             is3D = profileAvatarIs3D,
             onModeSelected = onProfileAvatarIs3DChange
@@ -184,9 +201,13 @@ private fun SettingsTab(
             onLanguageSelected = onPreferredLanguageChange
         )
 
-        SettingsHoldMenuLayoutPicker(
-            selectedLayout = cubeMenuLayout,
-            onLayoutSelected = onCubeMenuLayoutChange
+        SettingsFeedAdProbabilityControls(
+            config = adProbabilityConfig,
+            onConfigChange = { config ->
+                val normalized = config.normalized
+                adProbabilityConfig = normalized
+                FeedAdProbability.saveConfig(ctx, normalized)
+            }
         )
 
         Spacer(Modifier.height(16.dp))
@@ -397,6 +418,82 @@ private fun SettingsHoldMenuLayoutPicker(
 }
 
 @Composable
+private fun SettingsFeedAdProbabilityControls(
+    config: FeedAdProbabilityConfig,
+    onConfigChange: (FeedAdProbabilityConfig) -> Unit
+) {
+    val theme = LocalSettingsTheme.current
+    val normalized = config.normalized
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Feed Ads", fontWeight = FontWeight.Black, fontSize = 18.sp, color = theme.primaryText)
+        SettingsAdPercentSlider(
+            label = "Poplur Ads",
+            value = normalized.poplurAdPercent,
+            accent = theme.accent,
+            onChange = { value ->
+                onConfigChange(
+                    FeedAdProbabilityConfig(
+                        poplurAdPercent = value,
+                        googleMobileAdPercent = normalized.googleMobileAdPercent
+                    )
+                )
+            }
+        )
+        SettingsAdPercentSlider(
+            label = "Google Mobile Ads",
+            value = normalized.googleMobileAdPercent,
+            accent = Color(0xFF68FF4F),
+            onChange = { value ->
+                onConfigChange(
+                    FeedAdProbabilityConfig(
+                        poplurAdPercent = normalized.poplurAdPercent,
+                        googleMobileAdPercent = value
+                    )
+                )
+            }
+        )
+        Text(
+            "Normal feed content: ${normalized.contentPercent.roundToInt()}%",
+            color = theme.secondaryText,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black
+        )
+    }
+}
+
+@Composable
+private fun SettingsAdPercentSlider(
+    label: String,
+    value: Float,
+    accent: Color,
+    onChange: (Float) -> Unit
+) {
+    val theme = LocalSettingsTheme.current
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, fontWeight = FontWeight.Black, fontSize = 14.sp, color = theme.primaryText)
+            Text("${value.roundToInt()}%", fontWeight = FontWeight.Black, fontSize = 14.sp, color = accent)
+        }
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = 0f..100f,
+            steps = 99,
+            colors = SliderDefaults.colors(
+                thumbColor = accent,
+                activeTrackColor = accent,
+                inactiveTrackColor = theme.controlFill
+            )
+        )
+    }
+}
+
+@Composable
 private fun SettingsToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     val theme = LocalSettingsTheme.current
     Row(
@@ -491,10 +588,13 @@ private fun SkinPreviewPanel(previewSkin: CubeSkin) {
             .padding(vertical = 12.dp)
             .shadow(14.dp, shape, clip = false)
             .clip(shape)
-            .background(skinBackdropBrush(previewSkin))
             .border(1.5.dp, previewTheme.border, shape),
         contentAlignment = Alignment.Center
     ) {
+        CubeSkinThemedBackground(
+            skin = previewSkin,
+            modifier = Modifier.matchParentSize()
+        )
         Box(
             Modifier
                 .matchParentSize()

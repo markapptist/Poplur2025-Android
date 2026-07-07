@@ -223,73 +223,26 @@ Make the prompts rich, cinematic, and specific to the ${style.label} aesthetic.
         )
     }
 
-    // ── Video clip via Replicate WAN 2.1 ────────────────────────────────────
+    // ── Video clip via Poplur backend / Google AI Studio ───────────────────
 
-    private fun generateClip(videoPrompt: String): String {
-        val key = Secrets.replicateApiKey
-        if (key.isBlank()) throw AIVideoError.NoAPIKey
-
-        val body = JSONObject().apply {
-            put("input", JSONObject().apply {
-                put("prompt", videoPrompt)
-                put("num_frames", 81)
-                put("size", "480*832") // 9:16 vertical
-            })
-        }
-
-        val conn = (URL("https://api.replicate.com/v1/models/wan-ai/wan2.1-t2v-480p/predictions")
-            .openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Authorization", "Bearer $key")
-            setRequestProperty("Content-Type", "application/json")
-            connectTimeout = 30_000
-            readTimeout = 60_000
-            doOutput = true
-        }
-        try {
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            val code = conn.responseCode
-            if (code !in 200..201) throw AIVideoError.GenerationFailed("Replicate HTTP $code")
-            val predictionId = JSONObject(conn.inputStream.bufferedReader().readText()).getString("id")
-            return pollClip(predictionId, key)
-        } finally {
-            conn.disconnect()
-        }
-    }
-
-    private fun pollClip(id: String, key: String): String {
-        val url = URL("https://api.replicate.com/v1/predictions/$id")
-        repeat(120) {
-            Thread.sleep(3_000)
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                setRequestProperty("Authorization", "Bearer $key")
-                connectTimeout = 15_000
-                readTimeout = 15_000
-            }
-            try {
-                if (conn.responseCode != 200) return@repeat
-                val json = JSONObject(conn.inputStream.bufferedReader().readText())
-                when (json.optString("status")) {
-                    "succeeded" -> {
-                        val out = json.opt("output")
-                        return when {
-                            out is JSONArray -> out.getString(0)
-                            out is String -> out
-                            else -> throw AIVideoError.InvalidResponse
-                        }
-                    }
-                    "failed", "canceled" -> throw AIVideoError.GenerationFailed("Replicate status: ${json.optString("status")}")
-                }
-            } finally {
-                conn.disconnect()
-            }
-        }
-        throw AIVideoError.Timeout
+    private suspend fun generateClip(videoPrompt: String): String {
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            ?: throw AIVideoError.ProviderMustRunOnBackend
+        val response = PoplurAIBackendClient().generate(
+            AIGenerationRequest(
+                userId = uid,
+                plan = PoplurPlan.Creator,
+                contentType = PoplurAIContentType.Video,
+                prompt = videoPrompt,
+                metadata = mapOf("surface" to "ai_video_studio")
+            )
+        )
+        return response.outputUrl ?: throw AIVideoError.InvalidResponse
     }
 }
 
 sealed class AIVideoError(message: String) : Exception(message) {
-    object NoAPIKey : AIVideoError("API key missing")
+    object ProviderMustRunOnBackend : AIVideoError("Premium AI video must run through Poplur backend using Google AI Studio.")
     object InvalidResponse : AIVideoError("Unexpected API response")
     data class GenerationFailed(val detail: String) : AIVideoError("Generation failed: $detail")
     object Timeout : AIVideoError("Generation timed out after 6 minutes")

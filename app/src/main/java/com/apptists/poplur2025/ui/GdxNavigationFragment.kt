@@ -48,6 +48,7 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
     private var pendingChannelObjectToken: Int = 0
     private var syncedTabIndex: Int = Int.MIN_VALUE
     private var pendingSkin: CubeSkin = CubeSkin.Gold
+    private var pendingModelAssetPathOverride: String? = null
     private var pendingInteractionEnabled: Boolean = true
     private var inputView: View? = null
     private var textureView: TransparentGLTextureView? = null
@@ -101,9 +102,18 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
         adapter?.skin = skin
     }
 
+    fun setModelAssetPathOverride(path: String?) {
+        pendingModelAssetPathOverride = path
+        adapter?.modelAssetPathOverride = path
+    }
+
     fun setInteractionEnabled(enabled: Boolean) {
         pendingInteractionEnabled = enabled
         adapter?.isInteractionEnabled = enabled
+        textureView?.apply {
+            isClickable = enabled
+            isFocusable = enabled
+        }
     }
 
     fun syncSelectedTab(index: Int) {
@@ -150,6 +160,7 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
             profileTitle = pendingProfileIconTitle
         )
         adapter.skin = pendingSkin
+        adapter.modelAssetPathOverride = pendingModelAssetPathOverride
         if (pendingChannelObjectToken > 0) adapter.showChannelObject(pendingChannelObjectId)
 
         val gdxView = initializeTransparentForView(adapter, config)
@@ -192,16 +203,20 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
 
         val transparentView = TransparentGLTextureView(requireContext()).apply {
             setRenderer(graphics as GLSurfaceView.Renderer, if (config.useGL30) 3 else 2)
-            setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY)
+            setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY)
             isFocusable = false
             isFocusableInTouchMode = false
         }
 
-        // Update the graphics object to point to our real view
+        // Robustly swap fields to prevent LibGDX standard view logic from crashing
         runCatching {
-            val field = com.badlogic.gdx.backends.android.AndroidGraphics::class.java.getDeclaredField("view")
-            field.isAccessible = true
-            field.set(graphics, transparentView)
+            val graphicsClass = com.badlogic.gdx.backends.android.AndroidGraphics::class.java
+            graphicsClass.getDeclaredField("view").apply { isAccessible = true }.set(graphics, transparentView)
+            
+            // Nulling out these fields ensures AndroidGraphics methods like onPause/onResume/setContinuousRendering
+            // don't try to call methods on the standard GLSurfaceViews which might not be fully initialized.
+            runCatching { graphicsClass.getDeclaredField("view20").apply { isAccessible = true }.set(graphics, null) }
+            runCatching { graphicsClass.getDeclaredField("viewAPI18").apply { isAccessible = true }.set(graphics, null) }
         }
 
         textureView = transparentView
@@ -321,12 +336,13 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
             val glesVersion = if (config.useGL30) 3 else 2
             setTargetGlesVersion(glesVersion)
 
-            // Return a dummy GLSurfaceView20 that ignores setRenderer.
-            // This prevents a background render thread from starting.
+            // Return a dummy GLSurfaceView20 that ignores calls.
+            // This prevents a background render thread from starting and avoids crashes if setRenderMode is called.
             return object : GLSurfaceView20(application.context, true, config.depth, config.stencil, resolutionStrategy) {
-                override fun setRenderer(renderer: GLSurfaceView.Renderer?) {
-                    // Do nothing
-                }
+                override fun setRenderer(renderer: GLSurfaceView.Renderer?) {}
+                override fun setRenderMode(renderMode: Int) {}
+                override fun onPause() {}
+                override fun onResume() {}
             }
         }
 

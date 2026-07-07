@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -8,10 +10,28 @@ plugins {
 
 val natives by configurations.creating
 
+// Mapillary is used for Android street-level imagery (never on iOS, which uses Apple Look
+// Around instead). Reads MAPILLARY_ACCESS_TOKEN from the gitignored local.properties file —
+// see local.properties.example — so the real token is never committed. Do not log this value.
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+val mapillaryAccessToken: String = localProperties.getProperty("MAPILLARY_ACCESS_TOKEN") ?: ""
+
 android { namespace = "com.apptists.poplur2025"
     compileSdk = 35;
-    defaultConfig { applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "1.0" }
-    
+    defaultConfig {
+        applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "1.0"
+        buildConfigField("String", "MAPILLARY_ACCESS_TOKEN", "\"$mapillaryAccessToken\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
     signingConfigs {
         create("release") {
             storeFile = file(project.findProperty("RELEASE_STORE_FILE") ?: "../keystore/release.jks")
@@ -82,7 +102,10 @@ dependencies {
 
     implementation(platform("com.google.firebase:firebase-bom:33.9.0"))
     implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-appcheck-debug")
+    implementation("com.google.firebase:firebase-appcheck-playintegrity")
     implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-functions-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
 
     implementation("androidx.credentials:credentials:1.6.0")
@@ -115,6 +138,9 @@ dependencies {
     implementation("com.badlogicgames.gdx:gdx-backend-android:1.13.1")
     implementation("com.badlogicgames.gdx:gdx-bullet:1.13.1")
     implementation("com.github.mgsx-dev.gdx-gltf:gltf:2.3.0")
+    // SceneView (Google Filament) renders the profile 3D Mark head in its own GL context,
+    // avoiding libGDX's process-global Gdx.* singletons owned by the persistent cube overlay.
+    implementation("io.github.sceneview:sceneview:2.2.1")
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-armeabi-v7a")
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-arm64-v8a")
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-x86")

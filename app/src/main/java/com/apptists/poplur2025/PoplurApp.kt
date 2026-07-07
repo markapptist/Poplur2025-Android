@@ -7,6 +7,9 @@ import com.apptists.poplur2025.ads.AdManager
 import com.apptists.poplur2025.ui.AppIconThemeManager
 import com.apptists.poplur2025.wear.WearRadiusSync
 import com.google.firebase.FirebaseApp
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 
@@ -15,6 +18,13 @@ class PoplurApp : Application() {
         super.onCreate()
         AppIconThemeManager.ensureExplicitLaunchAliasEnabled(this)
         FirebaseApp.initializeApp(this)
+        FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
+            if (BuildConfig.DEBUG) {
+                DebugAppCheckProviderFactory.getInstance()
+            } else {
+                PlayIntegrityAppCheckProviderFactory.getInstance()
+            }
+        )
         AdManager.initialize(this)
         WearRadiusSync.start(this)
         setupImageLoader()

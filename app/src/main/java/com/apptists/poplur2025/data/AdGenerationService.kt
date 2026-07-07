@@ -7,18 +7,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
-import kotlin.random.Random
 
 object AdGenerationService {
     suspend fun generate(prompt: String): Bitmap = withContext(Dispatchers.IO) {
-        val encoded = URLEncoder.encode(prompt, "UTF-8").replace("+", "%20")
-        val seed = Random.nextInt(0, 99999)
-        val url = URL(
-            "https://image.pollinations.ai/prompt/$encoded" +
-                "?width=1080&height=1920&model=flux&nologo=true&enhance=false&seed=$seed"
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            ?: throw AdGenerationError.ProviderMustRunOnBackend
+        val response = PoplurAIBackendClient().generate(
+            AIGenerationRequest(
+                userId = uid,
+                plan = PoplurPlan.Creator,
+                contentType = PoplurAIContentType.Image,
+                prompt = prompt,
+                metadata = mapOf("surface" to "ad_generation")
+            )
         )
-        val conn = url.openConnection() as HttpURLConnection
+        val outputUrl = response.outputUrl ?: throw AdGenerationError.DecodeFailed
+        val conn = URL(outputUrl).openConnection() as HttpURLConnection
         conn.connectTimeout = 90_000
         conn.readTimeout = 90_000
         conn.setRequestProperty("User-Agent", "Poplur/1.0")
@@ -45,6 +49,7 @@ object AdGenerationService {
 }
 
 sealed class AdGenerationError(message: String) : Exception(message) {
-    data class HttpError(val code: Int) : AdGenerationError("HTTP $code from Pollinations")
+    object ProviderMustRunOnBackend : AdGenerationError("Sign in and use Poplur AI credits to generate ads.")
+    data class HttpError(val code: Int) : AdGenerationError("HTTP $code from Poplur AI")
     object DecodeFailed : AdGenerationError("Failed to decode generated image")
 }

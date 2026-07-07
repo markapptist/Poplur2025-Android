@@ -21,7 +21,7 @@ import javax.microedition.khronos.egl.EGLSurface;
  */
 public class TransparentGLTextureView extends TextureView implements TextureView.SurfaceTextureListener {
     private GLSurfaceView.Renderer renderer;
-    private GLThread glThread;
+    private volatile GLThread glThread;
     private int renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY;
     private final long targetFrameNanos;
     private int glesVersion = 2;
@@ -65,19 +65,19 @@ public class TransparentGLTextureView extends TextureView implements TextureView
         glThread = null;
         if (thread != null) {
             thread.shutdown();
-            try {
-                // Wait for the thread to finish EGL release to avoid race with new instances.
-                // 200ms limit to prevent blocking the main thread if GL is truly stuck.
-                thread.join(200L);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            // Don't join() on main thread as it can cause freezes. 
+            // The thread will clean up itself and release EGL resources.
         }
     }
 
     @Override
     public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
         if (renderer == null) return;
+        // Ensure previous thread is stopped before starting a new one
+        GLThread previous = glThread;
+        if (previous != null) {
+            previous.shutdown();
+        }
         glThread = new GLThread(surface, width, height, renderer, renderMode, targetFrameNanos, glesVersion);
         glThread.start();
     }

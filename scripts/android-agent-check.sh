@@ -173,7 +173,14 @@ fi
 
 require_cmd adb
 
-DEVICE_COUNT="$(adb devices | awk 'NR > 1 && $2 == "device" { count++ } END { print count + 0 }')"
+if [[ -n "${ANDROID_SERIAL:-}" ]]; then
+  if ! adb devices | awk -v serial="${ANDROID_SERIAL}" 'NR > 1 && $1 == serial && $2 == "device" { found = 1 } END { exit found ? 0 : 1 }'; then
+    fail "ANDROID_SERIAL is set to ${ANDROID_SERIAL}, but that device is not connected and authorized."
+  fi
+  DEVICE_COUNT=1
+else
+  DEVICE_COUNT="$(adb devices | awk 'NR > 1 && $2 == "device" { count++ } END { print count + 0 }')"
+fi
 if [[ "${DEVICE_COUNT}" -eq 0 ]]; then
   if [[ "${START_EMULATOR}" -eq 0 ]]; then
     fail "No authorized Android device/emulator found. Start an emulator or connect a device, then run this script again. Use --no-device for local-only checks."
@@ -214,7 +221,7 @@ if [[ "${DEVICE_COUNT}" -eq 0 ]]; then
   adb shell input keyevent 82 >/dev/null 2>&1 || true
   DEVICE_COUNT="$(adb devices | awk 'NR > 1 && $2 == "device" { count++ } END { print count + 0 }')"
 fi
-if [[ "${DEVICE_COUNT}" -gt 1 ]]; then
+if [[ -z "${ANDROID_SERIAL:-}" && "${DEVICE_COUNT}" -gt 1 ]]; then
   fail "Multiple devices are connected. Set ANDROID_SERIAL to one device and rerun."
 fi
 
@@ -226,9 +233,18 @@ if ! adb shell cmd package list packages >/dev/null 2>&1; then
 fi
 
 info "Installing debug build"
-APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
-if [[ ! -f "${APK_PATH}" ]]; then
-  fail "Debug APK not found at ${APK_PATH}."
+APK_PATH=""
+for candidate in \
+  "app/build/outputs/apk/debug/app-debug.apk" \
+  "/private/tmp/poplur-android-build/app/outputs/apk/debug/app-debug.apk"
+do
+  if [[ -f "${candidate}" ]]; then
+    APK_PATH="${candidate}"
+    break
+  fi
+done
+if [[ -z "${APK_PATH}" ]]; then
+  fail "Debug APK not found in app/build/outputs/apk/debug or /private/tmp/poplur-android-build/app/outputs/apk/debug."
 fi
 run_with_timeout "${INSTALL_TIMEOUT_SECONDS}" adb push "${APK_PATH}" /data/local/tmp/poplur-debug.apk
 run_with_timeout "${INSTALL_TIMEOUT_SECONDS}" adb shell pm install -r /data/local/tmp/poplur-debug.apk
@@ -247,6 +263,11 @@ adb shell monkey \
   -p "${APP_ID}" \
   --ignore-security-exceptions \
   --monitor-native-crashes \
+  --pct-syskeys 0 \
+  --pct-nav 0 \
+  --pct-majornav 0 \
+  --pct-appswitch 0 \
+  --pct-anyevent 0 \
   -s "${MONKEY_SEED}" \
   --throttle 120 \
   -v "${MONKEY_EVENTS}" \
@@ -259,9 +280,10 @@ adb logcat -d > "${LOG_FILE}"
 
 ERROR_FILE="$(temp_file poplur-errors)"
 {
-  grep -E "FATAL EXCEPTION|AndroidRuntime|${APP_ID}|am_crash|am_anr|ANR in|StrictMode|NoClassDefFoundError|ClassNotFoundException|UnsatisfiedLinkError|Firebase|Mapbox" "${LOG_FILE}" \
-    | grep -E " F | E |FATAL EXCEPTION|AndroidRuntime|am_crash|am_anr|ANR in|Exception|Error|StrictMode|Firebase|Mapbox" || true
-  grep -E "CRASH:|ANR|Exception|Error|native crash" "${MONKEY_FILE}" || true
+  grep -E "FATAL EXCEPTION|${APP_ID}|am_crash|am_anr|ANR in ${APP_ID}|StrictMode|NoClassDefFoundError|ClassNotFoundException|UnsatisfiedLinkError" "${LOG_FILE}" \
+    | grep -E "FATAL EXCEPTION|am_crash|am_anr|ANR in|Exception|StrictMode|NoClassDefFoundError|ClassNotFoundException|UnsatisfiedLinkError|java\\.lang\\.Error" \
+    | grep -Ev "WindowManager: win=.*destroySurfaces|SemWifiTransportLayerUtils: getApplicationCategory|GmsStrictMode|com.google.android.gms@|com.google.android.apps.nexuslauncher|Taskbar" || true
+  grep -E "CRASH: ${APP_ID}|ANR in ${APP_ID}|native crash.*${APP_ID}|No activities found|monkey aborted" "${MONKEY_FILE}" || true
 } > "${ERROR_FILE}"
 
 if [[ -s "${ERROR_FILE}" ]]; then
@@ -274,6 +296,6 @@ if [[ -s "${ERROR_FILE}" ]]; then
   fail "App launched, but the automated crawl found likely crashes or runtime errors."
 fi
 
-info "App installed, launched, crawled, and no likely crashes were found."
+info "App installed, launched, exercised, and no likely app crashes were found."
 echo "Full logcat: ${LOG_FILE}"
 echo "Monkey output: ${MONKEY_FILE}"

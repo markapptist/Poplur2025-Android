@@ -39,6 +39,7 @@ import com.google.android.gms.location.LocationServices
 fun AIVideoStudioScreen(
     initialPrompt: String,
     initialStyle: AIVideoStyle,
+    initialLocationName: String = "",
     onBack: () -> Unit,
     onGenerate: (prompt: String, style: AIVideoStyle, locationName: String) -> Unit
 ) {
@@ -46,7 +47,7 @@ fun AIVideoStudioScreen(
     val scope = rememberCoroutineScope()
     var prompt by remember { mutableStateOf(initialPrompt) }
     var selectedStyle by remember { mutableStateOf(initialStyle) }
-    var locationName by remember { mutableStateOf("") }
+    var locationName by remember { mutableStateOf(initialLocationName) }
     var locationResolved by remember { mutableStateOf(false) }
     var isLocationLoading by remember { mutableStateOf(false) }
 

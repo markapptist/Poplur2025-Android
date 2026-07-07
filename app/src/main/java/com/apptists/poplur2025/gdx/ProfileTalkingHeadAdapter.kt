@@ -7,23 +7,34 @@ import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.g2d.SpriteBatch
 import kotlin.math.min
 
+import java.util.Locale
+
 class ProfileTalkingHeadAdapter : ApplicationAdapter() {
     @Volatile private var speaking: Boolean = false
     private lateinit var batch: SpriteBatch
+    private var appInstance: com.badlogic.gdx.Application? = null
     private val frames = mutableListOf<Texture>()
     private var elapsed = 0f
 
     override fun create() {
+        appInstance = Gdx.app
+        Gdx.graphics.setContinuousRendering(speaking)
         batch = SpriteBatch()
         frames += (1..12).map { index ->
-            Texture(Gdx.files.internal("profile_head/frame_%02d.png".format(index))).apply {
+            val path = String.format(Locale.US, "profile_head/frame_%02d.png", index)
+            Texture(Gdx.files.internal(path)).apply {
                 setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
             }
         }
+        Gdx.graphics.requestRendering()
     }
 
     fun setSpeaking(active: Boolean) {
         speaking = active
+        appInstance?.postRunnable {
+            Gdx.graphics.setContinuousRendering(active)
+            Gdx.graphics.requestRendering()
+        }
     }
 
     override fun render() {
@@ -44,6 +55,9 @@ class ProfileTalkingHeadAdapter : ApplicationAdapter() {
         batch.begin()
         batch.draw(texture, x, y, drawWidth, drawHeight)
         batch.end()
+        if (speaking) {
+            Gdx.graphics.requestRendering()
+        }
     }
 
     private fun frameIndex(): Int {
@@ -67,5 +81,6 @@ class ProfileTalkingHeadAdapter : ApplicationAdapter() {
         frames.forEach { it.dispose() }
         frames.clear()
         if (::batch.isInitialized) batch.dispose()
+        appInstance = null
     }
 }

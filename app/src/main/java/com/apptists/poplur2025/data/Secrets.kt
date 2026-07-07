@@ -1,8 +1,9 @@
 package com.apptists.poplur2025.data
 
-// This file is gitignored — never commit it.
-// Add your keys here; they are used directly at runtime.
+// Mobile builds must not contain premium AI provider API keys.
+// Provider credentials belong on Poplur's backend:
+// GOOGLE_AI_API_KEY, MESHY_API_KEY, ELEVENLABS_API_KEY, SUNO_API_KEY,
+// GAME_PROVIDER_API_KEY, and VFX_PROVIDER_API_KEY.
 object Secrets {
-    const val replicateApiKey    = "r8_RrDeC8dJBQYGHA7ZWJ8nez5QqvUlEhY2NWoUD"
-    const val claudeApiKey       = "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"
+    const val claudeApiKey = ""
 }

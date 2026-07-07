@@ -37,7 +37,7 @@ object DemoPostStore {
     )
 
     private val adImageUrls = listOf(
-        "file:///android_asset/feed_ads/poplur_ad_real_humans.jpg",
+        "file:///android_asset/feed_ads/poplur_ad_news_first.jpg",
         "file:///android_asset/feed_ads/poplur_ad_3d_group.jpg",
         "file:///android_asset/feed_ads/poplur_ad_3d_creator.jpg"
     )

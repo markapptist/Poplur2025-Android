@@ -27,6 +27,20 @@ val CubeSkin.holdMenuAssetPath: String
         CubeSkin.Space     -> "holdmenu/sparkle.png"
     }
 
+/** Required full-screen banner art used by theme-aware app surfaces. */
+val CubeSkin.bannerAssetPath: String
+    get() = when (this) {
+        CubeSkin.Default   -> "theme_banners/theme_banner_default.png"
+        CubeSkin.Gold      -> "theme_banners/theme_banner_gold.png"
+        CubeSkin.Toy       -> "theme_banners/theme_banner_toy.png"
+        CubeSkin.Rainbow   -> "theme_banners/theme_banner_rainbow.png"
+        CubeSkin.Carbon    -> "theme_banners/theme_banner_sparkle_pink.png"
+        CubeSkin.Ice       -> "theme_banners/theme_banner_ice.png"
+        CubeSkin.Chocolate -> "theme_banners/theme_banner_chocolate.png"
+        CubeSkin.Space     -> "theme_banners/theme_banner_sparkle_pink.png"
+        CubeSkin.Camo      -> "theme_banners/theme_banner_camo.png"
+    }
+
 enum class CubeSkin(
     val id: String,
     val label: String,
@@ -41,7 +55,7 @@ enum class CubeSkin(
         null,
         "cube_models/dark_rubber_neon_icon_cube.glb",
         null,
-        "logo/logo_rubber.png"
+        "logo.png"
     ),
     Gold(
         "gold",

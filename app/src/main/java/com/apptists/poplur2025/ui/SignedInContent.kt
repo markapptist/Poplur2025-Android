@@ -187,7 +187,9 @@ fun SignedInContent(
                     settingsPrefs.edit().putBoolean("profile_hey_poplur_tutorial_seen", true).apply()
                 }
             },
-            onRequestAssistantTutorialPulse = { onProfileWakeTutorialPulseChange(1) }
+            onTutorialPulseRequest = {
+                onProfileWakeTutorialPulseChange(profileWakeTutorialPulse + 1)
+            }
         )
         AppTab.Map -> MapScreen(
             isVisible = isAppVisible,
@@ -207,7 +209,8 @@ fun SignedInContent(
                 onCapturedMediaUriChange(null)
                 onPreviousTabChange(AppTab.Map)
                 onTabChange(AppTab.Camera)
-            }
+            },
+            onChannelObjectPop = onChannelObjectPop
         )
         AppTab.CreateEntry -> com.apptists.poplur2025.ui.screens.CreateEntryScreen(
             onOriginalContent = {
@@ -232,7 +235,8 @@ fun SignedInContent(
         AppTab.AIVideoStudio -> com.apptists.poplur2025.ui.screens.AIVideoStudioScreen(
             initialPrompt = aiVideoPrompt,
             initialStyle = aiVideoStyle,
-            onBack = { onTabChange(previousTab ?: AppTab.CreateEntry) },
+            initialLocationName = aiVideoLocationName,
+            onBack = { onTabChange(previousTab ?: AppTab.Camera) },
             onGenerate = { prompt, style, locationName ->
                 onAiVideoPromptChange(prompt)
                 onAiVideoStyleChange(style)
@@ -264,8 +268,9 @@ fun SignedInContent(
             filtersTrigger = cameraFiltersTrigger,
             objectDetectionEnabled = cameraObjectDetectionEnabled,
             currentUserProfile = currentUserProfile,
+            cubeSkin = selectedCubeSkin,
             onFiltersToggle = { onCameraFiltersToggle(it) },
-            onObjectDetected = { onProfileWakeTutorialPulseChange(1) },
+            onObjectPop = onChannelObjectPop,
             onMediaCaptured = { uri, isVideo ->
                 onCapturedMediaUriChange(uri)
                 onIsCapturedVideoChange(isVideo)

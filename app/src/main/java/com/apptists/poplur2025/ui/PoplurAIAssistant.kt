@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -51,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.apptists.poplur2025.data.AppTab
+import com.apptists.poplur2025.util.PoplurEQSync
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -84,8 +87,8 @@ sealed interface PoplurAICommand {
 fun PoplurAIAssistantOverlay(
     enabled: Boolean,
     accent: Color,
-    tutorialPulseToken: Int = 0,
     modifier: Modifier = Modifier,
+    tutorialPulseToken: Int = 0,
     onCommand: (PoplurAICommand) -> Unit
 ) {
     val context = LocalContext.current
@@ -111,6 +114,9 @@ fun PoplurAIAssistantOverlay(
     var lastHandledAt by remember { mutableStateOf(0L) }
     var ttsReady by remember { mutableStateOf(false) }
     val ttsState = remember { mutableStateOf<TextToSpeech?>(null) }
+
+    val wakeChime = remember { runCatching { ToneGenerator(AudioManager.STREAM_RING, 45) }.getOrNull() }
+    DisposableEffect(Unit) { onDispose { runCatching { wakeChime?.release() } } }
 
     DisposableEffect(context) {
         val engine = TextToSpeech(context.applicationContext) { status ->
@@ -145,6 +151,9 @@ fun PoplurAIAssistantOverlay(
     }
 
     fun activateWake() {
+        if (enabled) {
+            runCatching { wakeChime?.startTone(ToneGenerator.TONE_PROP_PROMPT, 90) }
+        }
         wakeToken += 1
         val token = wakeToken
         isIlluminated = true
@@ -182,29 +191,12 @@ fun PoplurAIAssistantOverlay(
         }
     }
 
-    fun showTutorialPulse() {
-        wakeToken += 1
-        val token = wakeToken
-        isIlluminated = true
-        isWaitingForCommand = false
-        statusText = "Say Hey Poplur"
-        scope.launch {
-            delay(5_500)
-            if (wakeToken == token) {
-                isIlluminated = false
-                isWaitingForCommand = false
-                lastHandledText = ""
-                lastHandledAt = 0L
-                statusText = "Say Hey Poplur"
-            }
-        }
-    }
-
-    fun handleRecognized(text: String) {
+    fun handleRecognized(text: String, isFinalResult: Boolean) {
         val normalized = PoplurAIParser.normalize(text)
         val now = System.currentTimeMillis()
         if (normalized.isBlank()) return
         if (normalized == lastHandledText && now - lastHandledAt < 800L) return
+        if (!isFinalResult) return
 
         val wakeMatch = PoplurAIParser.wakePhraseMatch(normalized)
         if (wakeMatch != null) {
@@ -227,7 +219,7 @@ fun PoplurAIAssistantOverlay(
 
     LaunchedEffect(tutorialPulseToken) {
         if (tutorialPulseToken > 0) {
-            showTutorialPulse()
+            activateWake()
         }
     }
 
@@ -241,6 +233,32 @@ fun PoplurAIAssistantOverlay(
         if (!enabled || !hasAudioPermission || !SpeechRecognizer.isRecognitionAvailable(context)) {
             onDispose { }
         } else {
+            val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
+            var savedSystemVol = audioManager.getStreamVolume(AudioManager.STREAM_SYSTEM)
+            var systemMuted = false
+
+            var savedRingVol = 0
+            var savedNotifVol = 0
+
+            fun silenceStartSound() {
+                savedSystemVol = audioManager.getStreamVolume(AudioManager.STREAM_SYSTEM)
+                savedRingVol = audioManager.getStreamVolume(AudioManager.STREAM_RING)
+                savedNotifVol = audioManager.getStreamVolume(AudioManager.STREAM_NOTIFICATION)
+                if (savedSystemVol > 0) audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, 0, 0)
+                if (savedRingVol > 0) audioManager.setStreamVolume(AudioManager.STREAM_RING, 0, 0)
+                if (savedNotifVol > 0) audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, 0, 0)
+                systemMuted = true
+            }
+
+            fun restoreSystemSound() {
+                if (systemMuted) {
+                    if (savedSystemVol > 0) audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, savedSystemVol, 0)
+                    if (savedRingVol > 0) audioManager.setStreamVolume(AudioManager.STREAM_RING, savedRingVol, 0)
+                    if (savedNotifVol > 0) audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, savedNotifVol, 0)
+                    systemMuted = false
+                }
+            }
+
             val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
             val recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -260,17 +278,20 @@ fun PoplurAIAssistantOverlay(
                 restartJob?.cancel()
                 restartJob = scope.launch {
                     delay(delayMillis)
+                    if (!PoplurEQSync.isAppVisible) return@launch
                     lastRecognizerEventAt = System.currentTimeMillis()
                     runCatching {
                         recognizer.cancel()
+                        silenceStartSound()
                         recognizer.startListening(recognizerIntent)
                     }
                 }
             }
 
             watchdogJob = scope.launch {
-                while (true) {
+                while (PoplurEQSync.isAppVisible) {
                     delay(12_000L)
+                    if (!PoplurEQSync.isAppVisible) break
                     if (System.currentTimeMillis() - lastRecognizerEventAt > 18_000L) {
                         restartListening(0L)
                     }
@@ -280,6 +301,7 @@ fun PoplurAIAssistantOverlay(
             recognizer.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
                     lastRecognizerEventAt = System.currentTimeMillis()
+                    restoreSystemSound()
                     statusText = if (isWaitingForCommand) "Listening" else "Say Hey Poplur"
                 }
 
@@ -294,6 +316,7 @@ fun PoplurAIAssistantOverlay(
                 }
                 override fun onError(error: Int) {
                     lastRecognizerEventAt = System.currentTimeMillis()
+                    restoreSystemSound()
                     val delayMillis = when (error) {
                         SpeechRecognizer.ERROR_NO_MATCH,
                         SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> 180L
@@ -309,24 +332,27 @@ fun PoplurAIAssistantOverlay(
                     val text = partialResults
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         ?.firstOrNull()
-                    if (!text.isNullOrBlank()) handleRecognized(text)
+                    if (!text.isNullOrBlank()) handleRecognized(text, isFinalResult = false)
                 }
 
                 override fun onResults(results: Bundle?) {
                     lastRecognizerEventAt = System.currentTimeMillis()
+                    restoreSystemSound()
                     val text = results
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         ?.firstOrNull()
-                    if (!text.isNullOrBlank()) handleRecognized(text)
+                    if (!text.isNullOrBlank()) handleRecognized(text, isFinalResult = true)
                     restartListening()
                 }
             })
 
+            silenceStartSound()
             runCatching { recognizer.startListening(recognizerIntent) }
 
             onDispose {
                 restartJob?.cancel()
                 watchdogJob.cancel()
+                restoreSystemSound()
                 runCatching { recognizer.cancel() }
                 runCatching { recognizer.destroy() }
             }
@@ -405,7 +431,7 @@ private fun BoxScope.AssistantEdges(accent: Color, glow: Float) {
     }
 }
 
-private object PoplurAIParser {
+internal object PoplurAIParser {
     fun parse(commandText: String): PoplurAICommand {
         val text = normalize(commandText)
 
@@ -478,42 +504,23 @@ private object PoplurAIParser {
     }
 
     fun wakePhraseMatch(text: String): IntRange? {
-        listOf(
-            "hey populr",
-            "hey poplur",
-            "hay poplur",
-            "hi poplur",
-            "okay poplur",
-            "ok poplur",
-            "yo poplur"
-        )
-            .mapNotNull { phrase ->
-                val start = text.indexOf(phrase)
-                if (start >= 0) start until (start + phrase.length) else null
-            }
-            .firstOrNull()
-            ?.let { return it }
-
         val tokens = text.split(" ").filter { it.isNotBlank() }
-        if (tokens.isEmpty()) return null
+        if (tokens.size < 2) return null
 
-        fun isWakeLead(token: String): Boolean =
-            token in setOf("hey", "hay", "hi", "okay", "ok", "yo")
+        fun isHeyToken(token: String): Boolean =
+            token in setOf("hey", "hay")
 
         fun isPoplurToken(token: String): Boolean =
-            token in setOf("poplur", "populr", "popular", "poplar", "popler", "poppler", "poplure", "poplurr")
+            token in setOf("poplur", "populr")
 
         var cursor = 0
-        for (index in tokens.indices) {
+        for (index in 0 until tokens.lastIndex) {
             val token = tokens[index]
             val tokenStart = text.indexOf(token, startIndex = cursor).coerceAtLeast(cursor)
             val tokenEnd = tokenStart + token.length
             cursor = tokenEnd
 
-            if (index == 0 && isPoplurToken(token)) {
-                return tokenStart until tokenEnd
-            }
-            if (isWakeLead(token) && index + 1 < tokens.size && isPoplurToken(tokens[index + 1])) {
+            if (isHeyToken(token) && isPoplurToken(tokens[index + 1])) {
                 val next = tokens[index + 1]
                 val nextStart = text.indexOf(next, startIndex = tokenEnd).coerceAtLeast(tokenEnd)
                 return tokenStart until (nextStart + next.length)

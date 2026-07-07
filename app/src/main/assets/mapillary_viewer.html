@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <script src="https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js"></script>
+  <link href="https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.css" rel="stylesheet"/>
+  <style>
+    html, body, #mly {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background: #000;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div id="mly"></div>
+  <script>
+    function getParam(name) {
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name);
+    }
+
+    const accessToken = getParam("accessToken");
+    const imageId = getParam("imageId");
+
+    try {
+      const { Viewer } = mapillary;
+      const viewer = new Viewer({
+        accessToken: accessToken,
+        container: "mly",
+        imageId: imageId
+      });
+
+      viewer.on("image", function () {
+        if (window.AndroidStreetView) {
+          window.AndroidStreetView.onLoaded();
+        }
+      });
+    } catch (error) {
+      if (window.AndroidStreetView) {
+        window.AndroidStreetView.onError(String(error));
+      }
+    }
+  </script>
+</body>
+</html>

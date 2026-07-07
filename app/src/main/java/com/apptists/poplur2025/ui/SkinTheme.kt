@@ -1,6 +1,13 @@
 package com.apptists.poplur2025.ui
 
+import android.graphics.BitmapFactory
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -8,8 +15,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.apptists.poplur2025.R
 
 data class CubeSkinUiTheme(
     val background: Color,
@@ -182,6 +194,97 @@ fun skinBackdropBrush(skin: CubeSkin): Brush {
     return Brush.linearGradient(
         colors = listOf(theme.background, theme.backgroundMid, theme.backgroundDeep)
     )
+}
+
+@DrawableRes
+fun CubeSkin.backgroundDrawableRes(): Int = when (this) {
+    CubeSkin.Default, CubeSkin.Space -> R.drawable.theme_bg_default
+    CubeSkin.Rainbow -> R.drawable.theme_bg_rainbow
+    CubeSkin.Carbon -> R.drawable.theme_bg_sparkle_pink
+    CubeSkin.Gold -> R.drawable.theme_bg_gold
+    CubeSkin.Toy -> R.drawable.theme_bg_toy
+    CubeSkin.Chocolate -> R.drawable.theme_bg_chocolate
+    CubeSkin.Camo -> R.drawable.theme_bg_camo
+    CubeSkin.Ice -> R.drawable.theme_bg_ice
+}
+
+@Composable
+fun CubeSkinBackgroundLayer(
+    skin: CubeSkin,
+    modifier: Modifier = Modifier,
+    opacity: Float = 0.22f,
+    baseColor: Color = Color.Transparent,
+    scrimColor: Color = Color.Transparent
+) {
+    Box(modifier.background(baseColor)) {
+        Image(
+            painter = painterResource(id = skin.backgroundDrawableRes()),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            alpha = opacity,
+            modifier = Modifier.fillMaxSize()
+        )
+        if (scrimColor.alpha > 0f) {
+            Box(Modifier.fillMaxSize().background(scrimColor))
+        }
+    }
+}
+
+@Composable
+fun CubeSkinThemedBackground(
+    skin: CubeSkin,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val theme = skin.uiTheme()
+    val banner = remember(context, skin) {
+        runCatching {
+            context.assets.open(skin.bannerAssetPath).use { stream ->
+                BitmapFactory.decodeStream(stream)?.asImageBitmap()
+            }
+        }.getOrNull()
+    }
+
+    Box(modifier.background(skinBackdropBrush(skin))) {
+        if (banner != null) {
+            Image(
+                bitmap = banner,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                alpha = if (theme.isLight) 0.88f else 0.82f,
+                modifier = Modifier.fillMaxSize()
+            )
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                theme.background.copy(alpha = if (theme.isLight) 0.02f else 0.18f),
+                                theme.backgroundDeep.copy(alpha = if (theme.isLight) 0.16f else 0.52f)
+                            )
+                        )
+                    )
+                    .drawBehind {
+                        drawRoundRect(
+                            brush = Brush.linearGradient(
+                                listOf(
+                                    theme.accent.copy(alpha = 0.58f),
+                                    theme.accent2.copy(alpha = 0.38f),
+                                    theme.accent.copy(alpha = 0.34f)
+                                )
+                            ),
+                            topLeft = Offset(10.dp.toPx(), 10.dp.toPx()),
+                            size = Size(size.width - 20.dp.toPx(), size.height - 20.dp.toPx()),
+                            cornerRadius = CornerRadius(42.dp.toPx(), 42.dp.toPx()),
+                            style = Stroke(if (skin == CubeSkin.Toy) 2.dp.toPx() else 1.5.dp.toPx())
+                        )
+                    }
+            )
+        } else {
+            Box(Modifier.fillMaxSize().skinBackdrop(skin))
+        }
+    }
 }
 
 fun Modifier.skinBackdrop(skin: CubeSkin): Modifier {

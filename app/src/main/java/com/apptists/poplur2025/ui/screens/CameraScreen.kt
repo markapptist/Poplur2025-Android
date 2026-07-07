@@ -26,6 +26,7 @@ import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
 import androidx.camera.view.PreviewView
+import com.apptists.poplur2025.ui.PopularObjectCatalog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -108,6 +109,7 @@ import com.apptists.poplur2025.data.TVStyleAnalyzer
 import com.apptists.poplur2025.data.VideoAdGenerationService
 import com.apptists.poplur2025.data.TVStyleMetadata
 import com.apptists.poplur2025.data.UserProfile
+import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.MusicSearchSheet
 import com.apptists.poplur2025.ui.components.PoplurCounterLayout
@@ -141,9 +143,11 @@ fun CameraScreen(
     initialShowFilters: Boolean = false,
     objectDetectionEnabled: Boolean = false,
     currentUserProfile: UserProfile = UserProfile(),
+    cubeSkin: CubeSkin = CubeSkin.Default,
     onFiltersToggle: (Boolean) -> Unit = {},
     onMediaCaptured: (Uri, Boolean) -> Unit = { _, _ -> },
-    onObjectDetected: () -> Unit = {}
+    onObjectDetected: () -> Unit = {},
+    onObjectPop: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
@@ -609,6 +613,7 @@ fun CameraScreen(
                                                             if (key != lastDetectedLabelKey) {
                                                                 lastDetectedLabelKey = key
                                                                 onObjectDetected()
+                                                                PopularObjectCatalog.objectForDetectedLabel(objects.first().label)?.let(onObjectPop)
                                                             }
                                                         } else if (detectedObjectLabels.isNotEmpty()) {
                                                             detectedObjectLabels = emptyList()

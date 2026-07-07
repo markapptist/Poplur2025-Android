@@ -48,6 +48,7 @@ fun ProfileAvatarSpeaker(
     is3D: Boolean = false,
     accentColor: Color = Color(0xFF9B59F5),
     cubeSkin: CubeSkin = CubeSkin.Default,
+    onWakeActivated: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -137,23 +138,26 @@ fun ProfileAvatarSpeaker(
                 )
             }
 
-            ThemedProfileHead(
-                skin = cubeSkin,
-                is3D = render3DHead,
-                isSpeaking = isSpeaking,
-                accentColor = accentColor,
-                modifier = Modifier
-                    .width(size * 1.42f)
-                    .height(size * 1.28f)
-                    .then(
-                        if (render3DHead) Modifier.graphicsLayer {
+            if (render3DHead) {
+                MarkHeadGdxView(
+                    isSpeaking = isSpeaking,
+                    modifier = Modifier
+                        .width(size * 1.42f)
+                        .height(size * 1.28f)
+                        .graphicsLayer {
                             translationY = floatY
                             rotationY = rotY
                             cameraDistance = 8f * density
-                        } else Modifier
-                    )
-                    .shadow(if (isSpeaking) 12.dp else 4.dp, RoundedCornerShape(28.dp), ambientColor = theme.shadow, spotColor = theme.shadow)
-            )
+                        }
+                )
+            } else {
+                ProfileTalkingHeadGdxView(
+                    isSpeaking = isSpeaking,
+                    modifier = Modifier
+                        .width(size * 1.42f)
+                        .height(size * 1.28f)
+                )
+            }
         }
 
         Spacer(Modifier.height(6.dp))
@@ -186,12 +190,16 @@ fun ProfileAvatarSpeaker(
                 }
             }
         } else {
-            // Hint icon when idle
+            // Hint icon when idle — tappable to manually trigger the AI wake effect
             Spacer(Modifier.height(6.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 modifier = Modifier
                     .background(Color.Black.copy(alpha = 0.34f), RoundedCornerShape(50))
+                    .then(
+                        if (onWakeActivated != null) Modifier.clickable { onWakeActivated() }
+                        else Modifier
+                    )
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 repeat(4) { index ->

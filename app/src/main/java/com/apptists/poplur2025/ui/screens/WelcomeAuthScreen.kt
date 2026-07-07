@@ -1,11 +1,21 @@
 package com.apptists.poplur2025.ui.screens
 
-import android.graphics.BitmapFactory
-import android.view.View
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -17,53 +27,94 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.VolumeMute
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
-import androidx.fragment.app.FragmentContainerView
 import androidx.compose.ui.tooling.preview.Preview
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.data.AccountType
 import com.apptists.poplur2025.data.BusinessProfile
 import com.apptists.poplur2025.data.BusinessVerificationMethod
 import com.apptists.poplur2025.data.BusinessVerificationStatus
-import com.apptists.poplur2025.ui.ConfettiAnimationFragment
-import com.apptists.poplur2025.ui.GdxState
-import com.apptists.poplur2025.ui.components.PersistentCubeOverlay
+import com.apptists.poplur2025.data.Secrets
+import androidx.compose.foundation.shape.CircleShape
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.random.Random
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.viewinterop.AndroidView
+import android.speech.tts.TextToSpeech
+import java.util.Locale
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
+
+private tailrec fun android.content.Context.findFragmentActivity(): FragmentActivity? = when (this) {
+    is FragmentActivity -> this
+    is android.content.ContextWrapper -> baseContext.findFragmentActivity()
+    else -> null
+}
 
 @Composable
-fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
+fun WelcomeAuthScreen(
+    authViewModel: AuthViewModel,
+    onLabelChange: (String) -> Unit = {},
+    onBackAvailable: ((() -> Unit)?) -> Unit = {},
+    onSignUpSuccess: () -> Unit = {},
+    preLoginMusic: com.apptists.poplur2025.ui.components.PreLoginMusicPlayer? = null
+) {
     WelcomeAuthScreenContent(
         onSignIn = { email, password, onResult ->
             authViewModel.signIn(email, password, onResult)
         },
         onSignUp = { email, password, accountType, businessProfile, onResult ->
             authViewModel.signUp(email, password, accountType, businessProfile, onResult)
-        }
+        },
+        onLabelChange = onLabelChange,
+        onBackAvailable = onBackAvailable,
+        onSignUpSuccess = onSignUpSuccess,
+        preLoginMusic = preLoginMusic
     )
 }
 
@@ -71,13 +122,33 @@ fun WelcomeAuthScreen(authViewModel: AuthViewModel) {
 internal fun WelcomeAuthScreenContent(
     initialMode: AuthMode = AuthMode.Welcome,
     onSignIn: (String, String, (Boolean, String?) -> Unit) -> Unit,
-    onSignUp: (String, String, AccountType, BusinessProfile?, (Boolean, String?) -> Unit) -> Unit
+    onSignUp: (String, String, AccountType, BusinessProfile?, (Boolean, String?) -> Unit) -> Unit,
+    onLabelChange: (String) -> Unit = {},
+    onBackAvailable: ((() -> Unit)?) -> Unit = {},
+    onSignUpSuccess: () -> Unit = {},
+    preLoginMusic: com.apptists.poplur2025.ui.components.PreLoginMusicPlayer? = null
 ) {
     val context = LocalContext.current
     var mode by remember { mutableStateOf(initialMode) }
+
+    // Stripe page-transition state
+    val stripeVisible = remember { mutableStateOf(false) }
+    val stripeMidpoint = remember { mutableStateOf<(() -> Unit)?>(null) }
+    fun triggerStripe(action: () -> Unit) {
+        if (stripeVisible.value) return
+        stripeMidpoint.value = action
+        stripeVisible.value = true
+    }
+
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(error) {
+        if (error != null) {
+            delay(3200)
+            error = null
+        }
+    }
     var loading by remember { mutableStateOf(false) }
     var logoBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     
@@ -89,22 +160,92 @@ internal fun WelcomeAuthScreenContent(
         }
     }
 
-    var welcomeAnimationStarted by remember { mutableStateOf(false) }
-
     LaunchedEffect(mode) {
-        if (mode == AuthMode.Welcome) {
-            welcomeAnimationStarted = false
-            delay(100)
-            welcomeAnimationStarted = true
-        } else {
-            welcomeAnimationStarted = false
+        when (mode) {
+            AuthMode.Welcome -> onLabelChange("poplur")
+            AuthMode.Login -> onLabelChange("back")
+            AuthMode.SignUp -> onLabelChange("back")
         }
     }
 
+    LaunchedEffect(mode) {
+        // The persistent cube shows a "back" face and serves as the back button on every
+        // auth screen except Welcome (the root of the flow, nothing to go back to).
+        // SignUp's own back action (first step -> Welcome, else -> previous step) is
+        // reported from within BusinessSignupTicketContent instead, since it varies per step.
+        when (mode) {
+            AuthMode.Welcome -> onBackAvailable(null)
+            AuthMode.Login -> onBackAvailable {
+                error = null; mode = AuthMode.Welcome
+            }
+            AuthMode.SignUp -> Unit
+        }
+    }
+
+    // Sequence timings with 550ms head start:
+    // bannerDelayMs = 550 -> 1100ms
+    // logoDelayMs = 1350 -> 1900ms
+    // buttonsDelayMs = 2400 -> 2950ms
+    val bannerOffsetY = remember { Animatable(-1400f) }
+    val logoScale = remember { Animatable(0f) }
+    val buttonsAlpha = remember { Animatable(0f) }
+    
+    LaunchedEffect(Unit) {
+        delay(1100)
+        bannerOffsetY.animateTo(0f, animationSpec = spring(dampingRatio = 0.34f, stiffness = 130f))
+    }
+    LaunchedEffect(Unit) {
+        delay(1900)
+        logoScale.animateTo(1f, animationSpec = spring(dampingRatio = 0.42f, stiffness = 160f))
+    }
+    LaunchedEffect(Unit) {
+        delay(2950)
+        buttonsAlpha.animateTo(1f, animationSpec = tween(700))
+    }
+
+    val activity = remember(context) { context.findFragmentActivity() }
+    val host = activity as? com.apptists.poplur2025.ui.components.PersistentCubeOverlayHost
+    // One mute button controls both the confetti sound effect and the pre-login background
+    // music — starts from whichever the music player already has persisted.
+    var isMuted by rememberSaveable { mutableStateOf(preLoginMusic?.isMuted ?: false) }
+
+    DisposableEffect(Unit) {
+        host?.showConfettiOverlay()
+        onDispose {
+            host?.hideConfettiOverlay()
+        }
+    }
+
+    LaunchedEffect(isMuted) {
+        host?.setConfettiMuted(isMuted)
+        if (preLoginMusic != null && preLoginMusic.isMuted != isMuted) {
+            preLoginMusic.toggleMute()
+        }
+    }
+
+    // Poplur AI is HEARD, not seen — it speaks the same greeting as iOS on each auth screen
+    // (no visible UI). Muted by the same toggle as the music/confetti.
+    val authGuideTts = remember { mutableStateOf<TextToSpeech?>(null) }
+    DisposableEffect(Unit) {
+        val engine = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) authGuideTts.value?.language = Locale.US
+        }
+        authGuideTts.value = engine
+        onDispose { engine.stop(); engine.shutdown() }
+    }
+    LaunchedEffect(mode, isMuted, authGuideTts.value) {
+        val engine = authGuideTts.value ?: return@LaunchedEffect
+        if (isMuted) { engine.stop(); return@LaunchedEffect }
+        val greeting = when (mode) {
+            AuthMode.Welcome -> "Welcome to Poplur — every post has a reach radius you control, from your block to the whole planet. Tap Sign Up to join, or Sign In to come back."
+            AuthMode.Login -> "Good to have you back. Enter your email and password. If you need a reset, tap FORGOT."
+            AuthMode.SignUp -> "Let's get you set up. Choose personal for your own posts, or business if you represent a brand."
+        }
+        engine.speak(greeting, TextToSpeech.QUEUE_FLUSH, null, "auth_${mode.name}")
+    }
+
     BoxWithConstraints(
-        Modifier
-            .fillMaxSize()
-            .background(Color.White)
+        Modifier.fillMaxSize()
     ) {
         val authLayout = remember(maxWidth, maxHeight, mode) {
             AuthLayoutMetrics(
@@ -114,79 +255,75 @@ internal fun WelcomeAuthScreenContent(
             )
         }
 
-        // Confetti Layer - Only active on Welcome screen
-        if (mode == AuthMode.Welcome) {
-            val confettiContainerId = remember { android.view.View.generateViewId() }
-            AndroidView(
-                factory = { ctx ->
-                    android.util.Log.d("WelcomeAuthScreen", "Creating confetti layer wrapper")
-                    android.widget.FrameLayout(ctx).apply {
-                        id = confettiContainerId
-                        setBackgroundColor(0)
-                        background = null
-                        isClickable = false
-                        isFocusable = false
-
-                        val fragmentActivity = ctx as? FragmentActivity
-                        fragmentActivity?.supportFragmentManager?.beginTransaction()
-                            ?.replace(id, ConfettiAnimationFragment())
-                            ?.commitAllowingStateLoss()
-                    }
-                },
+        // Mute button in top left
+        IconButton(
+            onClick = { isMuted = !isMuted },
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(12.dp)
+                .zIndex(50f)
+        ) {
+            // White circle behind the pink icon — matches iOS PoplurMuteButton.
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(0.5f),
-                update = { view ->
-                    view.setBackgroundColor(0)
-                    view.background = null
-                }
+                    .size(44.dp)
+                    .background(Color.White, androidx.compose.foundation.shape.CircleShape)
+                    .border(1.5.dp, Color.Black.copy(alpha = 0.08f), androidx.compose.foundation.shape.CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isMuted) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
+                    contentDescription = "Mute",
+                    tint = Color(0xFFFF2D8E), // Branding color
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        // iOS SignUpView uses a plain white background (no pink ticket card), so only
+        // draw the ticket panel for Welcome/Login to match. The white fill stops short of
+        // the bottom so the decorative persistent cube (rendered behind Compose) still shows
+        // through, matching Welcome/Login's reserved bottom clearance.
+        if (mode == AuthMode.SignUp) {
+            Box(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .fillMaxWidth()
+                    .height((maxHeight - 260.dp).coerceAtLeast(0.dp))
+                    .background(Color.White)
+            )
+        } else {
+            TicketPanel(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .zIndex(1f)
+                    .fillMaxWidth()
+                    .fillMaxHeight()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .offset { IntOffset(0, bannerOffsetY.value.roundToInt()) }
+                    .padding(
+                        start = authLayout.ticketHorizontalInset,
+                        end = authLayout.ticketHorizontalInset,
+                        top = authLayout.ticketTopInset,
+                        bottom = authLayout.ticketBottomInset
+                    )
             )
         }
 
-        TicketPanel(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .zIndex(1f)
-                .then(
-                    if (mode == AuthMode.Welcome) {
-                        val ticketProgress by animateFloatAsState(
-                            targetValue = if (welcomeAnimationStarted) 1f else 0f,
-                            animationSpec = tween(durationMillis = 520),
-                            label = "welcomeTicket"
-                        )
-                        Modifier.graphicsLayer {
-                            transformOrigin = TransformOrigin(0.5f, 0f)
-                            scaleY = 0.46f + (0.54f * ticketProgress)
-                            alpha = 0.68f + (0.32f * ticketProgress)
-                        }
-                    } else {
-                        Modifier
-                    }
-                )
-                .fillMaxWidth()
-                .fillMaxHeight()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(
-                    start = authLayout.ticketHorizontalInset,
-                    end = authLayout.ticketHorizontalInset,
-                    top = authLayout.ticketTopInset,
-                    bottom = authLayout.ticketBottomInset
-                )
-        )
-
         if (mode == AuthMode.Welcome) {
-            Box(Modifier.fillMaxSize().zIndex(2f)) {
+            Box(Modifier.fillMaxSize().zIndex(3f)) {
                 WelcomeTicketContent(
                     logoBitmap = logoBitmap,
                     layout = authLayout,
-                    animationStarted = welcomeAnimationStarted,
+                    logoScale = logoScale.value,
+                    buttonsAlpha = buttonsAlpha.value,
                     onSignIn = { mode = AuthMode.Login },
                     onCreateAccount = { mode = AuthMode.SignUp }
                 )
             }
         } else if (mode == AuthMode.Login) {
-            Box(Modifier.fillMaxSize().zIndex(2f)) {
+            Box(Modifier.fillMaxSize().zIndex(3f)) {
                 LoginTicketContent(
                     logoBitmap = logoBitmap,
                     email = email,
@@ -197,42 +334,92 @@ internal fun WelcomeAuthScreenContent(
                     layout = authLayout,
                     onEmailChange = { email = it },
                     onPasswordChange = { password = it },
-                    onBack = {
-                        error = null
-                        mode = AuthMode.Welcome
-                    },
                     onSubmit = {
-                        loading = true
-                        error = null
-                        onSignIn(email, password) { ok, msg ->
-                            loading = false
-                            if (!ok) error = msg
+                        if (email.isBlank() || password.isBlank()) {
+                            error = "Enter an email and password."
+                        } else {
+                            loading = true
+                            error = null
+                            onSignIn(email, password) { ok, msg ->
+                                loading = false
+                                if (!ok) error = msg
+                            }
                         }
                     }
                 )
             }
         } else {
-            Box(Modifier.fillMaxSize().zIndex(2f)) {
+            Box(Modifier.fillMaxSize().zIndex(3f)) {
                 BusinessSignupTicketContent(
                     logoBitmap = logoBitmap,
                     error = error,
                     loading = loading,
                     layout = authLayout,
-                    onBack = {
-                        error = null
-                        mode = AuthMode.Welcome
-                    },
+                    onBack = { error = null; mode = AuthMode.Welcome },
                     onSubmit = { signupEmail, signupPassword, signupAccountType, businessProfile ->
                         loading = true
                         error = null
                         onSignUp(signupEmail, signupPassword, signupAccountType, businessProfile) { ok, msg ->
                             loading = false
-                            if (!ok) error = msg
+                            if (!ok) error = msg else onSignUpSuccess()
                         }
                     },
-                    onValidationError = { error = it }
+                    onValidationError = { error = it },
+                    onLabelChange = onLabelChange,
+                    onBackAvailable = onBackAvailable
                 )
             }
+        }
+
+        // Poplur AI is HEARD, not seen (matches iOS): no visible guide card — it only speaks the
+        // greeting via TextToSpeech (see the AuthMode TTS LaunchedEffect above).
+
+        ErrorBanner(
+            message = error,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .zIndex(20f)
+        )
+
+        if (stripeVisible.value) {
+            StripeTransitionOverlay(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(100f),
+                onMidpoint = {
+                    stripeMidpoint.value?.invoke()
+                    stripeMidpoint.value = null
+                },
+                onComplete = { stripeVisible.value = false }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ErrorBanner(message: String?, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = message != null,
+        modifier = modifier,
+        enter = slideInVertically(initialOffsetY = { -it * 2 }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { -it * 2 }) + fadeOut()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(horizontal = 28.dp)
+                .padding(top = 12.dp)
+                .fillMaxWidth()
+        ) {
+            Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFF2D96))
+            Text(
+                message.orEmpty(),
+                color = Color(0xFFFF2D96),
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
         }
     }
 }
@@ -241,21 +428,11 @@ internal fun WelcomeAuthScreenContent(
 private fun WelcomeTicketContent(
     logoBitmap: androidx.compose.ui.graphics.ImageBitmap?,
     layout: AuthLayoutMetrics,
-    animationStarted: Boolean,
     onSignIn: () -> Unit,
-    onCreateAccount: () -> Unit
+    onCreateAccount: () -> Unit,
+    logoScale: Float = 1f,
+    buttonsAlpha: Float = 1f
 ) {
-    val logoProgress by animateFloatAsState(
-        targetValue = if (animationStarted) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.68f, stiffness = 135f),
-        label = "welcomeLogo"
-    )
-    val buttonProgress by animateFloatAsState(
-        targetValue = if (animationStarted) 1f else 0f,
-        animationSpec = tween(durationMillis = 420, delayMillis = 260),
-        label = "welcomeButton"
-    )
-
     Box(
         Modifier
             .fillMaxSize()
@@ -269,63 +446,83 @@ private fun WelcomeTicketContent(
                 .padding(top = layout.welcomeLogoTop)
                 .size(layout.logoSize)
                 .graphicsLayer {
-                    alpha = logoProgress
-                    scaleX = 0.82f + (0.18f * logoProgress)
-                    scaleY = 0.82f + (0.18f * logoProgress)
-                    translationY = (1f - logoProgress) * 36f
+                    scaleX = logoScale
+                    scaleY = logoScale
                 }
-        )
-
-        AuthCubeOverlay(
-            label = "Welcome",
-            selectedTabIndex = 0,
-            enabled = false,
-            onTap = {}
         )
 
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = layout.welcomeButtonTop)
-                .graphicsLayer {
-                    alpha = buttonProgress
-                    scaleX = 0.88f + (0.12f * buttonProgress)
-                    scaleY = 0.88f + (0.12f * buttonProgress)
-                    translationY = (1f - buttonProgress) * 28f
-                },
+                .alpha(buttonsAlpha),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Button(
-                onClick = onSignIn,
+            // Pill button with black shadow/border matching screenshot
+            Box(
                 modifier = Modifier
                     .width(layout.welcomeButtonWidth)
-                    .height(layout.welcomeButtonHeight),
-                shape = RoundedCornerShape(layout.welcomeButtonHeight / 2f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White,
-                    contentColor = Color.Black
-                ),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 10.dp, pressedElevation = 4.dp)
+                    .height(layout.welcomeButtonHeight + 8.dp)
+                    .clickable { onSignIn() }
             ) {
-                Text("Sign In", fontWeight = FontWeight.Black, fontSize = layout.welcomeButtonTextSize.sp)
+                // Bottom shadow (black extrusion)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(layout.welcomeButtonHeight)
+                        .offset(y = 8.dp)
+                        .background(Color.Black, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
+                )
+                // Main white button surface
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(layout.welcomeButtonHeight)
+                        .background(Color.White, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
+                        .border(1.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(layout.welcomeButtonHeight / 2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Sign In",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Black,
+                        fontSize = (layout.welcomeButtonTextSize * 1.05f).sp
+                    )
+                }
             }
-            OutlinedButton(
-                onClick = onCreateAccount,
+
+            // Sign Up button
+            Box(
                 modifier = Modifier
-                    .width(layout.welcomeButtonWidth)
-                    .height((layout.welcomeButtonHeight * 0.86f).coerceAtLeast(50.dp)),
-                shape = RoundedCornerShape(layout.welcomeButtonHeight / 2f),
-                border = BorderStroke(2.dp, Color.White.copy(alpha = 0.86f)),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = Color.White
-                )
+                    .width(layout.welcomeButtonWidth * 0.88f)
+                    .height((layout.welcomeButtonHeight * 0.84f) + 4.dp)
+                    .clickable { onCreateAccount() }
             ) {
-                Text(
-                    "Sign Up",
-                    fontWeight = FontWeight.Black,
-                    fontSize = (layout.welcomeButtonTextSize * 0.82f).sp
+                // Bottom shadow (black extrusion) — matches Sign In / iOS
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(layout.welcomeButtonHeight * 0.84f)
+                        .offset(y = 4.dp)
+                        .background(Color.Black, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
                 )
+                // Main white surface — iOS shows Sign Up solid white with black text, like Sign In
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(layout.welcomeButtonHeight * 0.84f)
+                        .background(Color.White, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
+                        .border(1.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(layout.welcomeButtonHeight / 2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Sign Up",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Black,
+                        fontSize = (layout.welcomeButtonTextSize * 0.8f).sp
+                    )
+                }
             }
         }
     }
@@ -342,7 +539,6 @@ private fun LoginTicketContent(
     layout: AuthLayoutMetrics,
     onEmailChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
-    onBack: () -> Unit,
     onSubmit: () -> Unit
 ) {
     Box(
@@ -357,13 +553,6 @@ private fun LoginTicketContent(
                 .align(Alignment.TopCenter)
                 .padding(top = layout.loginLogoTop)
                 .size(layout.logoSize)
-        )
-
-        AuthCubeOverlay(
-            label = "Login",
-            selectedTabIndex = 0,
-            enabled = false,
-            onTap = {}
         )
 
         Box(
@@ -428,10 +617,17 @@ private fun BusinessSignupTicketContent(
     layout: AuthLayoutMetrics,
     onBack: () -> Unit,
     onSubmit: (String, String, AccountType, BusinessProfile?) -> Unit,
-    onValidationError: (String?) -> Unit
+    onValidationError: (String?) -> Unit,
+    onLabelChange: (String) -> Unit = {},
+    onBackAvailable: ((() -> Unit)?) -> Unit = {}
 ) {
     var signupStep by rememberSaveable { mutableStateOf(0) }
     var cubeSpinToken by rememberSaveable { mutableStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        onLabelChange("back")
+    }
+
     var selectedAccountType by rememberSaveable { mutableStateOf(AccountType.User.wireValue) }
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
@@ -572,6 +768,13 @@ private fun BusinessSignupTicketContent(
         }
     }
 
+    LaunchedEffect(signupStep) {
+        // The persistent cube's "back" face doubles as the back button here too.
+        onBackAvailable {
+            if (signupStep == 0) onBack() else stepBack()
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -586,15 +789,6 @@ private fun BusinessSignupTicketContent(
                 .padding(top = 24.dp, bottom = 190.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = {
-                    if (signupStep == 0) onBack() else stepBack()
-                }) {
-                    Text("Back", color = Color.White, fontWeight = FontWeight.Black)
-                }
-                Spacer(Modifier.weight(1f))
-            }
-
             WelcomeLogo(
                 logoBitmap = logoBitmap,
                 modifier = Modifier.size((layout.logoSize * 0.58f).coerceIn(116.dp, 150.dp))
@@ -602,13 +796,13 @@ private fun BusinessSignupTicketContent(
             Spacer(Modifier.height(12.dp))
             Text(
                 signupStepTitle(signupStep),
-                color = Color.White,
+                color = Color.Black,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Black
             )
             Text(
                 signupStepSubtitle(signupStep, accountType),
-                color = Color.White.copy(alpha = 0.78f),
+                color = Color.Black.copy(alpha = 0.78f),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -675,7 +869,7 @@ private fun BusinessSignupTicketContent(
                         onClick = { verificationRequested = true },
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                         shape = RoundedCornerShape(26.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Black, contentColor = Color.White)
                     ) {
                         Text(
                             if (verificationRequested) "Verification Requested" else "Verify My Business",
@@ -685,17 +879,21 @@ private fun BusinessSignupTicketContent(
 
                     if (verificationRequested) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = acceptedTerms, onCheckedChange = { acceptedTerms = it })
+                            Checkbox(
+                                checked = acceptedTerms, 
+                                onCheckedChange = { acceptedTerms = it },
+                                colors = CheckboxDefaults.colors(checkedColor = Color.Black, uncheckedColor = Color.Black)
+                            )
                             Text(
                                 "I agree that major changes to name, address, or ownership can trigger re-verification.",
-                                color = Color.White,
+                                color = Color.Black,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                         Text(
                             "Choose proof methods",
-                            color = Color.White.copy(alpha = 0.78f),
+                            color = Color.Black.copy(alpha = 0.78f),
                             fontWeight = FontWeight.Black,
                             fontSize = 12.sp
                         )
@@ -708,17 +906,18 @@ private fun BusinessSignupTicketContent(
                                     .clickable {
                                         setVerificationMethod(method, !checked)
                                     }
-                                    .background(Color.White.copy(alpha = 0.12f))
+                                    .background(Color.Black.copy(alpha = 0.05f))
                                     .padding(horizontal = 8.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Checkbox(
                                     checked = checked,
-                                    onCheckedChange = { setVerificationMethod(method, it) }
+                                    onCheckedChange = { setVerificationMethod(method, it) },
+                                    colors = CheckboxDefaults.colors(checkedColor = Color.Black, uncheckedColor = Color.Black)
                                 )
                                 Text(
                                     method.label,
-                                    color = Color.White,
+                                    color = Color.Black,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -740,28 +939,23 @@ private fun BusinessSignupTicketContent(
                             }
                             Text(
                                 status.label,
-                                color = if (active) Color.Black else Color.White,
+                                color = if (active) Color.White else Color.Black,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Black,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(999.dp))
-                                    .background(if (active) Color.White else Color.White.copy(alpha = 0.14f))
+                                    .background(if (active) Color.Black else Color.Black.copy(alpha = 0.05f))
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             )
                         }
                     }
                     Text(
                         "Approved businesses show a verified badge and unlock business-only features. Rejected businesses can see the reason and resubmit proof.",
-                        color = Color.White.copy(alpha = 0.74f),
+                        color = Color.Black.copy(alpha = 0.74f),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
-            }
-
-            error?.let {
-                Spacer(Modifier.height(8.dp))
-                Text(it, color = Color.White, fontWeight = FontWeight.Black)
             }
 
             Spacer(Modifier.height(16.dp))
@@ -771,10 +965,10 @@ private fun BusinessSignupTicketContent(
                 modifier = Modifier.fillMaxWidth().height(58.dp),
                 shape = RoundedCornerShape(29.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White,
-                    contentColor = Color.Black,
-                    disabledContainerColor = Color.White.copy(alpha = 0.72f),
-                    disabledContentColor = Color.Black.copy(alpha = 0.5f)
+                    containerColor = Color.Black,
+                    contentColor = Color.White,
+                    disabledContainerColor = Color.Black.copy(alpha = 0.72f),
+                    disabledContentColor = Color.White.copy(alpha = 0.5f)
                 )
             ) {
                 Text(
@@ -784,38 +978,7 @@ private fun BusinessSignupTicketContent(
                 )
             }
         }
-
-        AuthCubeOverlay(
-            label = signupStepTitle(signupStep),
-            selectedTabIndex = cubeSpinToken % 4,
-            enabled = !loading,
-            onTap = { advanceSignup() }
-        )
     }
-}
-
-@Composable
-private fun AuthCubeOverlay(
-    label: String,
-    selectedTabIndex: Int,
-    enabled: Boolean,
-    onTap: () -> Unit
-) {
-    PersistentCubeOverlay(
-        selectedTabIndex = selectedTabIndex.coerceIn(0, 3),
-        mapCubeFaceTitle = label,
-        cameraCubeFaceTitle = label,
-        feedCubeFaceTitle = label,
-        profileCubeIconTitle = label,
-        cubeSkin = GdxState.selectedCubeSkin,
-        isInteractive = enabled,
-        onTap = onTap,
-        onTabSelected = {},
-        onVerticalSwipe = {},
-        onLongPress = {},
-        onLongPressMove = { _, _ -> },
-        onLongPressEnd = {}
-    )
 }
 
 @Composable
@@ -825,17 +988,19 @@ private fun SignupAccountTypeCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    val accent = if (title == "Business") Color(0xFFFF2D96) else Color(0xFF34C759)
     Box(
         modifier = modifier
             .height(58.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(if (selected) Color.White else Color.White.copy(alpha = 0.16f))
+            .background(if (selected) accent.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.04f))
+            .border(1.5.dp, accent.copy(alpha = if (selected) 0.7f else 0.3f), RoundedCornerShape(18.dp))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
             title,
-            color = if (selected) Color.Black else Color.White,
+            color = Color.Black,
             fontWeight = FontWeight.Black,
             fontSize = 18.sp
         )
@@ -849,11 +1014,11 @@ private fun SignupSection(title: String, content: @Composable ColumnScope.() -> 
             .fillMaxWidth()
             .padding(top = 16.dp)
             .clip(RoundedCornerShape(22.dp))
-            .background(Color.Black.copy(alpha = 0.16f))
+            .background(Color.Black.copy(alpha = 0.05f))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(title, color = Color.White, fontWeight = FontWeight.Black, fontSize = 18.sp)
+        Text(title, color = Color.Black, fontWeight = FontWeight.Black, fontSize = 18.sp)
         content()
     }
 }
@@ -871,22 +1036,22 @@ private fun SignupTextField(
         value = value,
         onValueChange = onValueChange,
         placeholder = {
-            Text(placeholder, color = Color.White.copy(alpha = 0.54f), fontWeight = FontWeight.Bold)
+            Text(placeholder, color = Color.Black.copy(alpha = 0.36f), fontWeight = FontWeight.Bold)
         },
         singleLine = singleLine,
         minLines = if (singleLine) 1 else 3,
         visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
-        textStyle = LocalTextStyle.current.copy(color = Color.White, fontWeight = FontWeight.Bold),
+        textStyle = LocalTextStyle.current.copy(color = Color.Black, fontWeight = FontWeight.Bold),
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedTextColor = Color.White,
-            unfocusedTextColor = Color.White,
-            focusedBorderColor = Color.White,
-            unfocusedBorderColor = Color.White.copy(alpha = 0.32f),
-            focusedContainerColor = Color.White.copy(alpha = 0.08f),
-            unfocusedContainerColor = Color.White.copy(alpha = 0.08f),
-            cursorColor = Color.White
+            focusedTextColor = Color.Black,
+            unfocusedTextColor = Color.Black,
+            focusedBorderColor = Color.Black,
+            unfocusedBorderColor = Color.Black.copy(alpha = 0.32f),
+            focusedContainerColor = Color.Black.copy(alpha = 0.04f),
+            unfocusedContainerColor = Color.Black.copy(alpha = 0.04f),
+            cursorColor = Color.Black
         )
     )
 }
@@ -902,14 +1067,14 @@ private fun SignupMapLocationPreview(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.12f))
+            .background(Color.Black.copy(alpha = 0.05f))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text("Map location", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
-        Text(businessName, color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
-        Text(address.ifBlank { "Add an address so Poplur can place this business on the map." }, color = Color.White.copy(alpha = 0.74f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        Text("${latitude.ifBlank { "lat" }}, ${longitude.ifBlank { "lng" }}", color = Color.White.copy(alpha = 0.74f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text("Map location", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 13.sp)
+        Text(businessName, color = Color.Black, fontWeight = FontWeight.Black, fontSize = 16.sp)
+        Text(address.ifBlank { "Add an address so Poplur can place this business on the map." }, color = Color.Black.copy(alpha = 0.74f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text("${latitude.ifBlank { "lat" }}, ${longitude.ifBlank { "lng" }}", color = Color.Black.copy(alpha = 0.74f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
     }
 }
 
@@ -1030,25 +1195,38 @@ private fun validateSignup(
 @Composable
 private fun TicketPanel(modifier: Modifier = Modifier) {
     Canvas(modifier) {
-        val panelColor = Color(0xFFF84C86)
-        val dotColor = Color.White.copy(alpha = 0.18f)
-        val corner = 22.dp.toPx()
+        val panelColor = Color(0xFFFF2D8E) // Vibrant pink matching screenshot
+        val dotColor = Color.White.copy(alpha = 0.22f)
+        val corner = 24.dp.toPx()
         val bottomRadius = 14.dp.toPx()
         val bottomStep = 42.dp.toPx()
 
+        // Background with subtle vertical gradient for "metallic/glass" depth
         drawRoundRect(
-            color = panelColor,
+            brush = Brush.verticalGradient(
+                colors = listOf(Color(0xFFFF4B9B), panelColor),
+                startY = 0f,
+                endY = size.height
+            ),
             topLeft = Offset.Zero,
             size = size,
             cornerRadius = CornerRadius(corner, corner)
         )
 
-        val dotRadius = 5.5.dp.toPx()
-        val dotGap = 21.dp.toPx()
-        var y = 38.dp.toPx()
-        while (y < size.height - 80.dp.toPx()) {
-            var x = 38.dp.toPx()
-            while (x < size.width - 38.dp.toPx()) {
+        // Glass highlight at the top
+        drawRoundRect(
+            color = Color.White.copy(alpha = 0.15f),
+            topLeft = Offset(8.dp.toPx(), 8.dp.toPx()),
+            size = Size(size.width - 16.dp.toPx(), 4.dp.toPx()),
+            cornerRadius = CornerRadius(2.dp.toPx())
+        )
+
+        val dotRadius = 5.dp.toPx()
+        val dotGap = 20.dp.toPx()
+        var y = 36.dp.toPx()
+        while (y < size.height - 84.dp.toPx()) {
+            var x = 36.dp.toPx()
+            while (x < size.width - 36.dp.toPx()) {
                 drawCircle(dotColor, dotRadius, Offset(x, y))
                 x += dotGap
             }
@@ -1060,17 +1238,18 @@ private fun TicketPanel(modifier: Modifier = Modifier) {
             drawCircle(
                 color = Color.White,
                 radius = bottomRadius,
-                center = Offset(scallopX, size.height + bottomRadius * 0.15f)
+                center = Offset(scallopX, size.height + bottomRadius * 0.2f)
             )
             scallopX += bottomStep
         }
 
+        // Inner glass border
         drawRoundRect(
-            color = Color.White.copy(alpha = 0.16f),
+            color = Color.White.copy(alpha = 0.25f),
             topLeft = Offset(1.5.dp.toPx(), 1.5.dp.toPx()),
             size = Size(size.width - 3.dp.toPx(), size.height - 3.dp.toPx()),
             cornerRadius = CornerRadius(corner, corner),
-            style = Stroke(width = 1.5.dp.toPx())
+            style = Stroke(width = 1.8f.dp.toPx())
         )
     }
 }
@@ -1102,7 +1281,6 @@ private fun LoginFields(
             { Text("FORGOT", color = Color.White, fontSize = layout.forgotTextSize.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp) },
             PasswordVisualTransformation()
         )
-        error?.let { Text(it, color = Color.White, modifier = Modifier.padding(top = 10.dp), fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -1138,16 +1316,28 @@ private fun Dp.safeCoerceIn(minV: Dp, maxV: Dp): Dp = coerceIn(minOf(minV, maxV)
 
 private class AuthLayoutMetrics(screenWidth: Dp, screenHeight: Dp, mode: AuthMode) {
     val scale = (minOf(screenWidth.coerceAtMost(430.dp)/430.dp, screenHeight/932.dp)).coerceIn(0.86f, 1.18f)
-    val ticketHorizontalInset = (screenWidth * 0.074f).coerceIn(24.dp, 44.dp)
-    val ticketTopInset = if (mode == AuthMode.Welcome) (screenHeight * 0.123f).coerceIn(88.dp, 132.dp) else (screenHeight * 0.171f).coerceIn(150.dp, 188.dp)
-    val ticketBottomInset = if (mode == AuthMode.Welcome) (screenHeight * 0.123f).coerceIn(88.dp, 132.dp) else (screenHeight * 0.096f).coerceIn(72.dp, 108.dp)
-    val logoSize = (screenWidth * 0.46f).coerceIn(186.dp, 232.dp)
+    val ticketHorizontalInset = (screenWidth * 0.05f).coerceIn(16.dp, 32.dp)
+    val ticketTopInset = if (mode == AuthMode.Welcome) 48.dp else 100.dp
+    // Ticket should fill more vertical space. Decrease bottom inset.
+    val ticketBottomInset = (if (mode == AuthMode.Welcome) 80.dp else 120.dp)
+    val logoSize = (screenWidth * 0.48f).coerceIn(200.dp, 240.dp)
     val ticketHeight = (screenHeight - ticketTopInset - ticketBottomInset).coerceAtLeast(1.dp)
-    val welcomeLogoTop = (ticketTopInset + (ticketHeight * 0.145f)).safeCoerceIn(ticketTopInset + 38.dp, ticketTopInset + 82.dp)
-    val welcomeButtonTop = (ticketTopInset + (ticketHeight * 0.655f)).safeCoerceIn(ticketTopInset + (ticketHeight * 0.54f), ticketTopInset + ticketHeight - 146.dp)
-    val welcomeButtonWidth = (screenWidth * 0.34f).coerceIn(172.dp, 206.dp)
-    val welcomeButtonHeight = (64.dp * scale).coerceIn(58.dp, 70.dp)
+    val welcomeLogoTop = (ticketTopInset + 40.dp).safeCoerceIn(ticketTopInset + 20.dp, ticketTopInset + 80.dp)
+
+    val welcomeButtonWidth = (screenWidth * 0.36f).coerceIn(180.dp, 220.dp)
+    val welcomeButtonHeight = (64.dp * scale).coerceIn(60.dp, 72.dp)
     val welcomeButtonTextSize = (22f * scale).coerceIn(20f, 24f)
+
+    // Equal gap above and below the Sign In / Sign Up pair: logo↔buttons == buttons↔cube.
+    // Logo bottom is approx welcomeLogoTop + logoSize.
+    // Cube top is approx screenHeight - 274dp (based on CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP=174 and size=200).
+    val cubeTop = screenHeight - 274.dp
+    val logoBottom = welcomeLogoTop + logoSize
+    // Sign In (height + 8dp shadow) + 16dp column spacing + Sign Up (height * 0.84 + 4dp shadow) —
+    // see WelcomeTicketContent. Was a flat "-40.dp" fudge that under-corrected by ~30-40dp,
+    // pushing the button pair too close to the cube and leaving too much room below the logo.
+    val welcomeButtonColumnHeight = welcomeButtonHeight * 1.84f + 28.dp
+    val welcomeButtonTop = (logoBottom + cubeTop - welcomeButtonColumnHeight) / 2f
     val backButtonStart = (screenWidth * 0.068f).coerceIn(24.dp, 34.dp); val backButtonTop = (screenHeight * 0.073f).coerceIn(66.dp, 84.dp); val backButtonSize = (68.dp * scale).coerceIn(60.dp, 74.dp); val backIconSize = (38.dp * scale).coerceIn(34.dp, 42.dp)
     val formHorizontalInset = (screenWidth * 0.122f).coerceIn(44.dp, 58.dp); val loginLogoTop = (screenHeight * 0.202f).coerceIn(184.dp, 218.dp); val submitButtonHeight = (screenHeight * 0.102f).coerceIn(88.dp, 106.dp); val fieldGap = (screenHeight * 0.028f).coerceIn(22.dp, 30.dp); val fieldHeight = (58.dp * scale).coerceIn(52.dp, 64.dp)
     val submitButtonTop = (ticketTopInset + ticketHeight - submitButtonHeight - (ticketHeight * 0.075f)).safeCoerceIn(ticketTopInset + (ticketHeight * 0.68f), ticketTopInset + ticketHeight - submitButtonHeight - 34.dp)
@@ -1157,12 +1347,321 @@ private class AuthLayoutMetrics(screenWidth: Dp, screenHeight: Dp, mode: AuthMod
 }
 
 @Composable
-private fun WelcomeLogo(logoBitmap: androidx.compose.ui.graphics.ImageBitmap?, modifier: Modifier) { if (logoBitmap != null) Image(bitmap = logoBitmap, contentDescription = "Poplur", modifier = modifier) else LogoFallback(modifier) }
+private fun WelcomeLogo(logoBitmap: androidx.compose.ui.graphics.ImageBitmap?, modifier: Modifier) {
+    // Matches iOS's SKAction float loop: amplitude 10pt, 2.6s period, ease in/out, forever.
+    val infiniteTransition = rememberInfiniteTransition(label = "welcomeLogoAnim")
+    val floatProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1300, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "float"
+    )
+
+    Box(modifier = modifier.graphicsLayer {
+        translationY = -10f * floatProgress
+    }, contentAlignment = Alignment.Center) {
+        if (logoBitmap != null) {
+            Image(bitmap = logoBitmap, contentDescription = "Poplur", modifier = Modifier.fillMaxSize())
+        } else {
+            LogoFallback(Modifier.fillMaxSize())
+        }
+    }
+}
 
 @Composable
 private fun LogoFallback(modifier: Modifier) { Surface(modifier = modifier.clip(RoundedCornerShape(42.dp)), color = Color(0xFF2A1238)) { Box(contentAlignment = Alignment.Center) { Text(text = "P", color = Color.White, fontSize = 92.sp, fontWeight = FontWeight.Bold) } } }
 
 internal enum class AuthMode { Welcome, Login, SignUp }
+
+// MARK: - Auth AI guide
+
+private fun authGuideGreeting(mode: AuthMode) = when (mode) {
+    AuthMode.Welcome -> "Welcome to Poplur — every post has a reach radius you control, from your block to the whole planet. Tap Sign Up to join, or Sign In to come back."
+    AuthMode.Login -> "Good to have you back. Enter your email and password. Tap FORGOT if you need a reset."
+    AuthMode.SignUp -> "Let's get you set up. Choose personal for your own posts, or business if you represent a brand."
+}
+
+private fun authGuideSystemPrompt(mode: AuthMode) = when (mode) {
+    AuthMode.Welcome -> "You are Poplur's onboarding guide. Poplur is a location-based social app — every post has a radius that controls how far it reaches. Answer in 1-2 warm, friendly sentences."
+    AuthMode.Login -> "You are Poplur's sign-in helper. The user is logging in with email and password. If stuck, they can tap FORGOT to reset. Answer in 1-2 sentences."
+    AuthMode.SignUp -> "You are Poplur's sign-up guide. Personal accounts are for individual creators; business accounts unlock brand features. Answer in 1-2 friendly sentences."
+}
+
+private suspend fun callClaudeForAuth(mode: AuthMode, question: String): String {
+    return withContext(Dispatchers.IO) {
+        runCatching {
+            val key = Secrets.claudeApiKey
+            val url = URL("https://api.anthropic.com/v1/messages")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("x-api-key", key)
+            conn.setRequestProperty("anthropic-version", "2023-06-01")
+            conn.setRequestProperty("content-type", "application/json")
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
+            conn.doOutput = true
+            val body = JSONObject().apply {
+                put("model", "claude-haiku-4-5-20251001")
+                put("max_tokens", 80)
+                put("system", authGuideSystemPrompt(mode))
+                put("messages", JSONArray().put(JSONObject().apply {
+                    put("role", "user")
+                    put("content", question)
+                }))
+            }.toString()
+            conn.outputStream.use { it.write(body.toByteArray()) }
+            val response = conn.inputStream.bufferedReader().readText()
+            JSONObject(response)
+                .getJSONArray("content")
+                .getJSONObject(0)
+                .getString("text")
+        }.getOrDefault(authGuideGreeting(mode))
+    }
+}
+
+@Composable
+private fun TypingDotsIndicator() {
+    val transition = rememberInfiniteTransition(label = "dots")
+    val phase by transition.animateFloat(
+        initialValue = 0f, targetValue = 3f,
+        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Restart),
+        label = "phase"
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+        for (i in 0..2) {
+            val alpha = if (phase.toInt() == i) 1f else 0.28f
+            Box(
+                Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = alpha))
+            )
+        }
+    }
+}
+
+@Composable
+private fun AuthAIGuide(mode: AuthMode, modifier: Modifier = Modifier) {
+    val brand = Color(0xFFFF2D96)
+    val coroutineScope = rememberCoroutineScope()
+
+    var displayedText by remember(mode) { mutableStateOf("") }
+    var isTyping by remember(mode) { mutableStateOf(false) }
+    var isExpanded by remember { mutableStateOf(false) }
+    var userInput by remember { mutableStateOf("") }
+    var isAwaiting by remember { mutableStateOf(false) }
+    var typingJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
+    fun typeText(text: String, charDelayMs: Long = 22L) {
+        typingJob?.cancel()
+        typingJob = coroutineScope.launch {
+            try {
+                isTyping = true
+                for (char in text) {
+                    displayedText += char
+                    delay(charDelayMs)
+                }
+            } finally {
+                isTyping = false
+            }
+        }
+    }
+
+    LaunchedEffect(mode) {
+        displayedText = ""
+        isTyping = false
+        typeText(authGuideGreeting(mode))
+    }
+
+    fun sendQuestion() {
+        val q = userInput.trim()
+        if (q.isEmpty() || isAwaiting) return
+        userInput = ""
+        isExpanded = false
+        isAwaiting = true
+        typingJob?.cancel()
+        displayedText = ""
+        coroutineScope.launch {
+            val answer = callClaudeForAuth(mode, q)
+            isAwaiting = false
+            typeText(answer, 18L)
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(brand)
+            .clickable { isExpanded = !isExpanded }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            // P avatar
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.22f))
+            ) {
+                Text("P", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (isAwaiting) {
+                    TypingDotsIndicator()
+                } else {
+                    val cursor = if (isTyping) "▎" else ""
+                    Text(
+                        text = displayedText + cursor,
+                        color = Color.White,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 5
+                    )
+                }
+
+                if (isExpanded) {
+                    Spacer(Modifier.height(2.dp))
+                    Box(Modifier.fillMaxWidth().height(0.5.dp).background(Color.White.copy(alpha = 0.25f)))
+                    Spacer(Modifier.height(2.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        BasicTextField(
+                            value = userInput,
+                            onValueChange = { userInput = it },
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Normal
+                            ),
+                            cursorBrush = Brush.verticalGradient(listOf(Color.White, Color.White)),
+                            decorationBox = { inner ->
+                                if (userInput.isEmpty()) {
+                                    Text("Ask a question…", color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp)
+                                }
+                                inner()
+                            },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        IconButton(
+                            onClick = { sendQuestion() },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Text("↑", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                        }
+                    }
+                }
+            }
+
+            if (!isExpanded) {
+                Text("∨", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+// MARK: - Stripe page-transition overlay
+
+@Composable
+internal fun GoldConfettiEffect() {
+    val particleCount = 55
+    val angles  = remember { FloatArray(particleCount) { Random.nextFloat() * 360f } }
+    val speeds  = remember { FloatArray(particleCount) { Random.nextFloat() * 2.5f + 1.2f } }
+    val sizes   = remember { FloatArray(particleCount) { Random.nextFloat() * 12f + 6f } }
+
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        progress.animateTo(1f, tween(1600, easing = LinearEasing))
+    }
+
+    val t = progress.value
+    Canvas(Modifier.fillMaxSize()) {
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        val gold = Color(1f, 0.82f, 0.18f)
+
+        for (i in 0 until particleCount) {
+            val rad = angles[i] * PI.toFloat() / 180f
+            val dist = speeds[i] * t * size.width * 0.7f
+            val x = cx + cos(rad) * dist
+            val y = cy + sin(rad) * dist
+            val alpha = (1f - t * 0.8f).coerceAtLeast(0f)
+            val sz = sizes[i] * (1f - t * 0.4f)
+            drawRect(
+                color = gold.copy(alpha = alpha),
+                topLeft = Offset(x - sz / 2, y - sz / 2),
+                size = Size(sz, sz)
+            )
+        }
+    }
+}
+
+@Composable
+internal fun StripeTransitionOverlay(
+    modifier: Modifier = Modifier,
+    onMidpoint: () -> Unit,
+    onComplete: () -> Unit
+) {
+    val context = LocalContext.current
+    val onMidpointState = rememberUpdatedState(onMidpoint)
+    val onCompleteState = rememberUpdatedState(onComplete)
+
+    val player = remember {
+        ExoPlayer.Builder(context).build().apply {
+            val uri = android.net.Uri.parse(
+                "android.resource://${context.packageName}/raw/auth_transition"
+            )
+            setMediaItem(MediaItem.fromUri(uri))
+            prepare()
+            play()
+        }
+    }
+
+    // Fire midpoint at 3 s — screen visually covered by the opening of the effect
+    LaunchedEffect(Unit) {
+        delay(3_000)
+        onMidpointState.value()
+    }
+
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    onCompleteState.value()
+                }
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            player.removeListener(listener)
+            player.release()
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                this.player = player
+                useController = false
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            }
+        },
+        modifier = modifier
+    )
+}
 
 @Preview(showBackground = true)
 @Composable
