@@ -489,6 +489,14 @@ fun FeedScreen(
             }
         }
 
+        // Periodic 3D Poplur logo "channel bug" that swoops onto the video and fades away.
+        FeedChannelLogoBug(
+            isActive = isVisible,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .zIndex(88f)
+        )
+
         if (!homeChromeInactive) {
             // 2. Top Overlay (Animated User Data)
             AnimatedContent(
@@ -852,6 +860,70 @@ private fun FeedEntryLogoPop() {
                 color = Color.White,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Black
+            )
+        }
+    }
+}
+
+/**
+ * "TV channel logo" bug: periodically swoops the 3D Poplur (clay) logo in from the right,
+ * settles it centered on the video, holds, then fades/drifts away. Purely decorative overlay.
+ */
+@Composable
+internal fun FeedChannelLogoBug(
+    isActive: Boolean,
+    modifier: Modifier = Modifier,
+    intervalMs: Long = 9_000L
+) {
+    val context = LocalContext.current
+    val logo = remember {
+        runCatching {
+            context.assets.open("logo/logo_clay.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+        }.getOrNull()
+    }
+    val alpha = remember { Animatable(0f) }
+    val scale = remember { Animatable(1.7f) }
+    val offX = remember { Animatable(1.1f) }   // fraction of layer width, + = right of center
+    val rot = remember { Animatable(-12f) }
+
+    LaunchedEffect(isActive, logo) {
+        if (logo == null || !isActive) {
+            alpha.snapTo(0f)
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(intervalMs)
+            // swoop in from the right
+            alpha.snapTo(0f); scale.snapTo(1.7f); offX.snapTo(1.1f); rot.snapTo(-12f)
+            launch { alpha.animateTo(1f, tween(380)) }
+            launch { offX.animateTo(0f, tween(620, easing = FastOutSlowInEasing)) }
+            launch { rot.animateTo(0f, tween(620, easing = FastOutSlowInEasing)) }
+            scale.animateTo(0.94f, tween(470, easing = FastOutSlowInEasing))
+            scale.animateTo(1f, tween(150, easing = FastOutSlowInEasing))
+            // hold centered like a channel bug
+            delay(1_500)
+            // disappear: drift up, grow slightly, fade
+            launch { scale.animateTo(1.14f, tween(430)) }
+            launch { rot.animateTo(7f, tween(430)) }
+            alpha.animateTo(0f, tween(430))
+        }
+    }
+
+    if (logo != null) {
+        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Image(
+                bitmap = logo,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth(0.40f)
+                    .aspectRatio(1f)
+                    .graphicsLayer {
+                        this.alpha = alpha.value
+                        scaleX = scale.value
+                        scaleY = scale.value
+                        translationX = offX.value * size.width * 1.4f
+                        rotationZ = rot.value
+                    }
             )
         }
     }
