@@ -3409,6 +3409,14 @@ fun MediaContent(
             .background(Color.Black),
         contentAlignment = Alignment.Center
     ) {
+      // Render all feed media inside a centered 9:16 frame so every video shows at 9:16
+      // (letterboxed on taller screens) instead of being cropped to fill the whole screen.
+      Box(
+          modifier = Modifier
+              .fillMaxWidth()
+              .aspectRatio(9f / 16f),
+          contentAlignment = Alignment.Center
+      ) {
         if (isInspectionMode) {
             // Show poster in inspection mode to avoid black screen
             AsyncImage(
@@ -3633,6 +3641,7 @@ fun MediaContent(
                 }
             }
         }
+      } // end 9:16 media frame
 
         if (isLoading && !hasError) {
             LoadingStaticOverlay(modifier = Modifier.fillMaxSize().zIndex(3f))
