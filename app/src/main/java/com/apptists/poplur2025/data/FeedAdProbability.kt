@@ -27,8 +27,12 @@ data class FeedAdProbabilityConfig(
         get() = max(0f, 100f - normalized.poplurAdPercent - normalized.googleMobileAdPercent)
 
     companion object {
-        const val DEFAULT_POPLUR_AD_PERCENT = 12f
-        const val DEFAULT_GOOGLE_MOBILE_AD_PERCENT = 6f
+        // Ads-only feed (no user content) by default — the feed shows only Poplur +
+        // Google ads until there is real user content. Poplur + Google sum to 100 so
+        // FeedAdProbability.placement() never returns Content. The feed Settings UI can
+        // still dial content back in.
+        const val DEFAULT_POPLUR_AD_PERCENT = 70f
+        const val DEFAULT_GOOGLE_MOBILE_AD_PERCENT = 30f
     }
 }
 
