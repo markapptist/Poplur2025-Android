@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Email
@@ -37,7 +38,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.platform.LocalContext
+import android.app.Activity
 import coil.compose.AsyncImage
+import com.apptists.poplur2025.billing.PoplurBillingManager
+import com.apptists.poplur2025.billing.PoplurProducts
 
 import com.apptists.poplur2025.R
 import com.apptists.poplur2025.auth.AuthViewModel
@@ -693,11 +698,22 @@ private fun ProfileStorePanel(
     onPurchase: (Int) -> Unit,
     onBack: () -> Unit
 ) {
-    val packages = listOf(
-        Triple("Starter Radius", 5_000, "$1.99"),
-        Triple("City Boost", 25_000, "$4.99"),
-        Triple("World Push", 100_000, "$9.99")
-    )
+    val context = LocalContext.current
+    val billing = remember { PoplurBillingManager.getInstance(context) }
+    val productDetails by billing.productDetails.collectAsState()
+    val billingMessage by billing.message.collectAsState()
+    val purchasedDelta by billing.purchasedRadiusDelta.collectAsState()
+    val purchasedCredits by billing.creditsDelta.collectAsState()
+    var deliveredDelta by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) { billing.connect() }
+    LaunchedEffect(purchasedDelta) {
+        if (purchasedDelta > deliveredDelta) {
+            onPurchase(purchasedDelta - deliveredDelta)
+            deliveredDelta = purchasedDelta
+        }
+    }
+
     var selectedCardId by remember { mutableStateOf(PoplurCreditCardCatalog.first().id) }
     var orderMessage by remember { mutableStateOf<String?>(null) }
     val selectedCard = PoplurCreditCardCatalog.firstOrNull { it.id == selectedCardId } ?: PoplurCreditCardCatalog.first()
@@ -868,8 +884,13 @@ private fun ProfileStorePanel(
             Spacer(Modifier.height(10.dp))
             Text("Purchased radius: ${purchasedRadius / 1000} km", color = Color(0xFF178A3D), fontWeight = FontWeight.Black)
         }
+        billingMessage?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(it, color = Color(0xFF178A3D), fontWeight = FontWeight.Black)
+        }
         Spacer(Modifier.height(14.dp))
-        packages.forEach { item ->
+        PoplurProducts.radiusPackages.forEach { pkg ->
+            val available = productDetails.containsKey(pkg.productId)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -885,11 +906,57 @@ private fun ProfileStorePanel(
                 }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(item.first, fontSize = 17.sp, fontWeight = FontWeight.Black, color = Color.Black)
-                    Text("+${item.second / 1000} km", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.Black.copy(alpha = 0.58f))
+                    Text(pkg.title, fontSize = 17.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                    Text("+${pkg.radiusMeters / 1000} km", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.Black.copy(alpha = 0.58f))
                 }
-                Button(onClick = { onPurchase(item.second) }) {
-                    Text(item.third, fontWeight = FontWeight.Black)
+                Button(
+                    onClick = {
+                        (context as? Activity)?.let { billing.launchPurchase(it, pkg.productId) }
+                    },
+                    enabled = available
+                ) {
+                    Text(billing.displayPrice(pkg.productId, pkg.fallbackPrice), fontWeight = FontWeight.Black)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        Spacer(Modifier.height(22.dp))
+        Text("Creator Credits", fontSize = 20.sp, fontWeight = FontWeight.Black, color = Color.Black)
+        Spacer(Modifier.height(6.dp))
+        Text("For AI images, video, and voice generation.", color = Color.Black.copy(alpha = 0.58f), fontWeight = FontWeight.SemiBold)
+        if (purchasedCredits > 0) {
+            Spacer(Modifier.height(10.dp))
+            Text("Purchased credits: $purchasedCredits", color = Color(0xFFE0248C), fontWeight = FontWeight.Black)
+        }
+        Spacer(Modifier.height(14.dp))
+        PoplurProducts.creditPackages.forEach { pkg ->
+            val available = productDetails.containsKey(pkg.productId)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.Black.copy(alpha = 0.05f))
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(shape = CircleShape, color = Color(0xFFFCE3F0), modifier = Modifier.size(48.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Bolt, null, tint = Color(0xFFE0248C), modifier = Modifier.size(24.dp))
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(pkg.title, fontSize = 17.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                    Text("${pkg.credits} credits", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.Black.copy(alpha = 0.58f))
+                }
+                Button(
+                    onClick = {
+                        (context as? Activity)?.let { billing.launchPurchase(it, pkg.productId) }
+                    },
+                    enabled = available
+                ) {
+                    Text(billing.displayPrice(pkg.productId, pkg.fallbackPrice), fontWeight = FontWeight.Black)
                 }
             }
             Spacer(Modifier.height(12.dp))
