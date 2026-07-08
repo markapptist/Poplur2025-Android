@@ -458,7 +458,7 @@ private fun CubeSkin.profileHeadPalette(): ProfileHeadPalette {
             isToy = false,
             hasHalo = false
         )
-        CubeSkin.Carbon -> ProfileHeadPalette(
+        CubeSkin.Carbon, CubeSkin.Clay -> ProfileHeadPalette(
             fill = Color(0xFF800851),
             face = Color(0xFFD61A9E),
             line = Color.White.copy(alpha = 0.92f),

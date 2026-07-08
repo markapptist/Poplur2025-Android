@@ -34,7 +34,7 @@ val CubeSkin.appIconAliasName: String
         CubeSkin.Gold -> "IconGoldAlias"
         CubeSkin.Toy -> "IconToyAlias"
         CubeSkin.Rainbow -> "IconRainbowAlias"
-        CubeSkin.Carbon -> "IconSparklePinkAlias"
+        CubeSkin.Carbon, CubeSkin.Clay -> "IconSparklePinkAlias"
         CubeSkin.Ice -> "IconIceAlias"
         CubeSkin.Chocolate -> "IconChocolateAlias"
         CubeSkin.Space -> "IconSpaceAlias"
@@ -48,7 +48,7 @@ val CubeSkin.appIconResId: Int
         CubeSkin.Gold -> R.mipmap.ic_launcher_gold
         CubeSkin.Toy -> R.mipmap.ic_launcher_toy
         CubeSkin.Rainbow -> R.mipmap.ic_launcher_rainbow
-        CubeSkin.Carbon -> R.mipmap.ic_launcher_sparkle_pink
+        CubeSkin.Carbon, CubeSkin.Clay -> R.mipmap.ic_launcher_sparkle_pink
         CubeSkin.Ice -> R.mipmap.ic_launcher_ice
         CubeSkin.Chocolate -> R.mipmap.ic_launcher_chocolate
         CubeSkin.Space -> R.mipmap.ic_launcher_space

@@ -208,7 +208,7 @@ enum class MapTheme(val id: String, val displayName: String) {
             CubeSkin.Gold      -> GOLD
             CubeSkin.Toy       -> TOY_BOX
             CubeSkin.Rainbow   -> RAINBOW
-            CubeSkin.Carbon    -> GLITTER
+            CubeSkin.Carbon, CubeSkin.Clay -> GLITTER
             CubeSkin.Ice       -> ICE
             CubeSkin.Chocolate -> CHOCOLATE
             CubeSkin.Space     -> DARK
