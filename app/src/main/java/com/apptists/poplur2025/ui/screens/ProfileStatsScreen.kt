@@ -17,8 +17,11 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.res.painterResource
+import com.apptists.poplur2025.R
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -112,25 +115,35 @@ fun ProfileStatsScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.White)
+            .background(StatsPink.pageBG)
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp)
-            .padding(top = 28.dp, bottom = 128.dp),
+            .padding(horizontal = 22.dp)
+            .padding(top = 18.dp, bottom = 128.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = "Stats",
-            fontSize = 34.sp,
-            fontWeight = FontWeight.Black,
-            color = Color.Black
-        )
-        Text(
-            text = "Radius ownership, city dominance, and trophies",
-            fontSize = 14.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = Color.Black.copy(alpha = 0.56f),
-            textAlign = TextAlign.Center
-        )
+        // Header: title + subtitle (left) with the stats sphere on the right — matches iOS.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "Stats",
+                    fontSize = 44.sp,
+                    fontWeight = FontWeight.Black,
+                    color = StatsPink.title
+                )
+                Text(
+                    text = "Radius ownership,\ncity dominance,\nand trophies",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = StatsPink.subtitle,
+                    lineHeight = 21.sp
+                )
+            }
+            Image(
+                painter = painterResource(R.drawable.stats_sphere),
+                contentDescription = null,
+                modifier = Modifier.size(120.dp)
+            )
+        }
 
         Spacer(Modifier.height(22.dp))
 
@@ -145,9 +158,9 @@ fun ProfileStatsScreen(
                 modifier = Modifier.size(260.dp)
             )
             Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                StatPill("POSTS", posts.size.toString(), Color.Black, Modifier.weight(1f))
-                StatPill("GOAL", formatKm(ringGoalKm), Color(0xFF18D8E8), Modifier.weight(1f))
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
+                StatCard(R.drawable.stats_ic_posts, "POSTS", StatsPink.accent, posts.size.toString(), StatsPink.postsCard, Modifier.weight(1f))
+                StatCard(R.drawable.stats_ic_goal, "GOAL", StatsPink.goalLabel, formatKm(ringGoalKm), StatsPink.goalCard, Modifier.weight(1f))
             }
 
             Spacer(Modifier.height(28.dp))
@@ -275,17 +288,43 @@ private fun AnimatedRadiusGraph(
 }
 
 @Composable
-private fun StatPill(title: String, value: String, tint: Color, modifier: Modifier = Modifier) {
-    Column(
+private fun StatCard(
+    iconRes: Int,
+    title: String,
+    labelColor: Color,
+    value: String,
+    background: Color,
+    modifier: Modifier = Modifier
+) {
+    Row(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(tint.copy(alpha = 0.12f))
-            .padding(vertical = 11.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .clip(RoundedCornerShape(20.dp))
+            .background(background)
+            .padding(horizontal = 14.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(title, fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.Black.copy(alpha = 0.46f))
-        Text(value, fontSize = 17.sp, fontWeight = FontWeight.Black, color = Color.Black, maxLines = 1)
+        Image(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            modifier = Modifier.size(52.dp)
+        )
+        Column {
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Black, color = labelColor)
+            Text(value, fontSize = 24.sp, fontWeight = FontWeight.Black, color = StatsPink.title, maxLines = 1)
+        }
     }
+}
+
+// iOS "Stats" mockup palette (sampled from ProfileStatsView.swift StatsC).
+private object StatsPink {
+    val pageBG = Color(0xFFFDEDF3)
+    val title = Color(0xFF12131A)
+    val subtitle = Color(0xFF7C7A85)
+    val accent = Color(0xFFFF2D82)
+    val postsCard = Color(0xFFFEEFF6)
+    val goalCard = Color(0xFFF2F2FE)
+    val goalLabel = Color(0xFF5B5BD6)
 }
 
 @Composable
