@@ -613,18 +613,8 @@ fun FeedScreen(
             )
         }
 
-        if (!homeChromeInactive && !showingTimelineSide && !showTvGuide) {
-            FeedChannelStepperOverlay(
-                popDirection = channelButtonPopDirection,
-                popToken = channelButtonPopToken,
-                onUp = { changeChannel(FeedChannelStepDirection.Up) },
-                onDown = { changeChannel(FeedChannelStepDirection.Down) },
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 12.dp, bottom = 120.dp)
-                    .zIndex(86f)
-            )
-        }
+        // Channel-stepper CH+/CH− buttons removed to match iOS (no visible channel
+        // buttons — the feed advances via the vertical swipe gesture below).
 
         Box(
             modifier = Modifier

@@ -139,16 +139,15 @@ fun ProfileAvatarSpeaker(
             }
 
             if (render3DHead) {
-                MarkHeadGdxView(
+                // SceneView (Filament) renders the head in its own GL context. The old
+                // libGDX MarkHeadGdxView never appeared on Android because it contended
+                // with the process-global Gdx.* singletons owned by the cube overlay.
+                // Sway/bob are animated inside the scene, so no graphicsLayer rotation.
+                MarkHeadSceneView(
                     isSpeaking = isSpeaking,
                     modifier = Modifier
                         .width(size * 1.42f)
                         .height(size * 1.28f)
-                        .graphicsLayer {
-                            translationY = floatY
-                            rotationY = rotY
-                            cameraDistance = 8f * density
-                        }
                 )
             } else {
                 ProfileTalkingHeadGdxView(
@@ -333,10 +332,14 @@ private fun FragmentContainerView.attachMarkHead(
     setTag(tag)
     runCatching {
         val fragment = MarkHeadFragment().also { it.setSpeaking(isSpeaking) }
+        // commitNow (not commitAllowingStateLoss) so the transaction executes synchronously,
+        // right here inside runCatching — the async variant posts to the main-thread queue and
+        // can run after this container view has already been detached (e.g. rapid tab switching
+        // away from Profile), throwing an uncaught "No view found for id" outside this try/catch.
         manager.beginTransaction()
             .replace(id, fragment, tag)
             .runOnCommit { setTag(null) }
-            .commitAllowingStateLoss()
+            .commitNowAllowingStateLoss()
     }.onFailure {
         setTag(null)
         post {
@@ -364,10 +367,12 @@ private fun FragmentContainerView.attachProfileTalkingHead(
     setTag(tag)
     runCatching {
         val fragment = ProfileTalkingHeadFragment().also { it.setSpeaking(isSpeaking) }
+        // See attachMarkHead above: commitNow so a detached-container race throws inside this
+        // runCatching instead of crashing later on the main-thread queue.
         manager.beginTransaction()
             .replace(id, fragment, tag)
             .runOnCommit { setTag(null) }
-            .commitAllowingStateLoss()
+            .commitNowAllowingStateLoss()
     }.onFailure {
         setTag(null)
         post {
