@@ -958,6 +958,51 @@ fun PoplurRoot(
         )
     )
 
+    // Camera-specific hold menu — mirrors iOS cameraCubeMenuItems (roll / create + quick nav).
+    val cameraMenuItems = listOf(
+        CubeMenuWheelItem(
+            label = "ROLL",
+            iconAssetPath = "",
+            fallbackIcon = Icons.Default.PhotoLibrary,
+            onSelected = { cameraGalleryTrigger++ }
+        ),
+        CubeMenuWheelItem(
+            label = "CREATE",
+            iconAssetPath = "",
+            fallbackIcon = Icons.Default.AutoAwesome,
+            onSelected = {
+                previousTab = AppTab.Camera
+                tab = AppTab.Profile
+                sendProfileCubeCommand(ProfileCubeMenuAction.Creator)
+            }
+        ),
+        CubeMenuWheelItem(
+            label = "HOME",
+            iconAssetPath = "hold_menu_icons/home.png",
+            fallbackIcon = Icons.Default.Home,
+            onSelected = { tab = AppTab.Feed }
+        ),
+        CubeMenuWheelItem(
+            label = "CHAT",
+            iconAssetPath = "hold_menu_icons/chat.png",
+            fallbackIcon = Icons.Default.Message,
+            onSelected = {
+                previousTab = AppTab.Camera
+                tab = AppTab.Messages
+            }
+        ),
+        CubeMenuWheelItem(
+            label = "STORE",
+            iconAssetPath = "hold_menu_icons/store.png",
+            fallbackIcon = Icons.Default.ShoppingCart,
+            onSelected = {
+                previousTab = AppTab.Camera
+                tab = AppTab.Profile
+                sendProfileCubeCommand(ProfileCubeMenuAction.Store)
+            }
+        )
+    )
+
     val onLongPressCube: () -> Unit = {
         if (tab == AppTab.Profile) {
             val profileMenuItems = listOf(
@@ -1016,6 +1061,8 @@ fun PoplurRoot(
             }
         } else if (tab == AppTab.Map) {
             cubeMenuWheelController.beginHold(mapMenuItems)
+        } else if (tab == AppTab.Camera) {
+            cubeMenuWheelController.beginHold(cameraMenuItems)
         } else if (tab == AppTab.Messages || tab == AppTab.Settings || tab == AppTab.CubeDebug || tab == AppTab.CapturedOutput ||
             tab == AppTab.CreateEntry || tab == AppTab.AIVideoStudio || tab == AppTab.AIVideoProgress) {
             cubeMenuWheelController.beginHold(listOf(backItem))
@@ -1185,6 +1232,7 @@ fun PoplurRoot(
                         cameraRecordTrigger = cameraRecordTrigger,
                         cameraLiveTrigger = cameraLiveTrigger,
                         cameraFiltersTrigger = cameraFiltersTrigger,
+                        cameraGalleryTrigger = cameraGalleryTrigger,
                         cameraObjectDetectionEnabled = cameraObjectDetectionEnabled,
                         aiVideoPrompt = aiVideoPrompt,
                         aiVideoStyle = aiVideoStyle,
