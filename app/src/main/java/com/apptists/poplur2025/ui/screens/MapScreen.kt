@@ -307,6 +307,24 @@ fun MapScreenContent(
         }
     }
     var mapReady by remember { mutableStateOf(false) }
+
+    // User-created games placed on the map: load the store and keep the pin source in sync.
+    LaunchedEffect(Unit) { com.apptists.poplur2025.ui.games.PoplurSavedGamesStore.init(context) }
+    val placedGames = com.apptists.poplur2025.ui.games.PoplurSavedGamesStore.placedGames
+    val gamePinSignature = placedGames.joinToString(";") { "${it.id}:${it.latitude},${it.longitude}" }
+    LaunchedEffect(gamePinSignature, mapReady) {
+        if (!mapReady) return@LaunchedEffect
+        val features = placedGames.mapNotNull { g ->
+            val lat = g.latitude; val lon = g.longitude
+            if (lat != null && lon != null)
+                Feature.fromGeometry(Point.fromLngLat(lon, lat)) else null
+        }
+        mapView?.mapboxMap?.getStyle { style ->
+            style.getSourceAs<com.mapbox.maps.extension.style.sources.generated.GeoJsonSource>(GAME_PIN_SOURCE_ID)
+                ?.featureCollection(FeatureCollection.fromFeatures(features))
+        }
+    }
+
     DisposableEffect(mapView) {
         onDispose {
             mapReady = false
@@ -616,6 +634,31 @@ fun MapScreenContent(
                 pulsingEnabled = true
             }
             mapView?.mapboxMap?.addOnMapClickListener { point ->
+                // User-created games: place a pending game, or launch a nearby placed game.
+                val pendingGame = com.apptists.poplur2025.ui.games.PoplurSavedGamesStore.pendingPlacement
+                if (pendingGame != null) {
+                    com.apptists.poplur2025.ui.games.PoplurSavedGamesStore.place(
+                        pendingGame, point.latitude(), point.longitude()
+                    )
+                    com.apptists.poplur2025.ui.games.PoplurSavedGamesStore.pendingPlacement = null
+                    return@addOnMapClickListener true
+                }
+                run {
+                    val tapPx = mapView?.mapboxMap?.pixelForCoordinate(point)
+                    if (tapPx != null) {
+                        val hit = com.apptists.poplur2025.ui.games.PoplurSavedGamesStore.placedGames.firstOrNull { g ->
+                            val gp = mapView?.mapboxMap?.pixelForCoordinate(
+                                com.mapbox.geojson.Point.fromLngLat(g.longitude!!, g.latitude!!)
+                            ) ?: return@firstOrNull false
+                            kotlin.math.hypot(tapPx.x - gp.x, tapPx.y - gp.y) < 46.0
+                        }
+                        if (hit != null) {
+                            com.apptists.poplur2025.ui.games.PoplurSavedGamesStore.launchRequest = hit.config
+                            return@addOnMapClickListener true
+                        }
+                    }
+                }
+
                 val current = selectedCoordinate
                 if (current != null) {
                     // If user taps very close to the current selection or we just want to clear on any tap:
@@ -1141,6 +1184,9 @@ fun MapScreenContent(
                                     +geoJsonSource(TREND_POP_SOURCE_ID) {
                                         featureCollection(emptyFeatureCollection())
                                     }
+                                    +geoJsonSource(GAME_PIN_SOURCE_ID) {
+                                        featureCollection(emptyFeatureCollection())
+                                    }
                                     +circleLayer(POST_LAYER_ID, POST_SOURCE_ID) {
                                         circleRadius(18.0)
                                         circleColor("#ff2d8a")
@@ -1182,6 +1228,14 @@ fun MapScreenContent(
                                         iconIgnorePlacement(true)
                                         iconSize(0.32)
                                         iconOffset(listOf(0.0, -4.0))
+                                    }
+                                    // User-created AI games placed on the map (tap to play).
+                                    +circleLayer(GAME_PIN_LAYER_ID, GAME_PIN_SOURCE_ID) {
+                                        circleRadius(11.0)
+                                        circleColor("#FFD700")
+                                        circleStrokeColor("#FF4DB8")
+                                        circleStrokeWidth(3.5)
+                                        circleEmissiveStrength(1.0)
                                     }
                                 }
                                 ) { style ->
@@ -2685,6 +2739,8 @@ private const val MUSIC_WAVE_SOURCE_ID = "poplur-music-wave-source"
 private const val MUSIC_WAVE_LAYER_ID = "poplur-music-wave-layer"
 private const val TREND_POP_SOURCE_ID = "poplur-ai-trend-pop-source"
 private const val TREND_POP_LAYER_ID = "poplur-ai-trend-pop-layer"
+private const val GAME_PIN_SOURCE_ID = "poplur-game-pin-source"
+private const val GAME_PIN_LAYER_ID = "poplur-game-pin-layer"
 private const val WEATHER_RAIN_SOURCE_ID = "poplur-weather-rain-source"
 private const val WEATHER_RAIN_LAYER_ID = "poplur-weather-rain-layer"
 private const val WEATHER_SNOW_SOURCE_ID = "poplur-weather-snow-source"

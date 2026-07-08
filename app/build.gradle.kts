@@ -24,7 +24,7 @@ val mapillaryAccessToken: String = localProperties.getProperty("MAPILLARY_ACCESS
 android { namespace = "com.apptists.poplur2025"
     compileSdk = 35;
     defaultConfig {
-        applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 1; versionName = "1.0"
+        applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 2; versionName = "1.0.1"
         buildConfigField("String", "MAPILLARY_ACCESS_TOKEN", "\"$mapillaryAccessToken\"")
     }
 
@@ -154,27 +154,44 @@ dependencies {
     testImplementation("androidx.compose.ui:ui-test-junit4")
 }
 
-tasks.register("copyNatives") {
-    inputs.files(natives)
-    outputs.dir("src/main/jniLibs")
-    doLast {
-        natives.files.forEach { file ->
-            val outputDir = when {
+// Config-cache-compatible native extraction: uses injected FileSystemOperations /
+// ArchiveOperations instead of the script-scoped copy {} / zipTree(), which cannot be
+// serialized into the configuration cache (org.gradle.configuration-cache=true).
+abstract class CopyNativesTask : DefaultTask() {
+    @get:org.gradle.api.tasks.InputFiles
+    abstract val nativeJars: org.gradle.api.file.ConfigurableFileCollection
+
+    @get:org.gradle.api.tasks.OutputDirectory
+    abstract val jniLibsDir: org.gradle.api.file.DirectoryProperty
+
+    @get:javax.inject.Inject
+    abstract val fs: org.gradle.api.file.FileSystemOperations
+
+    @get:javax.inject.Inject
+    abstract val archives: org.gradle.api.file.ArchiveOperations
+
+    @org.gradle.api.tasks.TaskAction
+    fun run() {
+        nativeJars.files.forEach { file ->
+            val arch = when {
                 file.name.contains("arm64-v8a") -> "arm64-v8a"
                 file.name.contains("armeabi-v7a") -> "armeabi-v7a"
                 file.name.contains("x86_64") -> "x86_64"
                 file.name.contains("x86") -> "x86"
                 else -> null
-            }
-            if (outputDir != null) {
-                copy {
-                    from(zipTree(file))
-                    include("*.so")
-                    into("src/main/jniLibs/$outputDir")
-                }
+            } ?: return@forEach
+            fs.copy {
+                from(archives.zipTree(file))
+                include("*.so")
+                into(jniLibsDir.dir(arch))
             }
         }
     }
+}
+
+tasks.register<CopyNativesTask>("copyNatives") {
+    nativeJars.from(natives)
+    jniLibsDir.set(layout.projectDirectory.dir("src/main/jniLibs"))
 }
 
 project.afterEvaluate {

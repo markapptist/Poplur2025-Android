@@ -22,18 +22,24 @@ class AuthViewModel : ViewModel() {
     val currentEmail: String? get() = auth?.currentUser?.email
 
     init {
-        viewModelScope.launch(Dispatchers.Main) {
-            try {
-                // Try getting instance on IO thread to prevent potential Main thread stalls
-                val firebaseAuth = withContext(Dispatchers.IO) { FirebaseAuth.getInstance() }
-                auth = firebaseAuth
-                _isSignedIn.value = firebaseAuth.currentUser != null
+        if (com.apptists.poplur2025.UITestFlags.authBypass) {
+            // UI-test only (see UITestFlags): skip real Firebase sign-in entirely so navigation
+            // tests don't depend on account creation succeeding.
+            _isSignedIn.value = true
+        } else {
+            viewModelScope.launch(Dispatchers.Main) {
+                try {
+                    // Try getting instance on IO thread to prevent potential Main thread stalls
+                    val firebaseAuth = withContext(Dispatchers.IO) { FirebaseAuth.getInstance() }
+                    auth = firebaseAuth
+                    _isSignedIn.value = firebaseAuth.currentUser != null
 
-                listener = FirebaseAuth.AuthStateListener { updatedAuth ->
-                    _isSignedIn.value = updatedAuth.currentUser != null
-                }.also(firebaseAuth::addAuthStateListener)
-            } catch (e: Exception) {
-                _isSignedIn.value = false
+                    listener = FirebaseAuth.AuthStateListener { updatedAuth ->
+                        _isSignedIn.value = updatedAuth.currentUser != null
+                    }.also(firebaseAuth::addAuthStateListener)
+                } catch (e: Exception) {
+                    _isSignedIn.value = false
+                }
             }
         }
     }

@@ -4,7 +4,29 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.annotation.DrawableRes
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import com.apptists.poplur2025.R
+
+/**
+ * Loads a drawable resource as an [ImageBitmap], rasterizing it via the platform. Unlike Compose's
+ * `painterResource`, this works for adaptive launcher icons (mipmap `<adaptive-icon>` XML), which
+ * `painterResource` rejects with "Only VectorDrawables and rasterized asset types are supported".
+ */
+@Composable
+fun rememberDrawableBitmap(@DrawableRes resId: Int): ImageBitmap? {
+    val context = LocalContext.current
+    return remember(resId) {
+        ContextCompat.getDrawable(context, resId)
+            ?.toBitmap(width = 192, height = 192)
+            ?.asImageBitmap()
+    }
+}
 
 val CubeSkin.appIconAliasName: String
     get() = when (this) {

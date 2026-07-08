@@ -89,7 +89,6 @@ import androidx.compose.ui.unit.sp
 import com.apptists.poplur2025.R
 import com.apptists.poplur2025.call.CallSessionManager
 import com.apptists.poplur2025.data.UserProfile
-import com.apptists.poplur2025.ui.components.CubeMenuLayout
 import com.apptists.poplur2025.ui.components.CubeMenuWheelController
 import com.apptists.poplur2025.ui.components.CubeMenuWheelOverlay
 import com.apptists.poplur2025.ui.components.ShaderNumberText
@@ -128,7 +127,6 @@ fun PopularPhoneCallScreen(
     val phoneXLMode = remember(settingsPrefs) {
         settingsPrefs.getBoolean(PHONE_XL_MODE_PREF_KEY, true)
     }
-    val cubeMenuLayout = CubeMenuLayout.Vertical
     var isBooting by remember { mutableStateOf(true) }
     val toneGenerator = remember {
         try {
@@ -616,8 +614,7 @@ fun PopularPhoneCallScreen(
 
         CubeMenuWheelOverlay(
             controller = colorWheelController,
-            modifier = Modifier.zIndex(40f),
-            layout = cubeMenuLayout
+            modifier = Modifier.zIndex(40f)
         )
     }
 }

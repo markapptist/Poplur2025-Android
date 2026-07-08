@@ -1,19 +1,17 @@
 package com.apptists.poplur2025.ui.screens
 
+import android.content.Context
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
-import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,32 +20,32 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import android.content.Context
+import com.apptists.poplur2025.R
 import com.apptists.poplur2025.data.FeedAdProbability
 import com.apptists.poplur2025.data.FeedAdProbabilityConfig
 import com.apptists.poplur2025.data.PoplurLanguage
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.staticCompositionLocalOf
-import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.AppIconThemeManager
-import com.apptists.poplur2025.ui.CubeSkinThemedBackground
+import com.apptists.poplur2025.ui.CubeSkin
+import com.apptists.poplur2025.ui.SoftPink
 import com.apptists.poplur2025.ui.appIconResId
 import com.apptists.poplur2025.ui.components.CubeMenuLayout
-import com.apptists.poplur2025.ui.skinBackdropBrush
-import com.apptists.poplur2025.ui.uiTheme
+import com.apptists.poplur2025.ui.rememberDrawableBitmap
 import kotlin.math.roundToInt
 
-private val LocalSettingsTheme = staticCompositionLocalOf { CubeSkin.Default.uiTheme() }
-
+/**
+ * Settings — matches the supplied Settings mockup (01_settings.png): soft-pink page,
+ * sectioned white cards with the 3D pink icon set, cube-skin picker and a pill Sign Out.
+ * Android-only preference controls that have no mockup equivalent live under a PREFERENCES
+ * card in the same visual language so nothing functional is lost.
+ */
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit = {},
@@ -68,299 +66,458 @@ fun SettingsScreen(
     tiltControlEnabled: Boolean = false,
     onTiltControlChange: (Boolean) -> Unit = {}
 ) {
-    val cubeDebugCallback by rememberUpdatedState(onOpenCubeDebug)
-    var previewSkin by remember { mutableStateOf(selectedCubeSkin) }
-    val theme = selectedCubeSkin.uiTheme()
-
-    LaunchedEffect(selectedCubeSkin) {
-        previewSkin = selectedCubeSkin
-    }
-
-    CompositionLocalProvider(LocalSettingsTheme provides theme) {
-        Surface(
-            color = theme.background,
-            contentColor = theme.primaryText,
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Box(Modifier.fillMaxSize()) {
-                CubeSkinThemedBackground(
-                    skin = selectedCubeSkin,
-                    modifier = Modifier.matchParentSize()
-                )
-                Column(Modifier.statusBarsPadding()) {
-                    Text(
-                        "Settings",
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Black,
-                        color = theme.primaryText,
-                        modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .padding(top = 22.dp, bottom = 4.dp)
-                    )
-                    SettingsTab(
-                        onSignOut = onSignOut,
-                        onOpenCubeDebug = cubeDebugCallback,
-                        preferredLanguage = preferredLanguage,
-                        closedCaptionsEnabled = closedCaptionsEnabled,
-                        onPreferredLanguageChange = onPreferredLanguageChange,
-                        onClosedCaptionsChange = onClosedCaptionsChange,
-                        selectedCubeSkin = selectedCubeSkin,
-                        previewSkin = previewSkin,
-                        onPreviewSkinChange = { previewSkin = it },
-                        onCubeSkinChange = onCubeSkinChange,
-                        cubeMenuLayout = cubeMenuLayout,
-                        onCubeMenuLayoutChange = onCubeMenuLayoutChange,
-                        isDarkMode = isDarkMode,
-                        onDarkModeChange = onDarkModeChange,
-                        profileAvatarIs3D = profileAvatarIs3D,
-                        onProfileAvatarIs3DChange = onProfileAvatarIs3DChange,
-                        tiltControlEnabled = tiltControlEnabled,
-                        onTiltControlChange = onTiltControlChange
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsTab(
-    onSignOut: (() -> Unit)?,
-    onOpenCubeDebug: () -> Unit,
-    preferredLanguage: PoplurLanguage,
-    closedCaptionsEnabled: Boolean,
-    onPreferredLanguageChange: (PoplurLanguage) -> Unit,
-    onClosedCaptionsChange: (Boolean) -> Unit,
-    selectedCubeSkin: CubeSkin,
-    previewSkin: CubeSkin,
-    onPreviewSkinChange: (CubeSkin) -> Unit,
-    onCubeSkinChange: (CubeSkin) -> Unit,
-    cubeMenuLayout: CubeMenuLayout,
-    onCubeMenuLayoutChange: (CubeMenuLayout) -> Unit,
-    isDarkMode: Boolean,
-    onDarkModeChange: (Boolean) -> Unit,
-    profileAvatarIs3D: Boolean = false,
-    onProfileAvatarIs3DChange: (Boolean) -> Unit = {},
-    tiltControlEnabled: Boolean = false,
-    onTiltControlChange: (Boolean) -> Unit = {}
-) {
     val ctx = LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("poplur_settings", Context.MODE_PRIVATE) }
+
+    var limitVideos by remember { mutableStateOf(prefs.getBoolean("poplur_limitVideos10s", false)) }
     var phoneXLMode by remember { mutableStateOf(prefs.getBoolean("poplur_phoneXLMode", true)) }
     var tvGuideFlipAnimation by remember { mutableStateOf(prefs.getBoolean("tv_guide_flip_animation", true)) }
     var customMapTheme by remember { mutableStateOf(prefs.getBoolean("poplur_customMapTheme", false)) }
     var use3DLoadingScreen by remember { mutableStateOf(prefs.getBoolean("poplur_use3DLoadingScreen", true)) }
-    var adProbabilityConfig by remember {
-        mutableStateOf(FeedAdProbability.currentConfig(ctx))
-    }
-    val theme = LocalSettingsTheme.current
+    var cacheText by remember { mutableStateOf("—") }
+    var adProbabilityConfig by remember { mutableStateOf(FeedAdProbability.currentConfig(ctx)) }
 
-    Column(
+    var infoTitle by remember { mutableStateOf("") }
+    var infoBody by remember { mutableStateOf("") }
+    var showInfo by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val bytes = runCatching { ctx.cacheDir.walkTopDown().filter { it.isFile }.map { it.length() }.sum() }.getOrDefault(0L)
+        val mb = bytes / (1024.0 * 1024.0)
+        cacheText = if (mb < 0.1) "0 MB" else String.format("%.1f MB", mb)
+    }
+
+    val displayedSkins = listOf(
+        CubeSkin.Default to "Default",
+        CubeSkin.Rainbow to "Rainbow",
+        CubeSkin.Carbon to "Sparkle Pink",
+        CubeSkin.Gold to "Gold"
+    )
+
+    Box(
         Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp),
+            .background(SoftPink.pageBG)
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+        ) {
+            // Header
+            Box(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 18.dp)) {
+                Text(
+                    "Settings",
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Black,
+                    color = SoftPink.title,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+                Image(
+                    painter = painterResource(R.drawable.settings_ic_bell),
+                    contentDescription = "Notifications",
+                    modifier = Modifier.align(Alignment.CenterEnd).size(58.dp)
+                )
+            }
+
+            SectionLabel("VIDEO SETTINGS")
+            SettingsCard {
+                IconRow(
+                    icon = R.drawable.settings_ic_film,
+                    title = "Limit videos to 10 seconds",
+                    subtitle = "Current limit: ${if (limitVideos) 10 else 15}s"
+                ) {
+                    Switch(
+                        checked = limitVideos,
+                        onCheckedChange = {
+                            limitVideos = it
+                            prefs.edit().putBoolean("poplur_limitVideos10s", it).apply()
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = SoftPink.accentSoft,
+                            uncheckedThumbColor = Color.White,
+                            uncheckedTrackColor = Color(0xFFE7DCE3)
+                        )
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            SectionLabel("SIMULATOR")
+            SettingsCard {
+                NavRow(icon = R.drawable.settings_ic_flask, title = "Seed NA (1000)") {}
+                RowDivider()
+                NavRow(
+                    icon = R.drawable.settings_ic_play,
+                    title = "Start Simulator",
+                    subtitle = "Dev mode: 120s/day"
+                ) {}
+            }
+            Spacer(Modifier.height(12.dp))
+            AccentPillButton(text = "Stop Simulator", leadingSquare = true) {}
+
+            Spacer(Modifier.height(24.dp))
+            SectionLabel("ACCOUNT & DATA")
+            SettingsCard {
+                NavRow(icon = R.drawable.settings_ic_wrench, title = "Fix Empty UserIDs") {}
+                RowDivider()
+                NavRow(icon = R.drawable.settings_ic_cloud, title = "Back Up Data") {}
+                RowDivider()
+                NavRow(
+                    icon = R.drawable.settings_ic_trash,
+                    title = "Clear Cache",
+                    trailingText = cacheText
+                ) {
+                    runCatching { ctx.cacheDir.deleteRecursively() }
+                    cacheText = "0 MB"
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            SectionLabel("CUBE SKIN")
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                displayedSkins.forEach { (skin, label) ->
+                    SkinTile(
+                        skin = skin,
+                        label = label,
+                        isSelected = selectedCubeSkin == skin,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        onCubeSkinChange(skin)
+                        runCatching { AppIconThemeManager.apply(ctx, skin) }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            SectionLabel("ABOUT")
+            SettingsCard {
+                NavRow(icon = R.drawable.settings_ic_info, title = "About Poplur") {
+                    infoTitle = "About Poplur"
+                    infoBody = "Poplur — share moments pinned to the world around you."
+                    showInfo = true
+                }
+                RowDivider()
+                NavRow(icon = R.drawable.settings_ic_doc, title = "Terms of Service") {
+                    infoTitle = "Terms of Service"
+                    infoBody = "By using Poplur you agree to our Terms of Service and Privacy Policy."
+                    showInfo = true
+                }
+            }
+
+            // Android-only functional controls, same visual language.
+            Spacer(Modifier.height(24.dp))
+            SectionLabel("PREFERENCES")
+            SettingsCard {
+                ToggleRow("XL Phone", phoneXLMode) {
+                    phoneXLMode = it; prefs.edit().putBoolean("poplur_phoneXLMode", it).apply()
+                }
+                RowDivider()
+                ToggleRow("TV Guide Flip Animation", tvGuideFlipAnimation) {
+                    tvGuideFlipAnimation = it; prefs.edit().putBoolean("tv_guide_flip_animation", it).apply()
+                }
+                RowDivider()
+                ToggleRow("Custom Map Theme", customMapTheme) {
+                    customMapTheme = it; prefs.edit().putBoolean("poplur_customMapTheme", it).apply()
+                }
+                RowDivider()
+                ToggleRow("3D Loading Screen", use3DLoadingScreen) {
+                    use3DLoadingScreen = it; prefs.edit().putBoolean("poplur_use3DLoadingScreen", it).apply()
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            SettingsCard {
+                LanguagePickerRow(preferredLanguage, onPreferredLanguageChange)
+            }
+            Spacer(Modifier.height(14.dp))
+            SettingsCard {
+                FeedAdControls(adProbabilityConfig) { config ->
+                    val normalized = config.normalized
+                    adProbabilityConfig = normalized
+                    FeedAdProbability.saveConfig(ctx, normalized)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            SettingsCard {
+                NavRow(icon = R.drawable.settings_ic_wrench, title = "Launch Cube Debug") { onOpenCubeDebug() }
+            }
+
+            Spacer(Modifier.height(22.dp))
+            SignOutButton { onSignOut?.invoke() }
+
+            Spacer(Modifier.height(40.dp))
+        }
+    }
+
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            confirmButton = {
+                TextButton(onClick = { showInfo = false }) {
+                    Text("Close", color = SoftPink.accent, fontWeight = FontWeight.Black)
+                }
+            },
+            title = { Text(infoTitle, fontWeight = FontWeight.Black, color = SoftPink.title) },
+            text = { Text(infoBody, color = SoftPink.rowTitle) },
+            containerColor = SoftPink.card
+        )
+    }
+}
+
+// MARK: - Building blocks
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Black,
+        letterSpacing = 0.5.sp,
+        color = SoftPink.sectionLbl,
+        modifier = Modifier.fillMaxWidth().padding(start = 6.dp, bottom = 12.dp),
+        textAlign = TextAlign.Start
+    )
+}
+
+@Composable
+private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .shadow(10.dp, RoundedCornerShape(22.dp), clip = false)
+            .clip(RoundedCornerShape(22.dp))
+            .background(SoftPink.card),
+        content = content
+    )
+}
+
+@Composable
+private fun RowDivider() {
+    Box(
+        Modifier
+            .padding(start = 84.dp)
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(SoftPink.divider)
+    )
+}
+
+@Composable
+private fun IconRow(
+    icon: Int,
+    title: String,
+    subtitle: String? = null,
+    trailing: @Composable () -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Image(
+            painter = painterResource(icon),
+            contentDescription = null,
+            modifier = Modifier.size(52.dp)
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 17.sp, fontWeight = FontWeight.Black, color = SoftPink.rowTitle)
+            if (subtitle != null) {
+                Text(subtitle, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = SoftPink.subtitle)
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        trailing()
+    }
+}
+
+@Composable
+private fun NavRow(
+    icon: Int,
+    title: String,
+    subtitle: String? = null,
+    trailingText: String? = null,
+    onClick: () -> Unit
+) {
+    Box(Modifier.fillMaxWidth().clickable { onClick() }) {
+        IconRow(icon = icon, title = title, subtitle = subtitle) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (trailingText != null) {
+                    Text(trailingText, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = SoftPink.subtitle)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Icon(
+                    Icons.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = SoftPink.chevron,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToggleRow(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, fontSize = 16.sp, fontWeight = FontWeight.Black, color = SoftPink.rowTitle, modifier = Modifier.weight(1f))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = SoftPink.accentSoft,
+                uncheckedThumbColor = Color.White,
+                uncheckedTrackColor = Color(0xFFE7DCE3)
+            )
+        )
+    }
+}
+
+@Composable
+private fun AccentPillButton(text: String, leadingSquare: Boolean = false, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = SoftPink.accent,
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp)
+            .shadow(12.dp, RoundedCornerShape(20.dp), clip = false)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 18.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (leadingSquare) {
+                Box(Modifier.size(20.dp).clip(RoundedCornerShape(4.dp)).background(Color.White))
+                Spacer(Modifier.width(12.dp))
+            }
+            Text(text, fontSize = 20.sp, fontWeight = FontWeight.Black, color = Color.White)
+        }
+    }
+}
+
+@Composable
+private fun SkinTile(
+    skin: CubeSkin,
+    label: String,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier.clickable { onClick() },
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Box(
+            Modifier
+                .padding(3.dp)
+                .shadow(8.dp, RoundedCornerShape(21.dp), clip = false)
+                .clip(RoundedCornerShape(21.dp))
+                .background(SoftPink.card)
+                .padding(3.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(18.dp))
+                    .border(
+                        if (isSelected) 3.dp else 0.dp,
+                        if (isSelected) SoftPink.accent else Color.Transparent,
+                        RoundedCornerShape(18.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                rememberDrawableBitmap(skin.appIconResId)?.let { bmp ->
+                    Image(
+                        bitmap = bmp,
+                        contentDescription = "$label skin",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(18.dp))
+                    )
+                }
+            }
+            if (isSelected) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 6.dp, y = (-6).dp)
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(SoftPink.accent),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("✓", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
         Text(
-            "Account Options",
-            fontSize = 22.sp,
+            label,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Black,
-            color = theme.primaryText,
-            modifier = Modifier.padding(vertical = 16.dp)
-        )
-
-        SettingsToggleRow("Dark Mode", isDarkMode, onDarkModeChange)
-        SettingsToggleRow("Private Account", false) {}
-        SettingsToggleRow("Notifications", true) {}
-        SettingsToggleRow("Closed Captions", closedCaptionsEnabled, onClosedCaptionsChange)
-        SettingsToggleRow("XL Phone", phoneXLMode) { value ->
-            phoneXLMode = value
-            prefs.edit().putBoolean("poplur_phoneXLMode", value).apply()
-        }
-        SettingsToggleRow("TV Guide Flip Animation", tvGuideFlipAnimation) { value ->
-            tvGuideFlipAnimation = value
-            prefs.edit().putBoolean("tv_guide_flip_animation", value).apply()
-        }
-        SettingsToggleRow("Custom Map Theme", customMapTheme) { value ->
-            customMapTheme = value
-            prefs.edit().putBoolean("poplur_customMapTheme", value).apply()
-        }
-        SettingsToggleRow("Tilt Control", tiltControlEnabled, onTiltControlChange)
-        SettingsToggleRow("3D Loading Screen", use3DLoadingScreen) { value ->
-            use3DLoadingScreen = value
-            prefs.edit().putBoolean("poplur_use3DLoadingScreen", value).apply()
-        }
-        SettingsProfileHeadModePicker(
-            is3D = profileAvatarIs3D,
-            onModeSelected = onProfileAvatarIs3DChange
-        )
-
-        SettingsLanguagePicker(
-            selectedLanguage = preferredLanguage,
-            onLanguageSelected = onPreferredLanguageChange
-        )
-
-        SettingsFeedAdProbabilityControls(
-            config = adProbabilityConfig,
-            onConfigChange = { config ->
-                val normalized = config.normalized
-                adProbabilityConfig = normalized
-                FeedAdProbability.saveConfig(ctx, normalized)
-            }
-        )
-
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "Skin Wrapper",
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Black,
-            color = theme.primaryText,
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Start
-        )
-
-        SkinPreviewPanel(previewSkin = previewSkin)
-
-        LazyRow(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(horizontal = 4.dp)
-        ) {
-            items(CubeSkin.entries) { skin ->
-                SkinOption(
-                    skin = skin,
-                    isSelected = previewSkin == skin,
-                    onClick = { onPreviewSkinChange(skin) }
-                )
-            }
-        }
-
-        DesignButton(
-            text = "Apply ${previewSkin.label} Skin",
-            containerColor = if (selectedCubeSkin == previewSkin) theme.secondaryText.copy(alpha = 0.42f) else previewSkin.uiTheme().accent,
-            onClick = {
-                onCubeSkinChange(previewSkin)
-                AppIconThemeManager.apply(ctx, previewSkin)
-            }
-        )
-
-        SettingsActionRow("Email Address") {}
-        SettingsActionRow("Password") {}
-
-        Spacer(Modifier.height(32.dp))
-
-        DesignButton("Launch Cube Debug", containerColor = theme.accent) {
-            onOpenCubeDebug()
-        }
-
-        DesignButton("Limit videos to 10 seconds", subtext = "Current limit: 15s", containerColor = theme.controlFill) {}
-        DesignButton("Seed NA (1000)", containerColor = theme.controlFill) {}
-        DesignButton("Start Simulator (dev: 120s/day)", containerColor = theme.controlFill) {}
-        
-        DesignButton(
-            "Fix Empty UserIDs",
-            icon = { Icon(Icons.Default.Build, null, Modifier.size(18.dp)) },
-            containerColor = Color(0xFFF09E5A)
-        ) {}
-        
-        DesignButton(
-            "Stop Simulator",
-            containerColor = Color(0xFFEB5757)
-        ) {}
-
-        if (onSignOut != null) {
-            TextButton(onClick = onSignOut, modifier = Modifier.padding(vertical = 16.dp)) {
-                Text("Log Out", color = theme.secondaryText, fontWeight = FontWeight.Bold)
-            }
-        }
-
-        Spacer(Modifier.height(32.dp))
-    }
-}
-
-@Composable
-private fun SettingsProfileHeadModePicker(
-    is3D: Boolean,
-    onModeSelected: (Boolean) -> Unit
-) {
-    val theme = LocalSettingsTheme.current
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Text("Profile Head", fontWeight = FontWeight.Black, fontSize = 18.sp, color = theme.primaryText)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(theme.controlFill)
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            listOf(false to "2D", true to "3D").forEach { (modeIs3D, label) ->
-                val isSelected = modeIs3D == is3D
-                Surface(
-                    onClick = { onModeSelected(modeIs3D) },
-                    color = if (isSelected) theme.surfaceStrong else Color.Transparent,
-                    contentColor = if (isSelected) theme.primaryText else theme.secondaryText,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = label,
-                        modifier = Modifier.padding(vertical = 10.dp),
-                        fontWeight = FontWeight.Black,
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-        Text(
-            "Choose whether your profile uses the 2D speaking head or the 3D head.",
-            color = theme.secondaryText,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold
+            color = if (isSelected) SoftPink.accent else SoftPink.subtitle,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
 
 @Composable
-private fun SettingsLanguagePicker(
-    selectedLanguage: PoplurLanguage,
-    onLanguageSelected: (PoplurLanguage) -> Unit
-) {
-    val theme = LocalSettingsTheme.current
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+private fun SignOutButton(onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = SoftPink.signOutBG,
+        shape = RoundedCornerShape(22.dp),
+        modifier = Modifier.fillMaxWidth().shadow(10.dp, RoundedCornerShape(22.dp), clip = false)
     ) {
-        Text("Preferred Language", fontWeight = FontWeight.Black, fontSize = 18.sp, color = theme.primaryText)
         Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(theme.controlFill)
-                .padding(4.dp),
+            Modifier.fillMaxWidth().padding(vertical = 16.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Image(
+                painter = painterResource(R.drawable.settings_ic_signout),
+                contentDescription = null,
+                modifier = Modifier.size(44.dp)
+            )
+            Spacer(Modifier.width(14.dp))
+            Text("Sign Out", fontSize = 20.sp, fontWeight = FontWeight.Black, color = SoftPink.accent)
+        }
+    }
+}
+
+@Composable
+private fun LanguagePickerRow(selected: PoplurLanguage, onSelected: (PoplurLanguage) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Preferred Language", fontWeight = FontWeight.Black, fontSize = 16.sp, color = SoftPink.rowTitle)
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(SoftPink.pageBG).padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            PoplurLanguage.entries.forEach { language ->
-                val isSelected = language == selectedLanguage
+            PoplurLanguage.entries.forEach { lang ->
+                val isSel = lang == selected
                 Surface(
-                    onClick = { onLanguageSelected(language) },
-                    color = if (isSelected) theme.surfaceStrong else Color.Transparent,
-                    contentColor = if (isSelected) theme.primaryText else theme.secondaryText,
-                    shape = RoundedCornerShape(14.dp),
+                    onClick = { onSelected(lang) },
+                    color = if (isSel) SoftPink.accent else Color.Transparent,
+                    contentColor = if (isSel) Color.White else SoftPink.subtitle,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = "${language.flag} ${language.shortLabel}",
+                        "${lang.flag} ${lang.shortLabel}",
                         modifier = Modifier.padding(vertical = 10.dp),
                         fontWeight = FontWeight.Black,
                         fontSize = 13.sp,
@@ -374,109 +531,28 @@ private fun SettingsLanguagePicker(
 }
 
 @Composable
-private fun SettingsHoldMenuLayoutPicker(
-    selectedLayout: CubeMenuLayout,
-    onLayoutSelected: (CubeMenuLayout) -> Unit
-) {
-    val theme = LocalSettingsTheme.current
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Text("Hold Menu", fontWeight = FontWeight.Black, fontSize = 18.sp, color = theme.primaryText)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(theme.controlFill)
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            CubeMenuLayout.entries.forEach { layout ->
-                val isSelected = layout == selectedLayout
-                Surface(
-                    onClick = { onLayoutSelected(layout) },
-                    color = if (isSelected) theme.surfaceStrong else Color.Transparent,
-                    contentColor = if (isSelected) theme.primaryText else theme.secondaryText,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = layout.name,
-                        modifier = Modifier.padding(vertical = 10.dp),
-                        fontWeight = FontWeight.Black,
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1
-                    )
-                }
-            }
+private fun FeedAdControls(config: FeedAdProbabilityConfig, onChange: (FeedAdProbabilityConfig) -> Unit) {
+    val n = config.normalized
+    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Feed Ads", fontWeight = FontWeight.Black, fontSize = 16.sp, color = SoftPink.rowTitle)
+        AdSlider("Poplur Ads", n.poplurAdPercent, SoftPink.accent) {
+            onChange(FeedAdProbabilityConfig(poplurAdPercent = it, googleMobileAdPercent = n.googleMobileAdPercent))
         }
-    }
-}
-
-@Composable
-private fun SettingsFeedAdProbabilityControls(
-    config: FeedAdProbabilityConfig,
-    onConfigChange: (FeedAdProbabilityConfig) -> Unit
-) {
-    val theme = LocalSettingsTheme.current
-    val normalized = config.normalized
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text("Feed Ads", fontWeight = FontWeight.Black, fontSize = 18.sp, color = theme.primaryText)
-        SettingsAdPercentSlider(
-            label = "Poplur Ads",
-            value = normalized.poplurAdPercent,
-            accent = theme.accent,
-            onChange = { value ->
-                onConfigChange(
-                    FeedAdProbabilityConfig(
-                        poplurAdPercent = value,
-                        googleMobileAdPercent = normalized.googleMobileAdPercent
-                    )
-                )
-            }
-        )
-        SettingsAdPercentSlider(
-            label = "Google Mobile Ads",
-            value = normalized.googleMobileAdPercent,
-            accent = Color(0xFF68FF4F),
-            onChange = { value ->
-                onConfigChange(
-                    FeedAdProbabilityConfig(
-                        poplurAdPercent = normalized.poplurAdPercent,
-                        googleMobileAdPercent = value
-                    )
-                )
-            }
-        )
+        AdSlider("Google Mobile Ads", n.googleMobileAdPercent, Color(0xFF68C34F)) {
+            onChange(FeedAdProbabilityConfig(poplurAdPercent = n.poplurAdPercent, googleMobileAdPercent = it))
+        }
         Text(
-            "Normal feed content: ${normalized.contentPercent.roundToInt()}%",
-            color = theme.secondaryText,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Black
+            "Normal feed content: ${n.contentPercent.roundToInt()}%",
+            color = SoftPink.subtitle, fontSize = 12.sp, fontWeight = FontWeight.Black
         )
     }
 }
 
 @Composable
-private fun SettingsAdPercentSlider(
-    label: String,
-    value: Float,
-    accent: Color,
-    onChange: (Float) -> Unit
-) {
-    val theme = LocalSettingsTheme.current
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+private fun AdSlider(label: String, value: Float, accent: Color, onChange: (Float) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, fontWeight = FontWeight.Black, fontSize = 14.sp, color = theme.primaryText)
+            Text(label, fontWeight = FontWeight.Black, fontSize = 14.sp, color = SoftPink.rowTitle)
             Text("${value.roundToInt()}%", fontWeight = FontWeight.Black, fontSize = 14.sp, color = accent)
         }
         Slider(
@@ -487,207 +563,8 @@ private fun SettingsAdPercentSlider(
             colors = SliderDefaults.colors(
                 thumbColor = accent,
                 activeTrackColor = accent,
-                inactiveTrackColor = theme.controlFill
+                inactiveTrackColor = SoftPink.divider
             )
-        )
-    }
-}
-
-@Composable
-private fun SettingsToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    val theme = LocalSettingsTheme.current
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, fontWeight = FontWeight.Black, fontSize = 18.sp, color = theme.primaryText)
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = theme.accent
-            )
-        )
-    }
-}
-
-@Composable
-private fun SettingsActionRow(label: String, onClick: () -> Unit) {
-    val theme = LocalSettingsTheme.current
-    Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, fontWeight = FontWeight.Black, fontSize = 18.sp, color = theme.primaryText)
-        Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, null, tint = theme.accent, modifier = Modifier.size(18.dp))
-    }
-}
-
-@Composable
-private fun DesignButton(
-    text: String,
-    subtext: String? = null,
-    containerColor: Color = Color.White,
-    icon: @Composable (() -> Unit)? = null,
-    onClick: () -> Unit
-) {
-    val theme = LocalSettingsTheme.current
-    val resolvedTextColor = if (containerColor == theme.controlFill || containerColor == Color.White) {
-        theme.primaryText
-    } else {
-        theme.badgeText
-    }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 8.dp)) {
-        Surface(
-            onClick = onClick,
-            color = containerColor,
-            shape = RoundedCornerShape(24.dp),
-            modifier = Modifier.fillMaxWidth().height(56.dp).shadow(2.dp, RoundedCornerShape(24.dp))
-        ) {
-            Row(
-                Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (icon != null) {
-                    icon()
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(
-                    text = text,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 16.sp,
-                    color = resolvedTextColor
-                )
-            }
-        }
-        if (subtext != null) {
-            Text(
-                text = subtext,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = theme.secondaryText,
-                modifier = Modifier.padding(top = 6.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun SkinPreviewPanel(previewSkin: CubeSkin) {
-    val previewTheme = previewSkin.uiTheme()
-    val shape = RoundedCornerShape(24.dp)
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(280.dp)
-            .padding(vertical = 12.dp)
-            .shadow(14.dp, shape, clip = false)
-            .clip(shape)
-            .border(1.5.dp, previewTheme.border, shape),
-        contentAlignment = Alignment.Center
-    ) {
-        CubeSkinThemedBackground(
-            skin = previewSkin,
-            modifier = Modifier.matchParentSize()
-        )
-        Box(
-            Modifier
-                .matchParentSize()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = if (previewTheme.isLight) 0.12f else 0.06f),
-                            previewTheme.backgroundDeep.copy(alpha = if (previewTheme.isLight) 0.04f else 0.44f)
-                        )
-                    )
-                )
-        )
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                modifier = Modifier
-                    .size(126.dp)
-                    .shadow(12.dp, RoundedCornerShape(24.dp), clip = false)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(previewTheme.surfaceStrong)
-                    .border(2.5.dp, previewTheme.accent, RoundedCornerShape(24.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Image(
-                    painter = painterResource(previewSkin.appIconResId),
-                    contentDescription = "${previewSkin.label} app icon",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                previewSkin.label,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Black,
-                color = previewTheme.primaryText
-            )
-        }
-    }
-}
-
-@Composable
-private fun SkinOption(
-    skin: CubeSkin,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    val theme = LocalSettingsTheme.current
-    val skinTheme = skin.uiTheme()
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .width(80.dp)
-            .clickable { onClick() }
-    ) {
-        Box(
-            modifier = Modifier
-                .size(60.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(skinBackdropBrush(skin))
-                .border(
-                    width = if (isSelected) 3.dp else 1.dp,
-                    color = if (isSelected) skinTheme.accent else skinTheme.border.copy(alpha = 0.55f),
-                    shape = RoundedCornerShape(12.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Image(
-                painter = painterResource(skin.appIconResId),
-                contentDescription = "${skin.label} app icon",
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-            if (isSelected) {
-                Surface(shape = CircleShape, color = skinTheme.badgeFill) {
-                    Text(
-                        "✓",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Black,
-                        color = skinTheme.badgeText,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            skin.label,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (isSelected) skinTheme.accent else theme.secondaryText,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -695,7 +572,5 @@ private fun SkinOption(
 @Preview(showBackground = true)
 @Composable
 fun SettingsScreenPreview() {
-    MaterialTheme {
-        SettingsScreen()
-    }
+    MaterialTheme { SettingsScreen() }
 }

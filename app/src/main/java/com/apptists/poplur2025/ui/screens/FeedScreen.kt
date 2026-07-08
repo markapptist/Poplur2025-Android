@@ -4054,65 +4054,42 @@ private fun FeedChannelStepperOverlay(
 
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // CH+ (up) button
+        // CH+ (up) button — plain chevron, no background plate or "CH" label.
+        // ShaderIcon's built-in glow keeps it legible over video. Just the arrow now.
         Box(
             modifier = Modifier
-                .size(52.dp)
+                .size(56.dp)
                 .graphicsLayer { scaleX = upScale.value; scaleY = upScale.value }
-                .shadow(8.dp, RoundedCornerShape(14.dp))
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color.Black.copy(alpha = 0.62f))
-                .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
+                .clip(CircleShape)
                 .clickable { onUp() },
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                ShaderIcon(
-                    imageVector = Icons.Default.KeyboardArrowUp,
-                    contentDescription = "Channel Up",
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp)
-                )
-                ShaderNumberText(
-                    text = "CH",
-                    color = Color.White.copy(alpha = 0.74f),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 0.5.sp
-                )
-            }
+            ShaderIcon(
+                imageVector = Icons.Default.KeyboardArrowUp,
+                contentDescription = "Channel Up",
+                tint = Color.White,
+                modifier = Modifier.size(46.dp)
+            )
         }
 
-        // CH- (down) button
+        // CH- (down) button — plain chevron, no background plate or "CH" label.
         Box(
             modifier = Modifier
-                .size(52.dp)
+                .size(56.dp)
                 .graphicsLayer { scaleX = downScale.value; scaleY = downScale.value }
-                .shadow(8.dp, RoundedCornerShape(14.dp))
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color.Black.copy(alpha = 0.62f))
-                .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
+                .clip(CircleShape)
                 .clickable { onDown() },
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                ShaderNumberText(
-                    text = "CH",
-                    color = Color.White.copy(alpha = 0.74f),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 0.5.sp
-                )
-                ShaderIcon(
-                    imageVector = Icons.Default.KeyboardArrowDown,
-                    contentDescription = "Channel Down",
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
+            ShaderIcon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = "Channel Down",
+                tint = Color.White,
+                modifier = Modifier.size(46.dp)
+            )
         }
     }
 }

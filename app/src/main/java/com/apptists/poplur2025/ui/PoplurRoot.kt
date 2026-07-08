@@ -239,8 +239,10 @@ fun PoplurRoot(
     var cameraPhotoTrigger by remember { mutableIntStateOf(0) }
     var cameraRecordTrigger by remember { mutableIntStateOf(0) }
     var cameraLiveTrigger by remember { mutableIntStateOf(0) }
+    var cameraGalleryTrigger by remember { mutableIntStateOf(0) }
     var cameraFiltersTrigger by remember { mutableIntStateOf(0) }
-    var cameraObjectDetectionEnabled by rememberSaveable { mutableStateOf(false) }
+    // ML detection is on by default (the cube no longer pops objects for it).
+    var cameraObjectDetectionEnabled by rememberSaveable { mutableStateOf(true) }
     var isAppVisible by remember { mutableStateOf(true) }
     var filtersVisible by remember { mutableStateOf(false) }
     var isPhoneCallScreenVisible by remember { mutableStateOf(false) }
@@ -1388,6 +1390,15 @@ fun PoplurRoot(
         if (showGames) {
             Box(Modifier.fillMaxSize().zIndex(800f)) {
                 GameLaunchScreen(onDismiss = { showGames = false })
+            }
+        }
+
+        // A user-created game launched by tapping its map pin.
+        com.apptists.poplur2025.ui.games.PoplurSavedGamesStore.launchRequest?.let { cfg ->
+            Box(Modifier.fillMaxSize().zIndex(820f)) {
+                com.apptists.poplur2025.ui.games.PoplurGamePlayScreen(cfg) {
+                    com.apptists.poplur2025.ui.games.PoplurSavedGamesStore.launchRequest = null
+                }
             }
         }
 

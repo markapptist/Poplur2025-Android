@@ -140,8 +140,9 @@ fun CameraScreen(
     recordTrigger: Int = 0,
     liveTrigger: Int = 0,
     filtersTrigger: Int = 0,
+    galleryTrigger: Int = 0,
     initialShowFilters: Boolean = false,
-    objectDetectionEnabled: Boolean = false,
+    objectDetectionEnabled: Boolean = true,
     currentUserProfile: UserProfile = UserProfile(),
     cubeSkin: CubeSkin = CubeSkin.Default,
     onFiltersToggle: (Boolean) -> Unit = {},
@@ -380,6 +381,10 @@ fun CameraScreen(
         } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             cameraPermissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
         }
+    }
+
+    LaunchedEffect(galleryTrigger) {
+        if (galleryTrigger > 0) photoPickerLauncher.launch("*/*")
     }
 
     LaunchedEffect(photoTrigger) {

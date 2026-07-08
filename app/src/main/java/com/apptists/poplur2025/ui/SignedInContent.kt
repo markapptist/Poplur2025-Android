@@ -67,6 +67,7 @@ fun SignedInContent(
     cameraRecordTrigger: Int,
     cameraLiveTrigger: Int,
     cameraFiltersTrigger: Int,
+    cameraGalleryTrigger: Int = 0,
     cameraObjectDetectionEnabled: Boolean,
     aiVideoPrompt: String,
     aiVideoStyle: AIVideoStyle,
@@ -117,7 +118,8 @@ fun SignedInContent(
     onAiVideoStyleChange: (AIVideoStyle) -> Unit,
     onAiVideoLocationNameChange: (String) -> Unit,
     onIsFeedTvGuideVisibleChange: (Boolean) -> Unit,
-    onPhoneColorwaySelected: androidx.compose.ui.graphics.Color?
+    onPhoneColorwaySelected: androidx.compose.ui.graphics.Color?,
+    onSelectedCubeSkinChange: (CubeSkin) -> Unit = {}
 ) {
     val haptics = LocalHapticFeedback.current
     
@@ -266,6 +268,7 @@ fun SignedInContent(
             recordTrigger = cameraRecordTrigger,
             liveTrigger = cameraLiveTrigger,
             filtersTrigger = cameraFiltersTrigger,
+            galleryTrigger = cameraGalleryTrigger,
             objectDetectionEnabled = cameraObjectDetectionEnabled,
             currentUserProfile = currentUserProfile,
             cubeSkin = selectedCubeSkin,
@@ -413,7 +416,14 @@ fun SignedInContent(
             onBack = {
                 onTabChange(previousTab ?: AppTab.Profile)
                 if (tab == AppTab.Profile) { onProfileCubeCommittedIconTitleChange(null); onProfilePanelIconTitleChange(null) }
-            }
+            },
+            onSignOut = { authViewModel.signOut() },
+            onOpenCubeDebug = { onTabChange(AppTab.CubeDebug) },
+            preferredLanguage = preferredLanguage,
+            closedCaptionsEnabled = closedCaptionsEnabled,
+            profileAvatarIs3D = profileAvatarIs3D,
+            selectedCubeSkin = selectedCubeSkin,
+            onCubeSkinChange = onSelectedCubeSkinChange
         )
         AppTab.CubeDebug -> com.apptists.poplur2025.ui.previews.CubeDebugScreen(
             onBack = { onTabChange(previousTab ?: AppTab.Profile) }

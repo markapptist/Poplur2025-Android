@@ -4,9 +4,11 @@ import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import com.google.android.filament.IndirectLight
+import com.google.android.filament.Skybox
 import dev.romainguy.kotlin.math.Float3
 import io.github.sceneview.SceneView
 import io.github.sceneview.node.ModelNode
@@ -26,6 +28,9 @@ import kotlin.math.sin
 fun MarkHeadSceneView(
     isSpeaking: Boolean,
     modifier: Modifier = Modifier,
+    // The head's SurfaceView can't be transparent over Compose content, so it clears to
+    // this colour (the profile background) so it blends instead of showing a black box.
+    headBackground: Color = Color(0xFFF6E7EF),
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val speaking = rememberUpdatedState(isSpeaking)
@@ -36,6 +41,14 @@ fun MarkHeadSceneView(
             SceneView(ctx).apply {
                 lifecycle = lifecycleOwner.lifecycle
                 try {
+                    // Filament's ClearOptions alpha is ignored at the SurfaceView surface
+                    // level (surface itself is opaque black). A Skybox renders ON the Filament
+                    // scene — above the surface — so its colour actually shows through.
+                    // Using headBackground gives a seamless blend with the profile page.
+                    scene.skybox = Skybox.Builder()
+                        .color(headBackground.red, headBackground.green, headBackground.blue, 1f)
+                        .build(engine)
+
                     // Flat ambient IBL so the PBR head isn't rendered black. The bare
                     // SceneView constructor sets up no environment, so without this the
                     // model shows up completely dark.

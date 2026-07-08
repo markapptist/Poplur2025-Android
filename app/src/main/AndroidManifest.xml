@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="com.android.vending.BILLING"/>
 
     <queries>
         <package android:name="com.google.android.gms" />
@@ -32,6 +33,63 @@
             android:launchMode="singleTask"
             android:screenOrientation="portrait">
         </activity>
+
+        <!-- DEBUG: launches straight into the native libGDX PoplurFPS game for verification -->
+        <activity
+            android:name=".FpsDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Poplur"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:screenOrientation="fullSensor" />
+
+        <!-- DEBUG: renders just the 3D Mark head (SceneView) for verification -->
+        <activity
+            android:name=".HeadDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Poplur"
+            android:screenOrientation="portrait" />
+
+        <!-- DEBUG: renders the real ProfileScreen (with 3D head) for verification -->
+        <activity
+            android:name=".ProfileDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Poplur"
+            android:screenOrientation="portrait" />
+
+        <!-- DEBUG: renders the real MapScreen for verification -->
+        <activity
+            android:name=".MapDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Poplur"
+            android:screenOrientation="portrait" />
+
+        <!-- DEBUG: renders the cube hold menu (grid-card redesign) for verification -->
+        <activity
+            android:name=".HoldMenuDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Poplur"
+            android:screenOrientation="portrait" />
+
+        <!-- DEBUG: renders the redesigned Profile Stats sub-screen -->
+        <activity
+            android:name=".StatsDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Poplur"
+            android:screenOrientation="portrait" />
+
+        <!-- DEBUG: renders the redesigned DM/Messages screen (pink ChatC theme) -->
+        <activity
+            android:name=".MessagesDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Poplur"
+            android:screenOrientation="portrait" />
+
+        <!-- DEBUG: renders the Welcome/Auth carousel (welcome/login/signup slide) -->
+        <activity
+            android:name=".WelcomeDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Poplur"
+            android:screenOrientation="portrait" />
 
         <activity-alias
             android:name=".IconDefaultAlias"
