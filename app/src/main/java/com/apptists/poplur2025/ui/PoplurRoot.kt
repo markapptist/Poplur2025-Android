@@ -919,6 +919,43 @@ fun PoplurRoot(
         )
     )
 
+    // Map-specific hold menu — mirrors iOS mapCubeMenuItems (locate / post / tour + quick nav).
+    val mapMenuItems = listOf(
+        CubeMenuWheelItem(
+            label = "LOCATE",
+            iconAssetPath = "",
+            fallbackIcon = Icons.Default.MyLocation,
+            onSelected = { scope.launch { mapViewModel.triggerCenterOnUser() } }
+        ),
+        CubeMenuWheelItem(
+            label = "POST",
+            iconAssetPath = "",
+            fallbackIcon = Icons.Default.PhotoCamera,
+            onSelected = { scope.launch { mapViewModel.triggerPostToMap() } }
+        ),
+        CubeMenuWheelItem(
+            label = "TOUR",
+            iconAssetPath = "",
+            fallbackIcon = Icons.Default.Explore,
+            onSelected = { mapViewModel.setTourPaused(false) }
+        ),
+        CubeMenuWheelItem(
+            label = "HOME",
+            iconAssetPath = "hold_menu_icons/home.png",
+            fallbackIcon = Icons.Default.Home,
+            onSelected = { tab = AppTab.Feed }
+        ),
+        CubeMenuWheelItem(
+            label = "CHAT",
+            iconAssetPath = "hold_menu_icons/chat.png",
+            fallbackIcon = Icons.Default.Message,
+            onSelected = {
+                previousTab = tab
+                tab = AppTab.Messages
+            }
+        )
+    )
+
     val onLongPressCube: () -> Unit = {
         if (tab == AppTab.Profile) {
             val profileMenuItems = listOf(
@@ -975,6 +1012,8 @@ fun PoplurRoot(
             } else {
                 cubeMenuWheelController.beginHold(profileMenuItems)
             }
+        } else if (tab == AppTab.Map) {
+            cubeMenuWheelController.beginHold(mapMenuItems)
         } else if (tab == AppTab.Messages || tab == AppTab.Settings || tab == AppTab.CubeDebug || tab == AppTab.CapturedOutput ||
             tab == AppTab.CreateEntry || tab == AppTab.AIVideoStudio || tab == AppTab.AIVideoProgress) {
             cubeMenuWheelController.beginHold(listOf(backItem))

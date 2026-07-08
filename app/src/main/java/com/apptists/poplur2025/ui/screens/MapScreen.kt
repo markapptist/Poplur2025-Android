@@ -1297,7 +1297,24 @@ fun MapScreenContent(
                 }
             }
         }
-        // Zoom slider removed — pinch to zoom (amplified 2.2x via gesture settings)
+        // Zoom slider (re-added to match iOS redesign) — drives the camera zoom
+        // directly (no fly animation) so it tracks the finger; pinch still works too.
+        MapZoomSlider(
+            zoom = zoomSliderValue,
+            cubeSkin = cubeSkin,
+            onZoomChange = { newZoom ->
+                zoomSliderValue = newZoom
+                mapView?.mapboxMap?.setCamera(
+                    CameraOptions.Builder()
+                        .zoom(newZoom.toDouble().coerceIn(0.0, 22.0))
+                        .build()
+                )
+            },
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 16.dp, bottom = 200.dp)
+                .zIndex(4f)
+        )
         MapRadioBroadcastCard(
             isLive = mapRadioLive,
             script = if (mapRadioLive) mapRadioDisplayLine else mapRadioScript,
