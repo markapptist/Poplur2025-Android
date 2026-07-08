@@ -1,9 +1,15 @@
 package com.apptists.poplur2025.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -404,6 +410,8 @@ private fun ProfileHome(
 ) {
     val theme = cubeSkin.uiTheme()
     var didStartHeyPoplurTutorial by rememberSaveable { mutableStateOf(false) }
+    var showNotificationBanner by remember { mutableStateOf(false) }
+    var localUnread by remember { mutableStateOf(hasUncheckedNotifications) }
     val mediaPosts = when (radiusSortOrder) {
         PoplurAIProfileSortOrder.MostRadius -> DemoPostStore.posts.sortedByDescending { it.radius }
         PoplurAIProfileSortOrder.LeastRadius -> DemoPostStore.posts.sortedBy { it.radius }
@@ -511,6 +519,135 @@ private fun ProfileHome(
                     .navigationBarsPadding()
                     .padding(start = 24.dp, end = 24.dp, bottom = 146.dp)
             )
+        }
+
+        // Notification bell (top-right) + pink drop-down banner — matches iOS ProfileNotificationBanner
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 10.dp, end = 18.dp)
+                .size(40.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    showNotificationBanner = !showNotificationBanner
+                    if (showNotificationBanner) {
+                        localUnread = false
+                        onOpenNotifications()
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Text("🔔", fontSize = 22.sp)
+            if (localUnread) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .size(9.dp)
+                        .clip(CircleShape)
+                        .background(Color.Red)
+                )
+            }
+        }
+
+        // Tap-outside scrim to dismiss the banner
+        if (showNotificationBanner) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { showNotificationBanner = false }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showNotificationBanner,
+            enter = slideInVertically { -it } + fadeIn(),
+            exit = slideOutVertically { -it } + fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            ProfileNotificationBanner()
+        }
+    }
+}
+
+/** Pink notification banner that drops from the top — matches iOS ProfileNotificationBanner. */
+@Composable
+private fun ProfileNotificationBanner() {
+    val bannerPink = Color(0xFFFF9EC7) // iOS RGB(1.0, 0.62, 0.78)
+    data class Alert(
+        val title: String,
+        val detail: String,
+        val icon: androidx.compose.ui.graphics.vector.ImageVector,
+        val color: Color,
+        val unread: Boolean
+    )
+    val alerts = listOf(
+        Alert("Post liked", "Your latest post picked up new likes.", Icons.Default.Email, Color(0xFF3E63DD), true),
+        Alert("Post radius jumped", "One of your posts expanded significantly in the last hour.", Icons.Default.CardGiftcard, Color(0xFF30B865), true),
+        Alert("Accumulated radius dipped", "Your total radius is down from the previous check.", Icons.Default.CardGiftcard, Color(0xFFFF9F0A), false)
+    )
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
+            .background(bannerPink)
+    ) {
+        Text(
+            "Notifications",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Black,
+            color = Color.White,
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 14.dp)
+        )
+        Column(
+            Modifier
+                .heightIn(max = 340.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(start = 16.dp, end = 16.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            alerts.forEach { item ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.White)
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    BadgedBox(
+                        badge = { if (item.unread) Badge(containerColor = Color.Red) }
+                    ) {
+                        Box(
+                            Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(item.color.copy(alpha = 0.18f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(item.icon, null, tint = item.color, modifier = Modifier.size(17.dp))
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(item.title, fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color.Black)
+                        Text(
+                            item.detail,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.Black.copy(alpha = 0.55f)
+                        )
+                    }
+                }
+            }
         }
     }
 }
