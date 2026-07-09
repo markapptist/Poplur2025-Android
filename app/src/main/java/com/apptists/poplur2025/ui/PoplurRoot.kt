@@ -962,13 +962,13 @@ fun PoplurRoot(
     val cameraMenuItems = listOf(
         CubeMenuWheelItem(
             label = "ROLL",
-            iconAssetPath = "",
+            iconAssetPath = "hold_menu_icons/roll.png",
             fallbackIcon = Icons.Default.PhotoLibrary,
             onSelected = { cameraGalleryTrigger++ }
         ),
         CubeMenuWheelItem(
             label = "CREATE",
-            iconAssetPath = "",
+            iconAssetPath = "hold_menu_icons/create.png",
             fallbackIcon = Icons.Default.AutoAwesome,
             onSelected = {
                 previousTab = AppTab.Camera
