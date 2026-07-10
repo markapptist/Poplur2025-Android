@@ -63,6 +63,14 @@
             android:theme="@style/Theme.Poplur"
             android:screenOrientation="portrait" />
 
+        <!-- Clay web map (Phase 1 embed) — the Mapbox GL JS clay map from
+             poplur-clay-map running in a WebView, same bundle as iOS -->
+        <activity
+            android:name=".ClayMapActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Poplur"
+            android:screenOrientation="portrait" />
+
         <!-- DEBUG: renders the cube hold menu (grid-card redesign) for verification -->
         <activity
             android:name=".HoldMenuDemoActivity"
@@ -87,6 +95,20 @@
         <!-- DEBUG: renders the Welcome/Auth carousel (welcome/login/signup slide) -->
         <activity
             android:name=".WelcomeDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Poplur"
+            android:screenOrientation="portrait" />
+
+        <!-- DEBUG: renders the Camera-tab hold menu (roll/create/home/chat/store) -->
+        <activity
+            android:name=".CameraHoldMenuDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Poplur"
+            android:screenOrientation="portrait" />
+
+        <!-- DEBUG: renders the feed channel-logo bug (swoop-in/hold/fade) -->
+        <activity
+            android:name=".FeedLogoBugDemoActivity"
             android:exported="true"
             android:theme="@style/Theme.Poplur"
             android:screenOrientation="portrait" />
