@@ -191,7 +191,7 @@ fun PoplurRoot(
     var selectedCubeSkin by rememberSaveable {
         val storedSkinId = settingsPrefs.getString("selected_cube_skin", null)
         mutableStateOf(
-            CubeSkin.entries.find { it.id == storedSkinId } ?: CubeSkin.Gold
+            CubeSkin.entries.find { it.id == storedSkinId } ?: CubeSkin.Clay
         )
     }
     val use3DLoadingScreen = remember {

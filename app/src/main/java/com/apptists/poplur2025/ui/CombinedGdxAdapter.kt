@@ -71,7 +71,7 @@ class CombinedGdxAdapter(
     private var cubeModelBaseScale = 1f
     private val cubeRestingPitchDegrees = -10f
 
-    var skin: CubeSkin = CubeSkin.Gold
+    var skin: CubeSkin = CubeSkin.Clay
         set(value) {
             if (field != value) {
                 field = value

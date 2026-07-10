@@ -48,7 +48,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
     private var confettiContainer: FragmentContainerView? = null
     private val cubeContainerId = R.id.cube_container
     private val confettiContainerId = View.generateViewId()
-    private var lastCubeSkin: CubeSkin = CubeSkin.Gold
+    private var lastCubeSkin: CubeSkin = CubeSkin.Clay
 
     @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {

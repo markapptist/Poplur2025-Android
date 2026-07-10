@@ -135,7 +135,7 @@ object GdxState {
     var isSceneActive by mutableStateOf(false)
     var currentScene by mutableStateOf("radius")
 
-    var selectedCubeSkin by mutableStateOf(CubeSkin.Gold)
+    var selectedCubeSkin by mutableStateOf(CubeSkin.Clay)
 
     var sceneBoundsX by mutableStateOf(0f)
     var sceneBoundsY by mutableStateOf(0f)

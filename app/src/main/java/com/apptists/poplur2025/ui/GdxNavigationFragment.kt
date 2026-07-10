@@ -47,7 +47,7 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
     private var pendingChannelObjectId: String = "star"
     private var pendingChannelObjectToken: Int = 0
     private var syncedTabIndex: Int = Int.MIN_VALUE
-    private var pendingSkin: CubeSkin = CubeSkin.Gold
+    private var pendingSkin: CubeSkin = CubeSkin.Clay
     private var pendingModelAssetPathOverride: String? = null
     private var pendingInteractionEnabled: Boolean = true
     private var inputView: View? = null
