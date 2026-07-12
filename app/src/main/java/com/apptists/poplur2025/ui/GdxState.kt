@@ -21,7 +21,7 @@ val CubeSkin.holdMenuAssetPath: String
         CubeSkin.Chocolate -> "holdmenu/chocolate.png"
         CubeSkin.Default   -> "holdmenu/classic.png"
         CubeSkin.Gold      -> "holdmenu/gold.png"
-        CubeSkin.Carbon    -> "holdmenu/sparkle.png"
+        CubeSkin.Carbon, CubeSkin.Clay -> "holdmenu/sparkle.png"
         CubeSkin.Rainbow   -> "holdmenu/rainbow.png"
         CubeSkin.Toy       -> "holdmenu/toy.png"
         CubeSkin.Space     -> "holdmenu/sparkle.png"
@@ -34,7 +34,7 @@ val CubeSkin.bannerAssetPath: String
         CubeSkin.Gold      -> "theme_banners/theme_banner_gold.png"
         CubeSkin.Toy       -> "theme_banners/theme_banner_toy.png"
         CubeSkin.Rainbow   -> "theme_banners/theme_banner_rainbow.png"
-        CubeSkin.Carbon    -> "theme_banners/theme_banner_sparkle_pink.png"
+        CubeSkin.Carbon, CubeSkin.Clay -> "theme_banners/theme_banner_sparkle_pink.png"
         CubeSkin.Ice       -> "theme_banners/theme_banner_ice.png"
         CubeSkin.Chocolate -> "theme_banners/theme_banner_chocolate.png"
         CubeSkin.Space     -> "theme_banners/theme_banner_sparkle_pink.png"
@@ -56,6 +56,14 @@ enum class CubeSkin(
         "cube_models/dark_rubber_neon_icon_cube.glb",
         null,
         "logo.png"
+    ),
+    Clay(
+        "clay",
+        "Poplur Clay",
+        null, // use the GLB's own baked clay texture (like Default)
+        "cube_models/clay_icon_cube.glb",
+        Color(0.93f, 0.09f, 0.55f, 1f),
+        "logo/logo_clay.png"
     ),
     Gold(
         "gold",
@@ -127,7 +135,7 @@ object GdxState {
     var isSceneActive by mutableStateOf(false)
     var currentScene by mutableStateOf("radius")
 
-    var selectedCubeSkin by mutableStateOf(CubeSkin.Gold)
+    var selectedCubeSkin by mutableStateOf(CubeSkin.Clay)
 
     var sceneBoundsX by mutableStateOf(0f)
     var sceneBoundsY by mutableStateOf(0f)

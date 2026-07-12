@@ -2,55 +2,60 @@ package com.apptists.poplur2025.ui.components
 
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
-import com.apptists.poplur2025.ui.components.PoplurText
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import com.apptists.poplur2025.ui.CubeSkin
-import com.apptists.poplur2025.ui.holdMenuAssetPath
-import com.apptists.poplur2025.ui.usePerItemTint
 import com.apptists.poplur2025.util.PoplurEQSync
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -58,18 +63,26 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-enum class CubeMenuLayout {
-    Horizontal,
-    Vertical
-}
+// kept for backward-compat with settings persistence; no longer affects layout
+enum class CubeMenuLayout { Horizontal, Vertical }
+
+// ── Neon pink palette ──────────────────────────────────────────────────────────
+
+private val NeonPink   = Color(1f, 0.08f, 0.55f, 1f)
+private val CardBg     = Color(0.05f, 0.03f, 0.08f, 1f)
+private val GlowPurple = Color(0.55f, 0.02f, 0.28f, 0.55f)
+
+// ── Data model ────────────────────────────────────────────────────────────────
 
 data class CubeMenuWheelItem(
     val label: String,
-    val icon: ImageVector,
-    val secondaryIcon: ImageVector? = null,
-    val accent: Color,
+    val iconAssetPath: String,          // path under assets/, e.g. "hold_menu_icons/home.png"
+    val fallbackIcon: ImageVector? = null,
+    val fallbackTint: Color = Color.White,
     val onSelected: () -> Unit
 )
+
+// ── Controller ────────────────────────────────────────────────────────────────
 
 @Stable
 class CubeMenuWheelController(
@@ -79,8 +92,6 @@ class CubeMenuWheelController(
     var items by mutableStateOf<List<CubeMenuWheelItem>>(emptyList())
         private set
     var selectedIndex by mutableIntStateOf(0)
-        private set
-    var tickCount by mutableIntStateOf(0)
         private set
     var isVisible by mutableStateOf(false)
         private set
@@ -95,16 +106,13 @@ class CubeMenuWheelController(
 
     private var closeJob: Job? = null
     private var scrubRemainder = 0f
-    private val horizontalScrubStepPx = 96f
-    private val verticalScrubStepPx = 108f
-    private val maxStepsPerScrubUpdate = 4
+    private val scrubStepPx = 200f
 
     fun beginHold(nextItems: List<CubeMenuWheelItem>) {
         if (nextItems.isEmpty()) return
         closeJob?.cancel()
         items = nextItems
         selectedIndex = 0
-        tickCount = 0
         scrubRemainder = 0f
         isClosing = false
         isVisible = true
@@ -114,9 +122,7 @@ class CubeMenuWheelController(
     fun endHold(activateSelected: Boolean) {
         val selectedAction = if (activateSelected && isVisible) {
             items.getOrNull(selectedIndex)?.onSelected
-        } else {
-            null
-        }
+        } else null
         closeJob?.cancel()
         isVisible = false
         isClosing = true
@@ -128,153 +134,27 @@ class CubeMenuWheelController(
         }
     }
 
-    fun scrub(deltaX: Float, deltaY: Float, layout: CubeMenuLayout) {
+    fun scrub(deltaX: Float, deltaY: Float) {
         if (!isVisible || items.size <= 1) return
-        val useVerticalScrub = abs(deltaY) >= abs(deltaX)
-        val primaryDelta = if (useVerticalScrub) {
-            deltaY
-        } else if (layout == CubeMenuLayout.Horizontal) {
-            deltaX
-        } else {
-            deltaY
-        }
-        if (abs(primaryDelta) <= 0.25f) return
-
-        val stepDistance = if (useVerticalScrub || layout == CubeMenuLayout.Vertical) verticalScrubStepPx else horizontalScrubStepPx
-        scrubRemainder += primaryDelta
-
-        var steps = 0
-        while (scrubRemainder <= -stepDistance && steps < maxStepsPerScrubUpdate) {
-            scrubRemainder += stepDistance
+        val primary = if (abs(deltaX) >= abs(deltaY)) deltaX else deltaY
+        if (abs(primary) <= 0.25f) return
+        scrubRemainder += primary
+        while (scrubRemainder >= scrubStepPx) {
+            scrubRemainder -= scrubStepPx
             moveSelection(1)
-            steps += 1
         }
-        while (scrubRemainder >= stepDistance && steps < maxStepsPerScrubUpdate) {
-            scrubRemainder -= stepDistance
+        while (scrubRemainder <= -scrubStepPx) {
+            scrubRemainder += scrubStepPx
             moveSelection(-1)
-            steps += 1
-        }
-        if (steps == maxStepsPerScrubUpdate && abs(scrubRemainder) > stepDistance) {
-            scrubRemainder = stepDistance * if (scrubRemainder < 0f) -1f else 1f
         }
     }
 
     private fun moveSelection(offset: Int) {
-        if (items.isEmpty() || offset == 0) return
+        if (items.isEmpty()) return
         val count = items.size
         selectedIndex = (selectedIndex + offset + count) % count
-        tickCount += 1
         onTick()
     }
-}
-
-// ── Skin-derived menu colors ──────────────────────────────────────────────────
-
-private data class MenuSkinColors(
-    val panelMidTint: Color,
-    val borderDim: Color,
-    val borderBright: Color,
-    val tileBgAccent: Color,
-    val tileBorderA: Color,
-    val tileBorderB: Color,
-    val tileBorderC: Color
-)
-
-private fun menuSkinColors(skin: CubeSkin): MenuSkinColors = when (skin) {
-    CubeSkin.Gold -> MenuSkinColors(
-        panelMidTint = Color(0.18f, 0.12f, 0.02f, 1f),
-        borderDim    = Color(0.50f, 0.35f, 0.05f, 0.60f),
-        borderBright = Color(0.95f, 0.78f, 0.18f, 0.82f),
-        tileBgAccent = Color(0.22f, 0.14f, 0.03f, 0.96f),
-        tileBorderA  = Color(0.70f, 0.50f, 0.10f, 1f),
-        tileBorderB  = Color(0.95f, 0.78f, 0.18f, 1f),
-        tileBorderC  = Color(0.80f, 0.60f, 0.12f, 1f)
-    )
-    CubeSkin.Chocolate -> MenuSkinColors(
-        panelMidTint = Color(0.20f, 0.10f, 0.03f, 1f),
-        borderDim    = Color(0.50f, 0.28f, 0.06f, 0.60f),
-        borderBright = Color(0.72f, 0.40f, 0.08f, 0.82f),
-        tileBgAccent = Color(0.25f, 0.12f, 0.03f, 0.96f),
-        tileBorderA  = Color(0.55f, 0.30f, 0.06f, 1f),
-        tileBorderB  = Color(0.72f, 0.40f, 0.08f, 1f),
-        tileBorderC  = Color(0.60f, 0.34f, 0.07f, 1f)
-    )
-    CubeSkin.Camo -> MenuSkinColors(
-        panelMidTint = Color(0.10f, 0.16f, 0.05f, 1f),
-        borderDim    = Color(0.28f, 0.40f, 0.12f, 0.60f),
-        borderBright = Color(0.48f, 0.62f, 0.22f, 0.82f),
-        tileBgAccent = Color(0.12f, 0.18f, 0.06f, 0.96f),
-        tileBorderA  = Color(0.34f, 0.48f, 0.15f, 1f),
-        tileBorderB  = Color(0.48f, 0.62f, 0.22f, 1f),
-        tileBorderC  = Color(0.38f, 0.52f, 0.18f, 1f)
-    )
-    CubeSkin.Ice -> MenuSkinColors(
-        panelMidTint = Color(0.06f, 0.14f, 0.28f, 1f),
-        borderDim    = Color(0.40f, 0.62f, 0.80f, 0.60f),
-        borderBright = Color(0.55f, 0.88f, 1.00f, 0.82f),
-        tileBgAccent = Color(0.06f, 0.16f, 0.30f, 0.96f),
-        tileBorderA  = Color(0.45f, 0.72f, 0.92f, 1f),
-        tileBorderB  = Color(0.55f, 0.88f, 1.00f, 1f),
-        tileBorderC  = Color(0.50f, 0.80f, 0.96f, 1f)
-    )
-    CubeSkin.Space -> MenuSkinColors(
-        panelMidTint = Color(0.06f, 0.04f, 0.18f, 1f),
-        borderDim    = Color(0.30f, 0.24f, 0.60f, 0.60f),
-        borderBright = Color(0.55f, 0.42f, 1.00f, 0.82f),
-        tileBgAccent = Color(0.08f, 0.05f, 0.22f, 0.96f),
-        tileBorderA  = Color(0.40f, 0.30f, 0.80f, 1f),
-        tileBorderB  = Color(0.55f, 0.42f, 1.00f, 1f),
-        tileBorderC  = Color(0.46f, 0.36f, 0.88f, 1f)
-    )
-    CubeSkin.Carbon -> MenuSkinColors(  // Sparkle Pink
-        panelMidTint = Color(0.25f, 0.08f, 0.18f, 1f),
-        borderDim    = Color(0.70f, 0.20f, 0.50f, 0.60f),
-        borderBright = Color(1.00f, 0.35f, 0.72f, 0.82f),
-        tileBgAccent = Color(0.28f, 0.08f, 0.18f, 0.96f),
-        tileBorderA  = Color(0.80f, 0.25f, 0.60f, 1f),
-        tileBorderB  = Color(1.00f, 0.35f, 0.72f, 1f),
-        tileBorderC  = Color(0.86f, 0.28f, 0.65f, 1f)
-    )
-    CubeSkin.Toy, CubeSkin.Rainbow -> MenuSkinColors(  // neutral panel; tiles use per-item accent
-        panelMidTint = Color(0.05f, 0.05f, 0.08f, 1f),
-        borderDim    = Color(0.30f, 0.30f, 0.40f, 0.40f),
-        borderBright = Color(0.55f, 0.55f, 0.65f, 0.55f),
-        tileBgAccent = Color(0.08f, 0.08f, 0.10f, 0.96f),
-        tileBorderA  = Color(0.40f, 0.40f, 0.50f, 1f),
-        tileBorderB  = Color(0.55f, 0.55f, 0.65f, 1f),
-        tileBorderC  = Color(0.46f, 0.46f, 0.56f, 1f)
-    )
-    else -> MenuSkinColors(  // Default
-        panelMidTint = Color(0.07f, 0.04f, 0.16f, 1f),
-        borderDim    = Color(0.25f, 0.19f, 0.64f, 0.60f),
-        borderBright = Color(1.00f, 0.11f, 0.95f, 0.74f),
-        tileBgAccent = Color(0.21f, 0.03f, 0.31f, 0.96f),
-        tileBorderA  = Color(0.44f, 0.32f, 1.00f, 1f),
-        tileBorderB  = Color(1.00f, 0.12f, 0.95f, 1f),
-        tileBorderC  = Color(0.74f, 0.46f, 1.00f, 1f)
-    )
-}
-
-/** Tile colors derived from a single per-item accent — used by Toy and Rainbow skins. */
-private fun itemTileColors(accent: Color): MenuSkinColors {
-    val r = accent.red; val g = accent.green; val b = accent.blue
-    return MenuSkinColors(
-        panelMidTint = Color(r * 0.05f, g * 0.05f, b * 0.08f, 1f),
-        borderDim    = Color(r * 0.50f, g * 0.50f, b * 0.60f, 0.60f),
-        borderBright = Color(r, g, b, 0.82f),
-        tileBgAccent = Color(r * 0.18f, g * 0.18f, b * 0.22f, 0.96f),
-        tileBorderA  = Color(r * 0.65f, g * 0.65f, b * 0.80f, 1f),
-        tileBorderB  = Color(r, g, b, 1f),
-        tileBorderC  = Color(r * 0.78f, g * 0.78f, b * 0.88f, 1f)
-    )
-}
-
-private fun iconTintForSkin(skin: CubeSkin): Color = when (skin) {
-    CubeSkin.Gold -> Color(1.00f, 0.95f, 0.60f, 1f)
-    CubeSkin.Chocolate -> Color(0.92f, 0.65f, 0.25f, 1f)
-    CubeSkin.Camo -> Color(0.82f, 0.84f, 0.56f, 1f)
-    CubeSkin.Ice -> Color(0.82f, 0.96f, 1.00f, 1f)
-    else -> Color.White
 }
 
 // ── Overlay ───────────────────────────────────────────────────────────────────
@@ -282,118 +162,91 @@ private fun iconTintForSkin(skin: CubeSkin): Color = when (skin) {
 @Composable
 fun BoxScope.CubeMenuWheelOverlay(
     controller: CubeMenuWheelController,
-    modifier: Modifier = Modifier,
-    layout: CubeMenuLayout = CubeMenuLayout.Vertical,
-    cubeSkin: CubeSkin = CubeSkin.Default
+    modifier: Modifier = Modifier
 ) {
-    val menuProgress by animateFloatAsState(
+    val openProgress by animateFloatAsState(
         targetValue = if (controller.isVisible) 1f else 0f,
         animationSpec = if (controller.isVisible) {
-            spring(dampingRatio = 0.74f, stiffness = Spring.StiffnessMediumLow)
+            spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMediumLow)
         } else {
             tween(durationMillis = 200)
         },
-        label = "cube-menu-progress"
+        label = "hold-menu-open"
     )
 
     AnimatedVisibility(
         visible = controller.isOnScreen,
         enter = fadeIn(tween(140)),
         exit = fadeOut(tween(180)),
-        modifier = modifier
-            .fillMaxSize()
-            .align(Alignment.Center)
+        modifier = modifier.fillMaxSize().align(Alignment.Center)
     ) {
-        CubeNeonMenu(
+        HoldMenuCard(
             items = controller.items,
             selectedIndex = controller.selectedIndex,
-            tickCount = controller.tickCount,
-            layout = layout,
-            openProgress = menuProgress,
-            cubeSkin = cubeSkin,
-            modifier = Modifier.fillMaxSize()
+            openProgress = openProgress
         )
     }
 }
 
-// ── Floating menu tiles ───────────────────────────────────────────────────────
+// ── Curved vertical wheel layout ─────────────────────────────────────────────
+//
+// The selected item sits at center; neighbors recede above/below along a
+// gentle arc (offset + rotation + scale falloff), scrubbed with the hold
+// gesture. Neon-pink icon-pack style with the spring scale/fade entrance.
 
 @Composable
-private fun CubeNeonMenu(
+private fun HoldMenuCard(
     items: List<CubeMenuWheelItem>,
     selectedIndex: Int,
-    tickCount: Int,
-    layout: CubeMenuLayout,
-    openProgress: Float,
-    cubeSkin: CubeSkin = CubeSkin.Default,
-    modifier: Modifier = Modifier
+    openProgress: Float
 ) {
-    BoxWithConstraints(modifier.fillMaxSize()) {
-        val visibleItems = visibleMenuItems(items, selectedIndex)
-        val skinColors = if (cubeSkin.usePerItemTint) {
-            null
-        } else {
-            menuSkinColors(cubeSkin)
-        }
-        val assetPath = cubeSkin.holdMenuAssetPath
-        val horizontalSpacing = clampDp(maxWidth * 0.30f, 122.dp, 158.dp)
-        val verticalSpacing = clampDp(maxHeight * 0.13f, 118.dp, 146.dp)
-        val horizontalLiftFromBottom = clampDp(maxHeight * 0.24f, 226.dp, 292.dp)
-        val panelYOffset = when (layout) {
-            CubeMenuLayout.Horizontal -> maxHeight * 0.5f - horizontalLiftFromBottom
-            CubeMenuLayout.Vertical -> 0.dp
-        }
-
-        Box(Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.50f * openProgress))
-            )
-
-            HoldMenuScrubHint(
-                openProgress = openProgress,
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 18.dp)
-                    .zIndex(10f)
-            )
-
-            visibleItems.forEach { visibleItem ->
-                val selected = visibleItem.index == selectedIndex
-                val distance = abs(visibleItem.relativeSlot)
-                val slotOpacity = if (distance == 2) 0.72f else 1f
-                val slotOffsetX = when (layout) {
-                    CubeMenuLayout.Horizontal -> horizontalSpacing * visibleItem.relativeSlot.toFloat()
-                    CubeMenuLayout.Vertical -> 0.dp
+    // Matches the iOS CubeHoldMenuOverlay redesign: a dimmed backdrop with a compact
+    // themed card holding a GRID of icon+label tiles (was a fullscreen vertical wheel),
+    // plus a "SCRUB" indicator on the right.
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.50f))
+            .graphicsLayer { alpha = openProgress },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .graphicsLayer {
+                    scaleX = 0.9f + openProgress * 0.1f
+                    scaleY = 0.9f + openProgress * 0.1f
                 }
-                val slotOffsetY = when (layout) {
-                    CubeMenuLayout.Horizontal -> panelYOffset
-                    CubeMenuLayout.Vertical -> verticalSpacing * visibleItem.relativeSlot.toFloat()
-                }
+                .padding(horizontal = 20.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(CardBg.copy(alpha = 0.96f))
+                .background(Brush.radialGradient(listOf(GlowPurple.copy(alpha = 0.35f), Color.Transparent)))
+                .border(1.5.dp, NeonPink.copy(alpha = 0.5f), RoundedCornerShape(22.dp))
+                .padding(16.dp)
+        ) {
+            HoldMenuGrid(items = items, selectedIndex = selectedIndex)
+        }
 
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .offset(x = slotOffsetX, y = slotOffsetY)
-                        .graphicsLayer {
-                            alpha = openProgress * slotOpacity
-                            val entranceScale = 0.3f + openProgress * 0.7f
-                            scaleX = entranceScale
-                            scaleY = entranceScale
-                        }
-                        .zIndex(if (selected) 3f else 3f - distance.toFloat())
-                ) {
-                    CubeNeonMenuTile(
-                        item = visibleItem.item,
-                        relativeSlot = visibleItem.relativeSlot,
-                        selected = selected,
-                        tickCount = tickCount,
-                        layout = layout,
-                        cubeSkin = cubeSkin,
-                        skinColors = skinColors ?: itemTileColors(visibleItem.item.accent),
-                        tileAssetPath = assetPath
-                    )
+        ScrubIndicator(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 22.dp)
+        )
+    }
+}
+
+@Composable
+private fun HoldMenuGrid(items: List<CubeMenuWheelItem>, selectedIndex: Int) {
+    if (items.isEmpty()) return
+    val rows = items.chunked(4)   // up to 4 per row, like iOS CubeHoldMenuOverlay
+    Column(
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        rows.forEachIndexed { rowIndex, row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                row.forEachIndexed { colIndex, item ->
+                    val globalIndex = rowIndex * 4 + colIndex
+                    HoldMenuGridTile(item = item, selected = globalIndex == selectedIndex)
                 }
             }
         }
@@ -401,260 +254,264 @@ private fun CubeNeonMenu(
 }
 
 @Composable
-private fun CubeNeonMenuTile(
-    item: CubeMenuWheelItem,
-    relativeSlot: Int,
-    selected: Boolean,
-    tickCount: Int,
-    layout: CubeMenuLayout,
-    cubeSkin: CubeSkin,
-    skinColors: MenuSkinColors,
-    tileAssetPath: String
-) {
-    val context = LocalContext.current
-    val density = LocalDensity.current
-    val tileBitmap = androidx.compose.runtime.remember(context, tileAssetPath) {
-        runCatching {
-            context.assets.open(tileAssetPath).use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
-        }.getOrNull()
-    }
-    val impulse = androidx.compose.runtime.remember { Animatable(0f) }
-    androidx.compose.runtime.LaunchedEffect(tickCount, selected) {
-        if (selected) {
-            impulse.snapTo(1f)
-            impulse.animateTo(
-                targetValue = 0f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
+private fun ScrubIndicator(modifier: Modifier = Modifier) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.32f))
+            .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+            .padding(horizontal = 10.dp, vertical = 12.dp)
+    ) {
+        Icon(Icons.Default.KeyboardArrowUp, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+        Box(Modifier.height(44.dp), contentAlignment = Alignment.Center) {
+            Text(
+                "SCRUB",
+                color = Color.White,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.sp,
+                modifier = Modifier.rotate(-90f)
             )
         }
+        Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
     }
-    val baseScale by animateFloatAsState(
-        targetValue = if (selected) 1f else 0.92f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "cube-neon-menu-tile-scale"
+}
+
+@Composable
+private fun HoldMenuGridTile(item: CubeMenuWheelItem, selected: Boolean) {
+    val context = LocalContext.current
+    val bitmap = remember(context, item.iconAssetPath) {
+        runCatching {
+            context.assets.open(item.iconAssetPath).use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
+        }.getOrNull()
+    }
+    val tileShape = RoundedCornerShape(16.dp)
+    val scale by animateFloatAsState(
+        targetValue = if (selected) 1.08f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow),
+        label = "grid-tile"
     )
-    val width = cubeMenuTileWidth(selected, layout)
-    val height = cubeMenuTileHeight(selected, layout)
-    val tileShape = RoundedCornerShape(if (selected) 24.dp else 18.dp)
-    val contentTint = if (cubeSkin.usePerItemTint) item.accent else iconTintForSkin(cubeSkin)
-    val borderAccent = if (cubeSkin.usePerItemTint) item.accent else skinColors.tileBorderB
-    val direction = when {
-        relativeSlot > 0 -> 1f
-        relativeSlot < 0 -> -1f
-        else -> 0f
-    }
-    val idleRotation = (abs(relativeSlot) * 4.5f).coerceAtMost(9f) * direction
-
-    Box(
-        modifier = Modifier
-            .size(width = width, height = height)
-            .graphicsLayer {
-                val impulsePx = with(density) { 9.dp.toPx() * impulse.value }
-                val slotLagPx = with(density) { (relativeSlot * abs(relativeSlot) * 1.4f).dp.toPx() }
-
-                rotationZ = if (selected) {
-                    -1.2f * impulse.value
-                } else if (layout == CubeMenuLayout.Horizontal) {
-                    idleRotation
-                } else {
-                    -idleRotation
-                }
-                translationY = if (layout == CubeMenuLayout.Horizontal) slotLagPx - impulsePx else 0f
-                translationX = if (layout == CubeMenuLayout.Vertical) slotLagPx - impulsePx else 0f
-                scaleX = baseScale * (1f + impulse.value * 0.08f)
-                scaleY = baseScale * (1f - impulse.value * 0.06f)
-                shadowElevation = if (selected) 24.dp.toPx() else 12.dp.toPx()
-                shape = tileShape
-                clip = false
-            }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.graphicsLayer { scaleX = scale; scaleY = scale }
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (tileBitmap != null) {
+        Box(
+            modifier = Modifier
+                .size(72.dp)
+                .clip(tileShape)
+                .background(Color.Black, tileShape)
+                .border(
+                    width = if (selected) 2.5.dp else 1.5.dp,
+                    color = if (selected) NeonPink else NeonPink.copy(alpha = 0.35f),
+                    shape = tileShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (bitmap != null) {
                 Image(
-                    bitmap = tileBitmap,
-                    contentDescription = null,
+                    bitmap = bitmap,
+                    contentDescription = item.label,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize().clip(tileShape)
                 )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(tileShape)
-                        .background(skinColors.tileBgAccent)
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = if (selected) 0.32f else 0.20f),
-                                Color.White.copy(alpha = 0.06f),
-                                item.accent.copy(alpha = 0.14f),
-                                Color.Transparent
-                            )
-                        ),
-                        tileShape
-                    )
-            )
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                    .border(
-                        width = if (selected) 3.5.dp else 2.dp,
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = if (selected) 0.52f else 0.28f),
-                                borderAccent.copy(alpha = if (selected) 1.0f else 0.78f),
-                                Color.White.copy(alpha = if (selected) 0.38f else 0.18f),
-                                borderAccent.copy(alpha = if (selected) 0.92f else 0.62f)
-                            )
-                        ),
-                        shape = tileShape
-                )
-                .padding(if (selected) 12.dp else 9.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .padding(6.dp)
-                    .border(
-                        width = 1.dp,
-                        color = Color.White.copy(alpha = if (selected) 0.26f else 0.18f),
-                        shape = RoundedCornerShape(if (selected) 18.dp else 13.dp)
-                    )
-            )
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Box(
-                    modifier = Modifier.size(if (selected) 42.dp else 32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        item.icon,
-                        contentDescription = item.label,
-                        tint = contentTint,
-                        modifier = Modifier.size(if (selected) 38.dp else 28.dp)
-                    )
-                    item.secondaryIcon?.let { secondaryIcon ->
-                        Icon(
-                            secondaryIcon,
-                            contentDescription = null,
-                            tint = contentTint,
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .size(if (selected) 18.dp else 14.dp)
-                        )
-                    }
-                }
-                PoplurText(
-                    item.label,
-                    color = contentTint,
-                    fontSize = if (selected) 17.sp else 13.sp,
-                    fontWeight = FontWeight.Black,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = if (selected) 8.dp else 5.dp)
+            } else if (item.fallbackIcon != null) {
+                Icon(
+                    imageVector = item.fallbackIcon,
+                    contentDescription = item.label,
+                    tint = item.fallbackTint,
+                    modifier = Modifier.size(30.dp)
                 )
             }
         }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = item.label,
+            color = if (selected) NeonPink else Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.5.sp
+        )
     }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-private data class VisibleCubeMenuItem(
-    val index: Int,
-    val item: CubeMenuWheelItem,
-    val relativeSlot: Int
-)
-
-private fun visibleMenuItems(
-    items: List<CubeMenuWheelItem>,
-    selectedIndex: Int
-): List<VisibleCubeMenuItem> {
-    if (items.isEmpty()) return emptyList()
-
-    val centerSlot = (items.size / 2).coerceAtLeast(0)
-    return items
-        .mapIndexedNotNull { index, item ->
-            val slotIndex = (index - selectedIndex + centerSlot + items.size * 4) % items.size
-            val relativeSlot = slotIndex - centerSlot
-            if (abs(relativeSlot) <= 2) {
-                VisibleCubeMenuItem(index = index, item = item, relativeSlot = relativeSlot)
-            } else {
-                null
-            }
-        }
-        .sortedBy { it.relativeSlot }
-}
-
-private fun cubeMenuTileWidth(selected: Boolean, layout: CubeMenuLayout): Dp = when {
-    selected && layout == CubeMenuLayout.Vertical -> 136.dp
-    selected -> 132.dp
-    layout == CubeMenuLayout.Vertical -> 106.dp
-    else -> 98.dp
-}
-
-private fun cubeMenuTileHeight(selected: Boolean, layout: CubeMenuLayout): Dp = when {
-    selected && layout == CubeMenuLayout.Vertical -> 136.dp
-    selected -> 132.dp
-    layout == CubeMenuLayout.Vertical -> 106.dp
-    else -> 98.dp
 }
 
 @Composable
-private fun HoldMenuScrubHint(
-    openProgress: Float,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .graphicsLayer { alpha = openProgress }
-            .background(Color.Black.copy(alpha = 0.32f), RoundedCornerShape(999.dp))
-            .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(999.dp))
-            .padding(horizontal = 10.dp, vertical = 14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(7.dp)
+private fun WheelItems(items: List<CubeMenuWheelItem>, selectedIndex: Int) {
+    val slotSpacing = 122.dp
+    val arcDepth = 26.dp
+    val count = items.size
+    if (count == 0) return
+    val centerSlot = count / 2
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
-        PoplurText(
-            "↑",
-            color = Color.White,
-            fontSize = 18.sp,
+        items.forEachIndexed { index, item ->
+            val slot = ((index - selectedIndex + centerSlot + count * 4) % count) - centerSlot
+            if (abs(slot) <= 2) {
+                val selected = index == selectedIndex
+                val distance = abs(slot)
+
+                val targetY = slotSpacing * slot.toFloat()
+                val targetX = -arcDepth * Math.pow(distance.toDouble(), 1.5).toFloat()
+                val offsetY by androidx.compose.animation.core.animateDpAsState(
+                    targetValue = targetY,
+                    animationSpec = spring(
+                        dampingRatio = 0.72f,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "wheel-y"
+                )
+                val offsetX by androidx.compose.animation.core.animateDpAsState(
+                    targetValue = targetX,
+                    animationSpec = spring(
+                        dampingRatio = 0.72f,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "wheel-x"
+                )
+                val itemScale by animateFloatAsState(
+                    targetValue = if (selected) 1f else (1f - distance * 0.13f).coerceAtLeast(0.78f),
+                    animationSpec = spring(
+                        dampingRatio = 0.72f,
+                        stiffness = Spring.StiffnessMediumLow
+                    ),
+                    label = "wheel-scale"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .offset(x = offsetX, y = offsetY)
+                        .graphicsLayer {
+                            scaleX = itemScale
+                            scaleY = itemScale
+                            rotationZ = slot * -5f
+                            alpha = if (distance == 2) 0.55f else 1f
+                        }
+                        .zIndex(if (selected) 3f else 3f - distance.toFloat())
+                ) {
+                    HoldMenuWheelTile(item = item, selected = selected)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HoldMenuWheelTile(item: CubeMenuWheelItem, selected: Boolean) {
+    val context = LocalContext.current
+    val bitmap = remember(context, item.iconAssetPath) {
+        runCatching {
+            context.assets.open(item.iconAssetPath).use {
+                BitmapFactory.decodeStream(it)?.asImageBitmap()
+            }
+        }.getOrNull()
+    }
+    val tileSize = if (selected) 104.dp else 88.dp
+    val tileShape = RoundedCornerShape(20.dp)
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .size(tileSize)
+                .graphicsLayer {
+                    shadowElevation = if (selected) 24.dp.toPx() else 8.dp.toPx()
+                    shape = tileShape
+                    clip = false
+                }
+                .background(Color.Black, tileShape)
+                .border(
+                    width = if (selected) 2.5.dp else 1.5.dp,
+                    color = if (selected) NeonPink else NeonPink.copy(alpha = 0.35f),
+                    shape = tileShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = item.label,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().clip(tileShape)
+                )
+            } else if (item.fallbackIcon != null) {
+                Icon(
+                    imageVector = item.fallbackIcon,
+                    contentDescription = item.label,
+                    tint = item.fallbackTint,
+                    modifier = Modifier.size(tileSize * 0.42f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(7.dp))
+
+        Text(
+            text = item.label,
+            color = if (selected) NeonPink else Color.White,
+            fontSize = if (selected) 13.sp else 11.sp,
             fontWeight = FontWeight.Black,
-            lineHeight = 18.sp
-        )
-        PoplurText(
-            "SCRUB",
-            color = Color.White,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 0.8.sp,
-            modifier = Modifier.graphicsLayer { rotationZ = -90f }
-        )
-        PoplurText(
-            "↓",
-            color = Color.White,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Black,
-            lineHeight = 18.sp
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            letterSpacing = 0.6.sp
         )
     }
 }
 
-private fun clampDp(value: Dp, minimum: Dp, maximum: Dp): Dp {
-    return value.coerceAtLeast(minimum).coerceAtMost(maximum)
+@Composable
+private fun HeaderPill(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .background(CardBg, RoundedCornerShape(999.dp))
+            .border(2.dp, NeonPink, RoundedCornerShape(999.dp))
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .background(NeonPink, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "P",
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Black
+            )
+        }
+        Text(
+            "HOLD MENU",
+            color = Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.5.sp
+        )
+    }
 }
+
+@Composable
+private fun CloseButton(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(56.dp)
+            .background(CardBg, CircleShape)
+            .border(2.dp, NeonPink, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            "✕",
+            color = NeonPink,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Black
+        )
+    }
+}
+

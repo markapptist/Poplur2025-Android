@@ -37,7 +37,41 @@ Generate a polished arcade-shooter session that feels closer to a real console g
 Use stella_blast, choose cinematic space/neon colors, and make the mechanics sound skill-based.
 """.trimIndent()
 
+    // System prompt for user-authored games — all four game types available, honour the
+    // player's description. Mirrors iOS makerSystemPrompt.
+    private val MAKER_SYSTEM_PROMPT = """
+You generate game session configs for Poplur from a user's description.
+Return ONLY a valid JSON object (no markdown, no explanation, no code block) with exactly these fields:
+{
+  "game": one of: pop_runner, stella_blast, zyla_quest, rex_hoops,
+  "character": one of: pop, zyla, blip, rex, stella, glitch,
+  "gameName": short catchy game name string,
+  "theme": environment theme name (e.g. "Neon City", "Jungle", "Space Station"),
+  "skyColor": hex color string (e.g. "#1A1A2E"),
+  "groundColor": hex color string (e.g. "#16213E"),
+  "accentColor": hex color string (e.g. "#E94560"),
+  "difficulty": one of: easy, medium, hard,
+  "speed": number between 200 and 400,
+  "powerUps": array of exactly 2 strings,
+  "enemyType": string describing enemy type,
+  "specialMechanic": string describing the special mechanic
+}
+Choose the game key that best fits the user's description. Pick colours and mechanics that match
+their theme. Make it sound like a polished console game, not a toy mini-game.
+""".trimIndent()
+
+    /** Generate a game from the player's own description (Game Maker). */
+    suspend fun generateUserGame(userPrompt: String): PoplurGameConfig {
+        val trimmed = userPrompt.trim()
+        val message = if (trimmed.isEmpty()) "Generate a fresh, surprising game config now."
+                      else "Create a game based on this idea: $trimmed"
+        return request(MAKER_SYSTEM_PROMPT, message)
+    }
+
     suspend fun generateConfig(userPrompt: String = "Generate a fun random game config"): PoplurGameConfig =
+        request(SYSTEM_PROMPT, userPrompt)
+
+    private suspend fun request(system: String, userMessage: String): PoplurGameConfig =
         withContext(Dispatchers.IO) {
             try {
                 val key = Secrets.claudeApiKey
@@ -46,10 +80,10 @@ Use stella_blast, choose cinematic space/neon colors, and make the mechanics sou
                 val body = JSONObject().apply {
                     put("model", MODEL)
                     put("max_tokens", 256)
-                    put("system", SYSTEM_PROMPT)
+                    put("system", system)
                     put("messages", JSONArray().put(JSONObject().apply {
                         put("role", "user")
-                        put("content", userPrompt)
+                        put("content", userMessage)
                     }))
                 }
 

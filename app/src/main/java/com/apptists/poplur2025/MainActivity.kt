@@ -23,6 +23,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import com.apptists.poplur2025.call.AgoraCallEngine
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.GdxNavigationFragment
@@ -45,12 +48,15 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
     private var confettiContainer: FragmentContainerView? = null
     private val cubeContainerId = R.id.cube_container
     private val confettiContainerId = View.generateViewId()
-    private var lastCubeSkin: CubeSkin = CubeSkin.Gold
+    private var lastCubeSkin: CubeSkin = CubeSkin.Clay
 
+    @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(R.style.Theme_Poplur)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         super.onCreate(savedInstanceState)
+        UITestFlags.authBypass = intent?.getBooleanExtra("uiTestAuthBypass", false) ?: false
+        UITestFlags.hooksEnabled = intent?.getBooleanExtra("uiTestHooks", false) ?: false
         enableEdgeToEdge()
         volumeControlStream = AudioManager.STREAM_MUSIC
 
@@ -114,7 +120,12 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                         headlineSmall = TextStyle(fontWeight = FontWeight.Bold),
                     )
                 ) {
-                    Surface(Modifier.fillMaxSize(), color = Color.Transparent) {
+                    val rootModifier = if (UITestFlags.hooksEnabled) {
+                        Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }
+                    } else {
+                        Modifier.fillMaxSize()
+                    }
+                    Surface(rootModifier, color = Color.Transparent) {
                         PoplurRoot()
                     }
                 }

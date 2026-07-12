@@ -127,7 +127,14 @@ fun ProfileAvatarSpeaker(
                 engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "profile_stats")
             })
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        // Outer container matches iOS ProfileAvatarSpeakerView's outer ZStack (size * 1.42 × 1.28).
+        // The head itself is size * 1.12 × 1.20 inside it, matching iOS MarkHeadView's frame.
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .width(size * 1.42f)
+                .height(size * 1.28f)
+        ) {
             // Glow ring when speaking
             if (isSpeaking) {
                 Box(
@@ -146,15 +153,15 @@ fun ProfileAvatarSpeaker(
                 MarkHeadSceneView(
                     isSpeaking = isSpeaking,
                     modifier = Modifier
-                        .width(size * 1.42f)
-                        .height(size * 1.28f)
+                        .width(size * 1.12f)
+                        .height(size * 1.20f)
                 )
             } else {
                 ProfileTalkingHeadGdxView(
                     isSpeaking = isSpeaking,
                     modifier = Modifier
-                        .width(size * 1.42f)
-                        .height(size * 1.28f)
+                        .width(size * 1.12f)
+                        .height(size * 1.20f)
                 )
             }
         }
@@ -451,7 +458,7 @@ private fun CubeSkin.profileHeadPalette(): ProfileHeadPalette {
             isToy = false,
             hasHalo = false
         )
-        CubeSkin.Carbon -> ProfileHeadPalette(
+        CubeSkin.Carbon, CubeSkin.Clay -> ProfileHeadPalette(
             fill = Color(0xFF800851),
             face = Color(0xFFD61A9E),
             line = Color.White.copy(alpha = 0.92f),

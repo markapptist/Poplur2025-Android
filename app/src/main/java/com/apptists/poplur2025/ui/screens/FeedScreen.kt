@@ -489,6 +489,14 @@ fun FeedScreen(
             }
         }
 
+        // Periodic 3D Poplur logo "channel bug" that swoops onto the video and fades away.
+        FeedChannelLogoBug(
+            isActive = isVisible,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .zIndex(88f)
+        )
+
         if (!homeChromeInactive) {
             // 2. Top Overlay (Animated User Data)
             AnimatedContent(
@@ -852,6 +860,70 @@ private fun FeedEntryLogoPop() {
                 color = Color.White,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Black
+            )
+        }
+    }
+}
+
+/**
+ * "TV channel logo" bug: periodically swoops the 3D Poplur (clay) logo in from the right,
+ * settles it centered on the video, holds, then fades/drifts away. Purely decorative overlay.
+ */
+@Composable
+internal fun FeedChannelLogoBug(
+    isActive: Boolean,
+    modifier: Modifier = Modifier,
+    intervalMs: Long = 9_000L
+) {
+    val context = LocalContext.current
+    val logo = remember {
+        runCatching {
+            context.assets.open("logo/logo_clay.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+        }.getOrNull()
+    }
+    val alpha = remember { Animatable(0f) }
+    val scale = remember { Animatable(1.7f) }
+    val offX = remember { Animatable(1.1f) }   // fraction of layer width, + = right of center
+    val rot = remember { Animatable(-12f) }
+
+    LaunchedEffect(isActive, logo) {
+        if (logo == null || !isActive) {
+            alpha.snapTo(0f)
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(intervalMs)
+            // swoop in from the right
+            alpha.snapTo(0f); scale.snapTo(1.7f); offX.snapTo(1.1f); rot.snapTo(-12f)
+            launch { alpha.animateTo(1f, tween(380)) }
+            launch { offX.animateTo(0f, tween(620, easing = FastOutSlowInEasing)) }
+            launch { rot.animateTo(0f, tween(620, easing = FastOutSlowInEasing)) }
+            scale.animateTo(0.94f, tween(470, easing = FastOutSlowInEasing))
+            scale.animateTo(1f, tween(150, easing = FastOutSlowInEasing))
+            // hold centered like a channel bug
+            delay(1_500)
+            // disappear: drift up, grow slightly, fade
+            launch { scale.animateTo(1.14f, tween(430)) }
+            launch { rot.animateTo(7f, tween(430)) }
+            alpha.animateTo(0f, tween(430))
+        }
+    }
+
+    if (logo != null) {
+        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Image(
+                bitmap = logo,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth(0.40f)
+                    .aspectRatio(1f)
+                    .graphicsLayer {
+                        this.alpha = alpha.value
+                        scaleX = scale.value
+                        scaleY = scale.value
+                        translationX = offX.value * size.width * 1.4f
+                        rotationZ = rot.value
+                    }
             )
         }
     }
@@ -4054,65 +4126,42 @@ private fun FeedChannelStepperOverlay(
 
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // CH+ (up) button
+        // CH+ (up) button — plain chevron, no background plate or "CH" label.
+        // ShaderIcon's built-in glow keeps it legible over video. Just the arrow now.
         Box(
             modifier = Modifier
-                .size(52.dp)
+                .size(56.dp)
                 .graphicsLayer { scaleX = upScale.value; scaleY = upScale.value }
-                .shadow(8.dp, RoundedCornerShape(14.dp))
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color.Black.copy(alpha = 0.62f))
-                .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
+                .clip(CircleShape)
                 .clickable { onUp() },
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                ShaderIcon(
-                    imageVector = Icons.Default.KeyboardArrowUp,
-                    contentDescription = "Channel Up",
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp)
-                )
-                ShaderNumberText(
-                    text = "CH",
-                    color = Color.White.copy(alpha = 0.74f),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 0.5.sp
-                )
-            }
+            ShaderIcon(
+                imageVector = Icons.Default.KeyboardArrowUp,
+                contentDescription = "Channel Up",
+                tint = Color.White,
+                modifier = Modifier.size(46.dp)
+            )
         }
 
-        // CH- (down) button
+        // CH- (down) button — plain chevron, no background plate or "CH" label.
         Box(
             modifier = Modifier
-                .size(52.dp)
+                .size(56.dp)
                 .graphicsLayer { scaleX = downScale.value; scaleY = downScale.value }
-                .shadow(8.dp, RoundedCornerShape(14.dp))
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color.Black.copy(alpha = 0.62f))
-                .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
+                .clip(CircleShape)
                 .clickable { onDown() },
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                ShaderNumberText(
-                    text = "CH",
-                    color = Color.White.copy(alpha = 0.74f),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 0.5.sp
-                )
-                ShaderIcon(
-                    imageVector = Icons.Default.KeyboardArrowDown,
-                    contentDescription = "Channel Down",
-                    tint = Color.White,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
+            ShaderIcon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = "Channel Down",
+                tint = Color.White,
+                modifier = Modifier.size(46.dp)
+            )
         }
     }
 }

@@ -68,6 +68,20 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** Pink chat palette — matches the iOS ChatC redesign (light/pink DM theme). */
+private object ChatC {
+    val pageBG    = Color(0xFFFDEFF5)
+    val card      = Color(0xFFFEF5F9)
+    val avatarBG  = Color(0xFFFDE3EE)
+    val accent    = Color(0xFFFF2D82)
+    val title     = Color(0xFF101426)
+    val secondary = Color(0xFF8A8A96)
+    val online    = Color(0xFF47C83D)
+    val todayPill = Color(0xFFFAF0F5)
+    val iconGray  = Color(0xFF96949E)
+    val hairline  = Color(0x14101426) // ~8% of title, for borders/dividers
+}
+
 @Composable
 fun DMScreen(
     onBack: () -> Unit = {},
@@ -92,7 +106,7 @@ fun DMScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(ChatC.pageBG)
             .statusBarsPadding()
     ) {
         if (selectedThread == null) {
@@ -125,7 +139,7 @@ fun DMScreen(
                             HorizontalDivider(
                                 modifier = Modifier.padding(start = 88.dp, end = 20.dp),
                                 thickness = 1.dp,
-                                color = Color.White.copy(alpha = 0.08f)
+                                color = ChatC.hairline
                             )
                         }
                     }
@@ -173,14 +187,14 @@ private fun DmTopBar() {
             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 PoplurText(
                     text = "Chats",
-                    color = Color.White,
+                    color = ChatC.title,
                     fontSize = 34.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.sp
                 )
                 PoplurText(
                     text = "Recent messages",
-                    color = Color(0xFF94949C),
+                    color = ChatC.secondary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     letterSpacing = 0.sp
@@ -193,15 +207,15 @@ private fun DmTopBar() {
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF141416))
-                    .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                    .background(ChatC.card)
+                    .border(1.dp, ChatC.hairline, RoundedCornerShape(12.dp))
                     .clickable(onClick = {}),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Edit,
                     contentDescription = "New message",
-                    tint = Color.White,
+                    tint = ChatC.accent,
                     modifier = Modifier.size(22.dp)
                 )
             }
@@ -228,7 +242,7 @@ private fun DmLogo(modifier: Modifier = Modifier) {
     } else {
         PoplurText(
             text = "POPLUR",
-            color = Color.White,
+            color = ChatC.accent,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.sp,
@@ -246,8 +260,8 @@ private fun DmCircleIconButton(
     Box(
         modifier = modifier
             .clip(CircleShape)
-            .background(Color(0xFF171719))
-            .border(1.dp, Color.White.copy(alpha = 0.09f), CircleShape)
+            .background(ChatC.card)
+            .border(1.dp, ChatC.hairline, CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -266,15 +280,15 @@ private fun DmSearchField(
             .fillMaxWidth()
             .height(44.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF131316))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+            .background(ChatC.card)
+            .border(1.dp, ChatC.hairline, RoundedCornerShape(12.dp))
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = Icons.Default.Search,
             contentDescription = null,
-            tint = Color(0xFF94949C),
+            tint = ChatC.secondary,
             modifier = Modifier.size(18.dp)
         )
 
@@ -283,8 +297,8 @@ private fun DmSearchField(
         Box(modifier = Modifier.weight(1f)) {
             if (query.isEmpty()) {
                 PoplurText(
-                    text = "Search",
-                    color = Color(0xFF8F8F96),
+                    text = "Search chats...",
+                    color = ChatC.secondary,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     letterSpacing = 0.sp
@@ -295,12 +309,12 @@ private fun DmSearchField(
                 onValueChange = onQueryChange,
                 singleLine = true,
                 textStyle = TextStyle(
-                    color = Color.White,
+                    color = ChatC.title,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     letterSpacing = 0.sp
                 ),
-                cursorBrush = SolidColor(Color.White),
+                cursorBrush = SolidColor(ChatC.accent),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -334,7 +348,7 @@ private fun DmThreadRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PoplurText(
                     text = name,
-                    color = Color.White,
+                    color = ChatC.title,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.sp,
@@ -344,7 +358,7 @@ private fun DmThreadRow(
                 )
                 PoplurText(
                     text = threadTimestamp(threadId),
-                    color = if (threadUnreadCount(threadId) > 0) Color(0xFF61FF78) else Color(0xFF8F8F96),
+                    color = if (threadUnreadCount(threadId) > 0) ChatC.accent else ChatC.secondary,
                     fontSize = 13.sp,
                     fontWeight = if (threadUnreadCount(threadId) > 0) FontWeight.SemiBold else FontWeight.Normal,
                     letterSpacing = 0.sp
@@ -354,7 +368,7 @@ private fun DmThreadRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PoplurText(
                     text = preview,
-                    color = Color(0xFFA8A8B0),
+                    color = ChatC.secondary,
                     fontSize = 15.sp,
                     fontWeight = if (threadUnreadCount(threadId) > 0) FontWeight.SemiBold else FontWeight.Normal,
                     letterSpacing = 0.sp,
@@ -368,12 +382,12 @@ private fun DmThreadRow(
                         modifier = Modifier
                             .size(21.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF61FF78)),
+                            .background(ChatC.accent),
                         contentAlignment = Alignment.Center
                     ) {
                         PoplurText(
                             text = unreadCount.toString(),
-                            color = Color.Black,
+                            color = Color.White,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 0.sp
@@ -384,7 +398,7 @@ private fun DmThreadRow(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF3B97FF))
+                            .background(ChatC.accent.copy(alpha = 0.45f))
                     )
                 }
             }
@@ -401,7 +415,7 @@ private fun DmThreadRow(
             Icon(
                 imageVector = Icons.Default.Videocam,
                 contentDescription = "Video call $name",
-                tint = Color(0xFFD0D0D8),
+                tint = ChatC.iconGray,
                 modifier = Modifier.size(18.dp)
             )
         }
@@ -419,13 +433,13 @@ private fun DmAvatar(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(CircleShape)
-                .background(Color(0xFF1A1A1F))
-                .border(1.dp, Color.White.copy(alpha = 0.12f), CircleShape),
+                .background(ChatC.avatarBG)
+                .border(1.dp, ChatC.accent.copy(alpha = 0.18f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
             PoplurText(
                 text = initialsFor(name),
-                color = Color.White,
+                color = ChatC.accent,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 letterSpacing = 0.sp
@@ -437,8 +451,8 @@ private fun DmAvatar(
                     .size(11.dp)
                     .align(Alignment.BottomEnd)
                     .clip(CircleShape)
-                    .background(Color(0xFF61FF78))
-                    .border(2.dp, Color.Black, CircleShape)
+                    .background(ChatC.online)
+                    .border(2.dp, ChatC.pageBG, CircleShape)
             )
         }
     }
@@ -494,7 +508,7 @@ private fun DMChatDetailScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
+            .background(ChatC.pageBG)
             .padding(horizontal = 16.dp)
             .navigationBarsPadding()
             .imePadding()
@@ -512,7 +526,7 @@ private fun DMChatDetailScreen(
             Column(modifier = Modifier.weight(1f)) {
                 PoplurText(
                     text = thread.title,
-                    color = Color.White,
+                    color = ChatC.title,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 0.sp,
@@ -521,7 +535,7 @@ private fun DMChatDetailScreen(
                 )
                 PoplurText(
                     text = "Active now",
-                    color = Color(0xFF8F8F96),
+                    color = ChatC.secondary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.sp
@@ -536,7 +550,7 @@ private fun DMChatDetailScreen(
                     Icon(
                         imageVector = Icons.Default.Call,
                         contentDescription = "Call ${thread.title}",
-                        tint = Color.White,
+                        tint = ChatC.accent,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -547,7 +561,7 @@ private fun DMChatDetailScreen(
                     Icon(
                         imageVector = Icons.Default.Videocam,
                         contentDescription = "Video call ${thread.title}",
-                        tint = Color.White,
+                        tint = ChatC.accent,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -568,14 +582,14 @@ private fun DMChatDetailScreen(
                 ) {
                     PoplurText(
                         text = "Today",
-                        color = Color(0xFF9F9FA8),
+                        color = ChatC.secondary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 0.sp,
                         modifier = Modifier
                             .clip(RoundedCornerShape(18.dp))
-                            .background(Color(0xFF141417))
-                            .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(18.dp))
+                            .background(ChatC.todayPill)
+                            .border(1.dp, ChatC.hairline, RoundedCornerShape(18.dp))
                             .padding(horizontal = 14.dp, vertical = 6.dp)
                     )
                 }
@@ -596,14 +610,14 @@ private fun DMChatDetailScreen(
                 modifier = Modifier
                     .size(46.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF171719))
-                    .border(1.dp, Color.White.copy(alpha = 0.1f), CircleShape),
+                    .background(ChatC.card)
+                    .border(1.dp, ChatC.hairline, CircleShape),
                 onClick = {}
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = "Add attachment",
-                    tint = Color(0xFFB8B8C4),
+                    tint = ChatC.iconGray,
                     modifier = Modifier.size(25.dp)
                 )
             }
@@ -617,23 +631,23 @@ private fun DMChatDetailScreen(
                 placeholder = {
                     PoplurText(
                         text = "Message ${thread.title}",
-                        color = Color.White.copy(alpha = 0.45f),
+                        color = ChatC.secondary,
                         fontWeight = FontWeight.Bold
                     )
                 },
                 textStyle = androidx.compose.ui.text.TextStyle(
-                    color = Color.White,
+                    color = ChatC.title,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold
                 ),
                 singleLine = true,
                 shape = RoundedCornerShape(28.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color.White.copy(alpha = 0.2f),
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
-                    focusedContainerColor = Color(0xFF171719),
-                    unfocusedContainerColor = Color(0xFF171719),
-                    cursorColor = Color.White
+                    focusedBorderColor = ChatC.accent.copy(alpha = 0.4f),
+                    unfocusedBorderColor = ChatC.hairline,
+                    focusedContainerColor = ChatC.card,
+                    unfocusedContainerColor = ChatC.card,
+                    cursorColor = ChatC.accent
                 )
             )
 
@@ -643,7 +657,7 @@ private fun DMChatDetailScreen(
                 modifier = Modifier
                     .size(52.dp)
                     .clip(CircleShape)
-                    .background(if (draft.isBlank()) Color(0xFF2C2C31) else Color(0xFF3B97FF)),
+                    .background(if (draft.isBlank()) ChatC.accent.copy(alpha = 0.3f) else ChatC.accent),
                 onClick = {
                     val text = draft.trim()
                     if (text.isNotEmpty()) {
@@ -688,13 +702,13 @@ private fun DMMessageBubble(message: ChatBubbleState) {
                         bottomEnd = if (message.isMine) 6.dp else 22.dp
                     )
                 )
-                .background(if (message.isMine) Color(0xFF3B97FF) else Color(0xFF1D1D20))
+                .background(if (message.isMine) ChatC.accent else ChatC.card)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Column {
                 PoplurText(
                     text = message.text,
-                    color = Color.White,
+                    color = if (message.isMine) Color.White else ChatC.title,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     lineHeight = 22.sp,
@@ -708,7 +722,7 @@ private fun DMMessageBubble(message: ChatBubbleState) {
                 ) {
                     PoplurText(
                         text = message.time,
-                        color = Color.White.copy(alpha = 0.62f),
+                        color = if (message.isMine) Color.White.copy(alpha = 0.7f) else ChatC.secondary,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 0.sp
@@ -717,7 +731,7 @@ private fun DMMessageBubble(message: ChatBubbleState) {
                         Spacer(modifier = Modifier.width(4.dp))
                         PoplurText(
                             text = "✓",
-                            color = Color.White.copy(alpha = 0.72f),
+                            color = Color.White.copy(alpha = 0.85f),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Black,
                             letterSpacing = 0.sp

@@ -38,7 +38,7 @@ fun ThemedSkinPlate(
     val borderColor = when (skin) {
         CubeSkin.Toy -> theme.border
         CubeSkin.Ice -> Color(0xFFD9FAFF).copy(alpha = if (active) 0.96f else 0.74f)
-        CubeSkin.Carbon -> Color(0xFFFF55D5).copy(alpha = if (active) 0.94f else 0.66f)
+        CubeSkin.Carbon, CubeSkin.Clay -> Color(0xFFFF55D5).copy(alpha = if (active) 0.94f else 0.66f)
         CubeSkin.Rainbow, CubeSkin.Default -> Color.White.copy(alpha = if (active) 0.92f else 0.54f)
         else -> theme.border.copy(alpha = if (active) 0.94f else 0.68f)
     }
@@ -98,7 +98,7 @@ fun skinPlateBrush(skin: CubeSkin): Brush {
         CubeSkin.Gold -> Brush.linearGradient(
             listOf(Color(0xFFFFE978), Color(0xFF5B3502), Color(0xFFFFC02F))
         )
-        CubeSkin.Carbon -> Brush.linearGradient(
+        CubeSkin.Carbon, CubeSkin.Clay -> Brush.linearGradient(
             listOf(Color(0xFF4C0638), Color(0xFF090014), Color(0xFFFF32C9))
         )
         CubeSkin.Space -> Brush.linearGradient(
@@ -160,7 +160,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSkinPlateTextur
                 )
             }
         }
-        CubeSkin.Carbon, CubeSkin.Rainbow, CubeSkin.Default, CubeSkin.Space -> {
+        CubeSkin.Carbon, CubeSkin.Clay, CubeSkin.Rainbow, CubeSkin.Default, CubeSkin.Space -> {
             val sparkleColor = if (skin == CubeSkin.Ice) Color.White else Color.White.copy(alpha = 0.9f)
             repeat(if (active) 26 else 16) { index ->
                 val x = ((index * 37) % 100) / 100f * w

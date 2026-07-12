@@ -61,7 +61,7 @@ fun CubeSkin.uiTheme(): CubeSkinUiTheme = when (this) {
         textureAlpha = 0.26f,
         isLight = false
     )
-    CubeSkin.Carbon -> CubeSkinUiTheme(
+    CubeSkin.Carbon, CubeSkin.Clay -> CubeSkinUiTheme(
         background = Color(0xFF230016),
         backgroundMid = Color(0xFF520638),
         backgroundDeep = Color(0xFF08000C),
@@ -200,7 +200,7 @@ fun skinBackdropBrush(skin: CubeSkin): Brush {
 fun CubeSkin.backgroundDrawableRes(): Int = when (this) {
     CubeSkin.Default, CubeSkin.Space -> R.drawable.theme_bg_default
     CubeSkin.Rainbow -> R.drawable.theme_bg_rainbow
-    CubeSkin.Carbon -> R.drawable.theme_bg_sparkle_pink
+    CubeSkin.Carbon, CubeSkin.Clay -> R.drawable.theme_bg_sparkle_pink
     CubeSkin.Gold -> R.drawable.theme_bg_gold
     CubeSkin.Toy -> R.drawable.theme_bg_toy
     CubeSkin.Chocolate -> R.drawable.theme_bg_chocolate
@@ -390,7 +390,7 @@ fun Modifier.skinBackdrop(skin: CubeSkin): Modifier {
                 }
                 drawRoundRect(theme.accent2.copy(alpha = 0.46f), Offset(6.dp.toPx(), 6.dp.toPx()), Size(size.width - 12.dp.toPx(), size.height - 12.dp.toPx()), CornerRadius(32.dp.toPx(), 32.dp.toPx()), style = Stroke(4.dp.toPx()))
             }
-            CubeSkin.Carbon -> {
+            CubeSkin.Carbon, CubeSkin.Clay -> {
                 repeat(160) { i ->
                     val x = ((i * 89) % 1021) / 1021f * size.width
                     val y = ((i * 193) % 1021) / 1021f * size.height

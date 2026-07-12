@@ -71,7 +71,7 @@ class CombinedGdxAdapter(
     private var cubeModelBaseScale = 1f
     private val cubeRestingPitchDegrees = -10f
 
-    var skin: CubeSkin = CubeSkin.Gold
+    var skin: CubeSkin = CubeSkin.Clay
         set(value) {
             if (field != value) {
                 field = value
@@ -84,6 +84,7 @@ class CombinedGdxAdapter(
         set(value) {
             if (field != value) {
                 field = value
+                firstFrameReported = false
                 modelDirty = true
                 appInstance?.postRunnable { Gdx.graphics.requestRendering() }
             }
@@ -210,7 +211,7 @@ class CombinedGdxAdapter(
 
     private var lastWidth = 0
     private var lastHeight = 0
-    private var firstFrameReported = false
+    @Volatile private var firstFrameReported = false
     private var firstFrameTime = 0L
 
     override fun create() {

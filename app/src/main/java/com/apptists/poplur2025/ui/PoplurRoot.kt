@@ -36,6 +36,11 @@ import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CardGiftcard
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.ClosedCaption
@@ -186,7 +191,7 @@ fun PoplurRoot(
     var selectedCubeSkin by rememberSaveable {
         val storedSkinId = settingsPrefs.getString("selected_cube_skin", null)
         mutableStateOf(
-            CubeSkin.entries.find { it.id == storedSkinId } ?: CubeSkin.Gold
+            CubeSkin.entries.find { it.id == storedSkinId } ?: CubeSkin.Clay
         )
     }
     val use3DLoadingScreen = remember {
@@ -234,8 +239,10 @@ fun PoplurRoot(
     var cameraPhotoTrigger by remember { mutableIntStateOf(0) }
     var cameraRecordTrigger by remember { mutableIntStateOf(0) }
     var cameraLiveTrigger by remember { mutableIntStateOf(0) }
+    var cameraGalleryTrigger by remember { mutableIntStateOf(0) }
     var cameraFiltersTrigger by remember { mutableIntStateOf(0) }
-    var cameraObjectDetectionEnabled by rememberSaveable { mutableStateOf(false) }
+    // ML detection is on by default (the cube no longer pops objects for it).
+    var cameraObjectDetectionEnabled by rememberSaveable { mutableStateOf(true) }
     var isAppVisible by remember { mutableStateOf(true) }
     var filtersVisible by remember { mutableStateOf(false) }
     var isPhoneCallScreenVisible by remember { mutableStateOf(false) }
@@ -652,9 +659,9 @@ fun PoplurRoot(
     }
     
     val backItem = CubeMenuWheelItem(
-        label = "Back",
-        icon = Icons.AutoMirrored.Filled.ArrowBack,
-        accent = Color.White,
+        label = "BACK",
+        iconAssetPath = "hold_menu_icons/back.png",
+        fallbackIcon = Icons.AutoMirrored.Filled.ArrowBack,
         onSelected = {
             if (tab == AppTab.Profile && isProfileSubActive) {
                 profileCubeCommandId += 1
@@ -683,11 +690,12 @@ fun PoplurRoot(
         Triple("Onyx", Color(0xFF151518), R.drawable.poplur_bling_phone_08_jet_black_onyx),
         Triple("Aqua", Color(0xFF33EBF2), R.drawable.poplur_bling_phone_09_icy_aqua_turquoise),
         Triple("Holo", Color(0xFFDBA3FF), R.drawable.poplur_bling_phone_10_holographic_iridescent)
-    ).map { (label, color, resId) ->
+    ).map { (label, color, _) ->
         CubeMenuWheelItem(
             label = label,
-            icon = Icons.Default.Circle,
-            accent = color,
+            iconAssetPath = "",
+            fallbackIcon = Icons.Default.Circle,
+            fallbackTint = color,
             onSelected = { phoneColorwaySelected = color }
         )
     }
@@ -865,204 +873,182 @@ fun PoplurRoot(
         }
     }
 
+    val holdMenuNavItems = listOf(
+        CubeMenuWheelItem(
+            label = "HOME",
+            iconAssetPath = "hold_menu_icons/home.png",
+            fallbackIcon = Icons.Default.Home,
+            onSelected = { tab = AppTab.Feed }
+        ),
+        CubeMenuWheelItem(
+            label = "CHAT",
+            iconAssetPath = "hold_menu_icons/chat.png",
+            fallbackIcon = Icons.Default.Message,
+            onSelected = {
+                previousTab = tab
+                tab = AppTab.Messages
+            }
+        ),
+        CubeMenuWheelItem(
+            label = "MUSIC",
+            iconAssetPath = "hold_menu_icons/music.png",
+            fallbackIcon = Icons.Default.MusicNote,
+            onSelected = {
+                tab = AppTab.Feed
+                feedTargetChannelQuery = "music"
+                feedTargetChannelToken++
+            }
+        ),
+        CubeMenuWheelItem(
+            label = "GIFTS",
+            iconAssetPath = "hold_menu_icons/gifts.png",
+            fallbackIcon = Icons.Default.CardGiftcard,
+            onSelected = {
+                previousTab = tab
+                tab = AppTab.Profile
+                sendProfileCubeCommand(ProfileCubeMenuAction.Store)
+            }
+        ),
+        CubeMenuWheelItem(
+            label = "YOUTUBE",
+            iconAssetPath = "hold_menu_icons/youtube.png",
+            fallbackIcon = Icons.Default.PlayCircle,
+            onSelected = {
+                tab = AppTab.Feed
+                feedTargetChannelQuery = "youtube"
+                feedTargetChannelToken++
+            }
+        )
+    )
+
+    // Map-specific hold menu — mirrors iOS mapCubeMenuItems (locate / post / tour + quick nav).
+    val mapMenuItems = listOf(
+        CubeMenuWheelItem(
+            label = "LOCATE",
+            iconAssetPath = "",
+            fallbackIcon = Icons.Default.MyLocation,
+            onSelected = { scope.launch { mapViewModel.triggerCenterOnUser() } }
+        ),
+        CubeMenuWheelItem(
+            label = "POST",
+            iconAssetPath = "",
+            fallbackIcon = Icons.Default.PhotoCamera,
+            onSelected = { scope.launch { mapViewModel.triggerPostToMap() } }
+        ),
+        CubeMenuWheelItem(
+            label = "TOUR",
+            iconAssetPath = "",
+            fallbackIcon = Icons.Default.Explore,
+            onSelected = { mapViewModel.setTourPaused(false) }
+        ),
+        CubeMenuWheelItem(
+            label = "HOME",
+            iconAssetPath = "hold_menu_icons/home.png",
+            fallbackIcon = Icons.Default.Home,
+            onSelected = { tab = AppTab.Feed }
+        ),
+        CubeMenuWheelItem(
+            label = "CHAT",
+            iconAssetPath = "hold_menu_icons/chat.png",
+            fallbackIcon = Icons.Default.Message,
+            onSelected = {
+                previousTab = tab
+                tab = AppTab.Messages
+            }
+        )
+    )
+
+    // Camera-specific hold menu — mirrors iOS cameraCubeMenuItems (roll / create + quick nav).
+    val cameraMenuItems = listOf(
+        CubeMenuWheelItem(
+            label = "ROLL",
+            iconAssetPath = "hold_menu_icons/roll.png",
+            fallbackIcon = Icons.Default.PhotoLibrary,
+            onSelected = { cameraGalleryTrigger++ }
+        ),
+        CubeMenuWheelItem(
+            label = "CREATE",
+            iconAssetPath = "hold_menu_icons/create.png",
+            fallbackIcon = Icons.Default.AutoAwesome,
+            onSelected = {
+                previousTab = AppTab.Camera
+                tab = AppTab.Profile
+                sendProfileCubeCommand(ProfileCubeMenuAction.Creator)
+            }
+        ),
+        CubeMenuWheelItem(
+            label = "HOME",
+            iconAssetPath = "hold_menu_icons/home.png",
+            fallbackIcon = Icons.Default.Home,
+            onSelected = { tab = AppTab.Feed }
+        ),
+        CubeMenuWheelItem(
+            label = "CHAT",
+            iconAssetPath = "hold_menu_icons/chat.png",
+            fallbackIcon = Icons.Default.Message,
+            onSelected = {
+                previousTab = AppTab.Camera
+                tab = AppTab.Messages
+            }
+        ),
+        CubeMenuWheelItem(
+            label = "STORE",
+            iconAssetPath = "hold_menu_icons/store.png",
+            fallbackIcon = Icons.Default.ShoppingCart,
+            onSelected = {
+                previousTab = AppTab.Camera
+                tab = AppTab.Profile
+                sendProfileCubeCommand(ProfileCubeMenuAction.Store)
+            }
+        )
+    )
+
     val onLongPressCube: () -> Unit = {
-        if (tab == AppTab.Feed) {
-            feedInteractionTick++
-            cubeMenuWheelController.beginHold(
-                listOf(
-                    CubeMenuWheelItem(
-                        label = "Like",
-                        icon = Icons.Default.Favorite,
-                        accent = Color(0xFFFF365E),
-                        onSelected = {
-                            feedInteractionTick++
-                            feedLikeRequest++
-                        }
-                    ),
-                    CubeMenuWheelItem(
-                        label = "Comment",
-                        icon = Icons.AutoMirrored.Filled.Send,
-                        accent = Color(0xFFFFD91A),
-                        onSelected = {
-                            feedInteractionTick++
-                            isFeedChromeAsleep = true
-                            showFeedCommentComposer = true
-                        }
-                    ),
-                    CubeMenuWheelItem(
-                        label = "Profile",
-                        icon = Icons.Default.Circle,
-                        accent = Color(0xFF7076FF),
-                        onSelected = {
-                            feedInteractionTick++
-                            feedOpenProfileRequest++
-                        }
-                    ),
-                    CubeMenuWheelItem(
-                        label = if (closedCaptionsEnabled) "CC Off" else "CC On",
-                        icon = Icons.Default.ClosedCaption,
-                        accent = Color(0xFF18D8E8),
-                        onSelected = {
-                            feedInteractionTick++
-                            closedCaptionsEnabled = !closedCaptionsEnabled
-                        }
-                    ),
-                    CubeMenuWheelItem(
-                        label = "News",
-                        icon = Icons.AutoMirrored.Filled.Article,
-                        accent = Color(0xFFFF3333),
-                        onSelected = {
-                            feedInteractionTick++
-                            feedNewsRequest++
-                        }
-                    ),
-                    CubeMenuWheelItem(
-                        label = "TV Guide",
-                        icon = Icons.Default.Tv,
-                        accent = Color(0xFF4DFF58),
-                        onSelected = {
-                            feedInteractionTick++
-                            feedTvGuideRequest++
-                        }
-                    )
-                )
-            )
-        } else if (tab == AppTab.Map) {
-            val tourPaused = mapViewModel.isTourPaused.value
-            val use2D = mapViewModel.use2DMap.value
-            cubeMenuWheelController.beginHold(
-                listOf(
-                    CubeMenuWheelItem(
-                        label = "Search",
-                        icon = Icons.Default.Search,
-                        accent = Color(0xFF4DFF58),
-                        onSelected = { scope.launch { mapViewModel.triggerOpenSearch() } }
-                    ),
-                    CubeMenuWheelItem(
-                        label = "Location",
-                        icon = Icons.Default.MyLocation,
-                        accent = Color(0xFF18D8E8),
-                        onSelected = { scope.launch { mapViewModel.triggerCenterOnUser() } }
-                    ),
-                    CubeMenuWheelItem(
-                        label = "Post Here",
-                        icon = Icons.Default.PhotoCamera,
-                        accent = Color(0xFFFF2D8A),
-                        onSelected = { scope.launch { mapViewModel.triggerPostToMap() } }
-                    ),
-                    CubeMenuWheelItem(
-                        label = if (use2D) "3D Map" else "2D Map",
-                        icon = Icons.Default.Map,
-                        accent = Color(0xFF5B9BFF),
-                        onSelected = { mapViewModel.toggleMapMode() }
-                    ),
-                    CubeMenuWheelItem(
-                        label = if (tourPaused) "Start Tour" else "Stop Tour",
-                        icon = Icons.Default.Explore,
-                        accent = Color(0xFFFF8C1A),
-                        onSelected = { mapViewModel.setTourPaused(!tourPaused) }
-                    ),
-                    CubeMenuWheelItem(
-                        label = "Message",
-                        icon = Icons.Default.Message,
-                        accent = Color(0xFFFFD91A),
-                        onSelected = { scope.launch { mapViewModel.triggerAddMessage() } }
-                    )
-                )
-            )
-        } else if (tab == AppTab.Camera) {
-            cubeMenuWheelController.beginHold(
-                listOf(
-                    CubeMenuWheelItem(
-                        label = "Photo",
-                        icon = Icons.Default.PhotoCamera,
-                        accent = Color(0xFF4DFF58),
-                        onSelected = { cameraPhotoTrigger++ }
-                    ),
-                    CubeMenuWheelItem(
-                        label = "Video",
-                        icon = Icons.Default.Videocam,
-                        accent = Color(0xFF7076FF),
-                        onSelected = { cameraRecordTrigger++ }
-                    ),
-                    CubeMenuWheelItem(
-                        label = "Live",
-                        icon = Icons.Default.CellTower,
-                        accent = Color(0xFFFF3333),
-                        onSelected = { cameraLiveTrigger++ }
-                    ),
-                    CubeMenuWheelItem(
-                        label = "AR",
-                        icon = Icons.Default.AutoAwesome,
-                        accent = Color(0xFF18D8E8),
-                        onSelected = { cameraFiltersTrigger++ }
-                    ),
-                    CubeMenuWheelItem(
-                        label = if (cameraObjectDetectionEnabled) "Detect On" else "Detect Off",
-                        icon = Icons.Default.Search,
-                        secondaryIcon = Icons.Default.Visibility,
-                        accent = if (cameraObjectDetectionEnabled) Color(0xFF4DFF58) else Color(0xFFFF8C1A),
-                        onSelected = { cameraObjectDetectionEnabled = !cameraObjectDetectionEnabled }
-                    ),
-                    CubeMenuWheelItem(
-                        label = "Games",
-                        icon = Icons.Default.SportsEsports,
-                        accent = Color(0xFFAA44FF),
-                        onSelected = { showGames = true }
-                    )
-                )
-            )
-        } else if (tab == AppTab.Profile) {
+        if (tab == AppTab.Profile) {
             val profileMenuItems = listOf(
                 CubeMenuWheelItem(
-                    label = "Mail",
-                    icon = Icons.Default.Email,
-                    accent = Color(0xFF4DFF58),
+                    label = "CHAT",
+                    iconAssetPath = "hold_menu_icons/chat.png",
+                    fallbackIcon = Icons.Default.Email,
                     onSelected = {
                         previousTab = AppTab.Profile
                         tab = AppTab.Messages
                     }
                 ),
                 CubeMenuWheelItem(
-                    label = "Settings",
-                    icon = Icons.Default.Settings,
-                    accent = Color(0xFF7076FF),
+                    label = "SETTINGS",
+                    iconAssetPath = "hold_menu_icons/settings.png",
+                    fallbackIcon = Icons.Default.Settings,
                     onSelected = {
                         previousTab = AppTab.Profile
                         tab = AppTab.Settings
                     }
                 ),
                 CubeMenuWheelItem(
-                    label = "Stats",
-                    icon = Icons.Default.Circle,
-                    accent = Color(0xFF18D8E8),
+                    label = "STATS",
+                    iconAssetPath = "",
+                    fallbackIcon = Icons.Default.PieChart,
                     onSelected = { sendProfileCubeCommand(ProfileCubeMenuAction.Stats) }
                 ),
                 CubeMenuWheelItem(
-                    label = "Alerts",
-                    icon = Icons.Default.Notifications,
-                    accent = Color(0xFFFF8C1A),
-                    onSelected = { sendProfileCubeCommand(ProfileCubeMenuAction.Notifications) }
-                ),
-                CubeMenuWheelItem(
-                    label = "Phone",
-                    icon = Icons.Default.Phone,
-                    accent = Color(0xFF18D8E8),
+                    label = "PHONE",
+                    iconAssetPath = "hold_menu_icons/phone.png",
+                    fallbackIcon = Icons.Default.Phone,
                     onSelected = {
                         isPhoneActive = true
                         sendProfileCubeCommand(ProfileCubeMenuAction.Phone)
                     }
                 ),
                 CubeMenuWheelItem(
-                    label = "Store",
-                    icon = Icons.Default.ShoppingCart,
-                    accent = Color(0xFFFF8C1A),
+                    label = "STORE",
+                    iconAssetPath = "hold_menu_icons/store.png",
+                    fallbackIcon = Icons.Default.ShoppingCart,
                     onSelected = { sendProfileCubeCommand(ProfileCubeMenuAction.Store) }
                 ),
                 CubeMenuWheelItem(
-                    label = "Credits",
-                    icon = Icons.Default.AutoAwesome,
-                    accent = Color(0xFF36FF6A),
+                    label = "CREDITS",
+                    iconAssetPath = "",
+                    fallbackIcon = Icons.Default.AutoAwesome,
                     onSelected = { sendProfileCubeCommand(ProfileCubeMenuAction.Creator) }
                 )
             )
@@ -1073,9 +1059,16 @@ fun PoplurRoot(
             } else {
                 cubeMenuWheelController.beginHold(profileMenuItems)
             }
+        } else if (tab == AppTab.Map) {
+            cubeMenuWheelController.beginHold(mapMenuItems)
+        } else if (tab == AppTab.Camera) {
+            cubeMenuWheelController.beginHold(cameraMenuItems)
         } else if (tab == AppTab.Messages || tab == AppTab.Settings || tab == AppTab.CubeDebug || tab == AppTab.CapturedOutput ||
             tab == AppTab.CreateEntry || tab == AppTab.AIVideoStudio || tab == AppTab.AIVideoProgress) {
             cubeMenuWheelController.beginHold(listOf(backItem))
+        } else {
+            if (tab == AppTab.Feed) feedInteractionTick++
+            cubeMenuWheelController.beginHold(holdMenuNavItems)
         }
     }
 
@@ -1091,7 +1084,7 @@ fun PoplurRoot(
     }
 
     val onLongPressMoveCube: (Float, Float) -> Unit = { deltaX, deltaY ->
-        cubeMenuWheelController.scrub(deltaX = deltaX, deltaY = deltaY, layout = cubeMenuLayout)
+        cubeMenuWheelController.scrub(deltaX = deltaX, deltaY = deltaY)
     }
 
     val onTapCube: () -> Unit = {
@@ -1218,6 +1211,7 @@ fun PoplurRoot(
                         profileCubeCommand = profileCubeMenuCommand,
                         profileAvatarIs3D = profileAvatarIs3D,
                         selectedCubeSkin = selectedCubeSkin,
+                        onSelectedCubeSkinChange = { selectedCubeSkin = it },
                         profileSortOrder = profileSortOrder,
                         profileSortToken = profileSortToken,
                         hasSeenProfileWakeTutorial = hasSeenProfileWakeTutorial,
@@ -1238,6 +1232,7 @@ fun PoplurRoot(
                         cameraRecordTrigger = cameraRecordTrigger,
                         cameraLiveTrigger = cameraLiveTrigger,
                         cameraFiltersTrigger = cameraFiltersTrigger,
+                        cameraGalleryTrigger = cameraGalleryTrigger,
                         cameraObjectDetectionEnabled = cameraObjectDetectionEnabled,
                         aiVideoPrompt = aiVideoPrompt,
                         aiVideoStyle = aiVideoStyle,
@@ -1303,6 +1298,7 @@ fun PoplurRoot(
                 use3D = use3DLoadingScreen,
                 skinLogoPath = selectedCubeSkin.logoAssetPath,
                 skinBannerPath = selectedCubeSkin.bannerAssetPath,
+                cubeSkin = selectedCubeSkin,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -1323,9 +1319,7 @@ fun PoplurRoot(
 
         CubeMenuWheelOverlay(
             controller = cubeMenuWheelController,
-            modifier = Modifier.zIndex(300f),
-            layout = cubeMenuLayout,
-            cubeSkin = selectedCubeSkin
+            modifier = Modifier.zIndex(300f)
         )
 
         if (isCubeSurfaceReady) {
@@ -1345,8 +1339,12 @@ fun PoplurRoot(
                 feedCubeFaceTitle = feedCubeFaceTitle,
                 profileCubeIconTitle = profileCubeIconTitle,
                 cubeSkin = selectedCubeSkin,
+                // Interactive == rendered on top of Compose (translationZ). Signed-out-and-past-
+                // the-loading-cover means the Welcome screen: show the rotating login cube on top
+                // (pinned bottom-center, below Sign Up), matching iOS. During the loading cover it
+                // stays behind so the logo shows instead.
                 isInteractive = (isSignedIn == true && !showAppInitializationCover && !showFeedCommentComposer) ||
-                    (isSignedIn == false && authBackAction != null),
+                    (isSignedIn == false && !showAppInitializationCover),
                 onVerticalSwipe = cubeSwipeLambda,
                 onLongPress = cubeLongPressLambda,
                 onLongPressMove = cubeLongPressMoveLambda,
@@ -1443,6 +1441,15 @@ fun PoplurRoot(
             }
         }
 
+        // A user-created game launched by tapping its map pin.
+        com.apptists.poplur2025.ui.games.PoplurSavedGamesStore.launchRequest?.let { cfg ->
+            Box(Modifier.fillMaxSize().zIndex(820f)) {
+                com.apptists.poplur2025.ui.games.PoplurGamePlayScreen(cfg) {
+                    com.apptists.poplur2025.ui.games.PoplurSavedGamesStore.launchRequest = null
+                }
+            }
+        }
+
         // Stripe transition overlay (above all screens, below volume HUD)
         if (rootStripeVisible) {
             StripeTransitionOverlay(
@@ -1468,6 +1475,47 @@ fun PoplurRoot(
             PoplurVolumeBars(volumeFraction = deviceVolumeFraction)
         }
 
+        if (com.apptists.poplur2025.UITestFlags.hooksEnabled) {
+            Column(
+                // Centered in the empty vertical band: the top ~56px is swallowed by the system
+                // status/gesture strip, and the top-left header ("Poplur Food" / app icon) was
+                // intercepting the left-side tab boxes (feed/map/camera worked only intermittently
+                // while the rightmost profile box, clear of the header, always did). Centering
+                // keeps every hook in genuinely empty, tappable space.
+                modifier = Modifier
+                    .zIndex(9999f)
+                    .fillMaxSize()
+                    .wrapContentSize(Alignment.Center),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                UITestScreenMarker(name = tab.name)
+                UITestActionStrip(
+                    prefix = "UITestTab",
+                    items = listOf(
+                        "feed" to { tab = AppTab.Feed },
+                        "map" to { tab = AppTab.Map },
+                        "camera" to { tab = AppTab.Camera },
+                        "profile" to { tab = AppTab.Profile }
+                    )
+                )
+                UITestActionStrip(
+                    prefix = "UITestWheel",
+                    items = holdMenuNavItems.map { it.label to it.onSelected }
+                )
+                UITestActionStrip(
+                    prefix = "UITestProfileWheel",
+                    items = listOf(
+                        "CHAT" to { previousTab = AppTab.Profile; tab = AppTab.Messages },
+                        "SETTINGS" to { previousTab = AppTab.Profile; tab = AppTab.Settings },
+                        "STATS" to { sendProfileCubeCommand(ProfileCubeMenuAction.Stats) },
+                        "ALERTS" to { sendProfileCubeCommand(ProfileCubeMenuAction.Notifications) },
+                        "PHONE" to { isPhoneActive = true; sendProfileCubeCommand(ProfileCubeMenuAction.Phone) },
+                        "STORE" to { sendProfileCubeCommand(ProfileCubeMenuAction.Store) },
+                        "CREDITS" to { sendProfileCubeCommand(ProfileCubeMenuAction.Creator) }
+                    )
+                )
+            }
+        }
     }
 }
 

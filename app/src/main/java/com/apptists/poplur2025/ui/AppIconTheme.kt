@@ -4,7 +4,29 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.annotation.DrawableRes
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import com.apptists.poplur2025.R
+
+/**
+ * Loads a drawable resource as an [ImageBitmap], rasterizing it via the platform. Unlike Compose's
+ * `painterResource`, this works for adaptive launcher icons (mipmap `<adaptive-icon>` XML), which
+ * `painterResource` rejects with "Only VectorDrawables and rasterized asset types are supported".
+ */
+@Composable
+fun rememberDrawableBitmap(@DrawableRes resId: Int): ImageBitmap? {
+    val context = LocalContext.current
+    return remember(resId) {
+        ContextCompat.getDrawable(context, resId)
+            ?.toBitmap(width = 192, height = 192)
+            ?.asImageBitmap()
+    }
+}
 
 val CubeSkin.appIconAliasName: String
     get() = when (this) {
@@ -12,7 +34,7 @@ val CubeSkin.appIconAliasName: String
         CubeSkin.Gold -> "IconGoldAlias"
         CubeSkin.Toy -> "IconToyAlias"
         CubeSkin.Rainbow -> "IconRainbowAlias"
-        CubeSkin.Carbon -> "IconSparklePinkAlias"
+        CubeSkin.Carbon, CubeSkin.Clay -> "IconSparklePinkAlias"
         CubeSkin.Ice -> "IconIceAlias"
         CubeSkin.Chocolate -> "IconChocolateAlias"
         CubeSkin.Space -> "IconSpaceAlias"
@@ -26,7 +48,7 @@ val CubeSkin.appIconResId: Int
         CubeSkin.Gold -> R.mipmap.ic_launcher_gold
         CubeSkin.Toy -> R.mipmap.ic_launcher_toy
         CubeSkin.Rainbow -> R.mipmap.ic_launcher_rainbow
-        CubeSkin.Carbon -> R.mipmap.ic_launcher_sparkle_pink
+        CubeSkin.Carbon, CubeSkin.Clay -> R.mipmap.ic_launcher_sparkle_pink
         CubeSkin.Ice -> R.mipmap.ic_launcher_ice
         CubeSkin.Chocolate -> R.mipmap.ic_launcher_chocolate
         CubeSkin.Space -> R.mipmap.ic_launcher_space

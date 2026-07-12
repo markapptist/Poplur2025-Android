@@ -64,6 +64,7 @@ fun CreateEntryScreen(
     var locationName by remember { mutableStateOf("") }
     var radius by remember { mutableFloatStateOf(1_000f) }
     var wantsBoost by remember { mutableStateOf(false) }
+    var showGameMaker by remember { mutableStateOf(false) }
     val config = remember { PoplurAIStackConfig() }
     val cost = config.estimatedCost(selectedType)
     val canGenerate = plan.canGenerateAI(credits) && credits >= cost && prompt.isNotBlank()
@@ -139,6 +140,8 @@ fun CreateEntryScreen(
                             selectedType = type
                             status = PoplurAIGenerationStatus.Queued
                             resultText = null
+                            // The Games tool opens the dedicated Game Maker.
+                            if (type == PoplurAIContentType.Game) showGameMaker = true
                         }
                     )
                 }
@@ -279,6 +282,11 @@ fun CreateEntryScreen(
                     Text("AI Studio", fontWeight = FontWeight.Black)
                 }
             }
+        }
+
+        // Game Maker overlay (create → save → place on map).
+        if (showGameMaker) {
+            com.apptists.poplur2025.ui.games.GameMakerScreen(onDismiss = { showGameMaker = false })
         }
     }
 }

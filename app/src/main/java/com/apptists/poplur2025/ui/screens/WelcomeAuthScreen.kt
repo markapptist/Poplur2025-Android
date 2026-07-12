@@ -1,6 +1,10 @@
 package com.apptists.poplur2025.ui.screens
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -284,90 +288,106 @@ internal fun WelcomeAuthScreenContent(
         // draw the ticket panel for Welcome/Login to match. The white fill stops short of
         // the bottom so the decorative persistent cube (rendered behind Compose) still shows
         // through, matching Welcome/Login's reserved bottom clearance.
-        if (mode == AuthMode.SignUp) {
-            Box(
-                Modifier
-                    .align(Alignment.TopStart)
-                    .fillMaxWidth()
-                    .height((maxHeight - 260.dp).coerceAtLeast(0.dp))
-                    .background(Color.White)
-            )
-        } else {
-            TicketPanel(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .zIndex(1f)
-                    .fillMaxWidth()
-                    .fillMaxHeight()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .offset { IntOffset(0, bannerOffsetY.value.roundToInt()) }
-                    .padding(
-                        start = authLayout.ticketHorizontalInset,
-                        end = authLayout.ticketHorizontalInset,
-                        top = authLayout.ticketTopInset,
-                        bottom = authLayout.ticketBottomInset
-                    )
-            )
-        }
+        // Capture BoxWithConstraints' maxHeight — it isn't reachable via implicit receiver
+        // inside the AnimatedContent content lambda (that scope is AnimatedContentScope).
+        val panelMaxHeight = maxHeight
 
-        if (mode == AuthMode.Welcome) {
-            Box(Modifier.fillMaxSize().zIndex(3f)) {
-                WelcomeTicketContent(
-                    logoBitmap = logoBitmap,
-                    layout = authLayout,
-                    logoScale = logoScale.value,
-                    buttonsAlpha = buttonsAlpha.value,
-                    onSignIn = { mode = AuthMode.Login },
-                    onCreateAccount = { mode = AuthMode.SignUp }
-                )
-            }
-        } else if (mode == AuthMode.Login) {
-            Box(Modifier.fillMaxSize().zIndex(3f)) {
-                LoginTicketContent(
-                    logoBitmap = logoBitmap,
-                    email = email,
-                    password = password,
-                    error = error,
-                    loading = loading,
-                    mode = mode,
-                    layout = authLayout,
-                    onEmailChange = { email = it },
-                    onPasswordChange = { password = it },
-                    onSubmit = {
-                        if (email.isBlank() || password.isBlank()) {
-                            error = "Enter an email and password."
-                        } else {
-                            loading = true
-                            error = null
-                            onSignIn(email, password) { ok, msg ->
-                                loading = false
-                                if (!ok) error = msg
+        // Horizontal carousel between the three auth panels (welcome=0, login=1, signup=2),
+        // matching the iOS WelcomeView refactor: forward navigation slides the new panel in
+        // from the right; back navigation slides it in from the left. The SpriteKit-equivalent
+        // background (decorative cube behind Compose) and confetti overlay stay persistent.
+        AnimatedContent(
+            targetState = mode,
+            transitionSpec = {
+                val forward = targetState.ordinal > initialState.ordinal
+                val dir = if (forward) 1 else -1
+                (slideInHorizontally(animationSpec = tween(380)) { w -> dir * w } + fadeIn(tween(380))) togetherWith
+                    (slideOutHorizontally(animationSpec = tween(380)) { w -> -dir * w } + fadeOut(tween(380)))
+            },
+            modifier = Modifier.fillMaxSize(),
+            label = "authCarousel"
+        ) { panel ->
+            Box(Modifier.fillMaxSize()) {
+                if (panel == AuthMode.SignUp) {
+                    Box(
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .fillMaxWidth()
+                            .height((panelMaxHeight - 260.dp).coerceAtLeast(0.dp))
+                            .background(Color.White)
+                    )
+                } else {
+                    TicketPanel(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .zIndex(1f)
+                            .fillMaxWidth()
+                            .fillMaxHeight()
+                            .statusBarsPadding()
+                            .navigationBarsPadding()
+                            .offset { IntOffset(0, bannerOffsetY.value.roundToInt()) }
+                            .padding(
+                                start = authLayout.ticketHorizontalInset,
+                                end = authLayout.ticketHorizontalInset,
+                                top = authLayout.ticketTopInset,
+                                bottom = authLayout.ticketBottomInset
+                            )
+                    )
+                }
+
+                Box(Modifier.fillMaxSize().zIndex(3f)) {
+                    when (panel) {
+                        AuthMode.Welcome -> WelcomeTicketContent(
+                            logoBitmap = logoBitmap,
+                            layout = authLayout,
+                            logoScale = logoScale.value,
+                            buttonsAlpha = buttonsAlpha.value,
+                            onSignIn = { mode = AuthMode.Login },
+                            onCreateAccount = { mode = AuthMode.SignUp }
+                        )
+                        AuthMode.Login -> LoginTicketContent(
+                            logoBitmap = logoBitmap,
+                            email = email,
+                            password = password,
+                            error = error,
+                            loading = loading,
+                            mode = panel,
+                            layout = authLayout,
+                            onEmailChange = { email = it },
+                            onPasswordChange = { password = it },
+                            onSubmit = {
+                                if (email.isBlank() || password.isBlank()) {
+                                    error = "Enter an email and password."
+                                } else {
+                                    loading = true
+                                    error = null
+                                    onSignIn(email, password) { ok, msg ->
+                                        loading = false
+                                        if (!ok) error = msg
+                                    }
+                                }
                             }
-                        }
+                        )
+                        AuthMode.SignUp -> BusinessSignupTicketContent(
+                            logoBitmap = logoBitmap,
+                            error = error,
+                            loading = loading,
+                            layout = authLayout,
+                            onBack = { error = null; mode = AuthMode.Welcome },
+                            onSubmit = { signupEmail, signupPassword, signupAccountType, businessProfile ->
+                                loading = true
+                                error = null
+                                onSignUp(signupEmail, signupPassword, signupAccountType, businessProfile) { ok, msg ->
+                                    loading = false
+                                    if (!ok) error = msg else onSignUpSuccess()
+                                }
+                            },
+                            onValidationError = { error = it },
+                            onLabelChange = onLabelChange,
+                            onBackAvailable = onBackAvailable
+                        )
                     }
-                )
-            }
-        } else {
-            Box(Modifier.fillMaxSize().zIndex(3f)) {
-                BusinessSignupTicketContent(
-                    logoBitmap = logoBitmap,
-                    error = error,
-                    loading = loading,
-                    layout = authLayout,
-                    onBack = { error = null; mode = AuthMode.Welcome },
-                    onSubmit = { signupEmail, signupPassword, signupAccountType, businessProfile ->
-                        loading = true
-                        error = null
-                        onSignUp(signupEmail, signupPassword, signupAccountType, businessProfile) { ok, msg ->
-                            loading = false
-                            if (!ok) error = msg else onSignUpSuccess()
-                        }
-                    },
-                    onValidationError = { error = it },
-                    onLabelChange = onLabelChange,
-                    onBackAvailable = onBackAvailable
-                )
+                }
             }
         }
 

@@ -42,11 +42,15 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
+import com.apptists.poplur2025.ui.CubeSkin
+import com.apptists.poplur2025.ui.CubeSkinUiTheme
+import com.apptists.poplur2025.ui.uiTheme
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -59,6 +63,55 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
+
+// ── 3D Cube geometry ──────────────────────────────────────────────────────────
+
+private val CUBE_VERTICES = arrayOf(
+    floatArrayOf(-0.5f,  0.5f, -0.5f), // 0 front-top-left
+    floatArrayOf( 0.5f,  0.5f, -0.5f), // 1 front-top-right
+    floatArrayOf( 0.5f, -0.5f, -0.5f), // 2 front-bottom-right
+    floatArrayOf(-0.5f, -0.5f, -0.5f), // 3 front-bottom-left
+    floatArrayOf(-0.5f,  0.5f,  0.5f), // 4 back-top-left
+    floatArrayOf( 0.5f,  0.5f,  0.5f), // 5 back-top-right
+    floatArrayOf( 0.5f, -0.5f,  0.5f), // 6 back-bottom-right
+    floatArrayOf(-0.5f, -0.5f,  0.5f), // 7 back-bottom-left
+)
+
+// Each face: vertex indices (counter-clockwise when facing viewer)
+private val CUBE_FACES = arrayOf(
+    intArrayOf(0, 1, 2, 3), // front  (Z-)
+    intArrayOf(5, 4, 7, 6), // back   (Z+)
+    intArrayOf(4, 5, 1, 0), // top    (Y+)
+    intArrayOf(3, 2, 6, 7), // bottom (Y-)
+    intArrayOf(4, 0, 3, 7), // left   (X-)
+    intArrayOf(1, 5, 6, 2), // right  (X+)
+)
+
+private val CUBE_NORMALS = arrayOf(
+    floatArrayOf( 0f,  0f, -1f), // front
+    floatArrayOf( 0f,  0f,  1f), // back
+    floatArrayOf( 0f,  1f,  0f), // top
+    floatArrayOf( 0f, -1f,  0f), // bottom
+    floatArrayOf(-1f,  0f,  0f), // left
+    floatArrayOf( 1f,  0f,  0f), // right
+)
+
+private fun cubeFaceColors(theme: CubeSkinUiTheme): Array<Color> {
+    fun lerp(a: Color, b: Color, t: Float) = Color(
+        red   = (a.red   * (1f - t) + b.red   * t).coerceIn(0f, 1f),
+        green = (a.green * (1f - t) + b.green * t).coerceIn(0f, 1f),
+        blue  = (a.blue  * (1f - t) + b.blue  * t).coerceIn(0f, 1f),
+    )
+    val dark = theme.backgroundDeep
+    return arrayOf(
+        theme.accent,                        // front  — brightest
+        lerp(theme.accent, dark, 0.82f),     // back   — darkest (rarely seen)
+        lerp(theme.accent2, dark, 0.08f),    // top    — accent2 highlight
+        lerp(theme.accent, dark, 0.72f),     // bottom — dark
+        lerp(theme.accent, dark, 0.50f),     // left   — mid
+        lerp(theme.accent2, dark, 0.28f),    // right  — mid-bright
+    )
+}
 
 private val LOADING_PHASES = listOf(
     "scanning your social radius",
@@ -124,20 +177,24 @@ fun FeedLaunchCover(
     use3D: Boolean = true,
     skinLogoPath: String = "logo.png",
     skinBannerPath: String = "theme_banners/theme_banner_default.png",
+    cubeSkin: CubeSkin = CubeSkin.Default,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val logoSize = (LocalConfiguration.current.screenWidthDp * 0.60f).coerceAtMost(270f).dp
-    val logoBitmap = remember(context, skinLogoPath) {
-        context.assets.open(skinLogoPath).use { stream ->
-            val bitmap = BitmapFactory.decodeStream(stream)
-                ?: error("Required launch logo asset could not be decoded: $skinLogoPath")
-            bitmap.asImageBitmap()
-        }
-    }
+    val skinFaceColors = remember(cubeSkin) { cubeFaceColors(cubeSkin.uiTheme()) }
     val bannerBitmap = remember(context, skinBannerPath) {
         runCatching {
             context.assets.open(skinBannerPath).use { stream ->
+                BitmapFactory.decodeStream(stream)?.asImageBitmap()
+            }
+        }.getOrNull()
+    }
+    // The loading screen shows the app logo (the rotating cube belongs on the Welcome/launch
+    // screen, matching iOS). Falls back to the spinning cube only if the logo asset is missing.
+    val logoBitmap = remember(context, skinLogoPath) {
+        runCatching {
+            context.assets.open(skinLogoPath).use { stream ->
                 BitmapFactory.decodeStream(stream)?.asImageBitmap()
             }
         }.getOrNull()
@@ -272,19 +329,42 @@ fun FeedLaunchCover(
             }
         }
 
-        Image(
-            bitmap = logoBitmap,
-            contentDescription = "Poplur Logo",
-            modifier = Modifier
-                .size(logoSize)
-                .align(Alignment.Center)
-                .offset(y = (-60).dp)
-                .graphicsLayer {
-                    scaleX = logoScale.value
-                    scaleY = logoScale.value
-                    rotationZ = logoRotation
-                }
-        )
+        if (logoBitmap != null) {
+            Image(
+                bitmap = logoBitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .size(logoSize)
+                    .align(Alignment.Center)
+                    .offset(y = (-60).dp)
+                    .graphicsLayer {
+                        scaleX = logoScale.value
+                        scaleY = logoScale.value
+                    }
+            )
+        } else {
+            // Fallback: spinning cube only when the skin's logo asset can't be loaded.
+            Canvas(
+                modifier = Modifier
+                    .size(logoSize)
+                    .align(Alignment.Center)
+                    .offset(y = (-60).dp)
+                    .graphicsLayer {
+                        scaleX = logoScale.value
+                        scaleY = logoScale.value
+                    }
+            ) {
+                drawSpinningCube(
+                    yRotDeg   = logoRotation,
+                    xTiltDeg  = -22f,
+                    centerX   = size.width / 2f,
+                    centerY   = size.height / 2f,
+                    halfSizePx = size.minDimension * 0.46f,
+                    faceColors = skinFaceColors
+                )
+            }
+        }
 
         // AI loading bar + text
         Column(
@@ -612,6 +692,72 @@ private data class RainParticle(
     val color: Color,
     val colorAlpha: Float
 )
+
+// ── 3D Cube renderer ──────────────────────────────────────────────────────────
+
+private fun DrawScope.drawSpinningCube(
+    yRotDeg: Float,
+    xTiltDeg: Float,
+    centerX: Float,
+    centerY: Float,
+    halfSizePx: Float,
+    faceColors: Array<Color>,
+    edgeAlpha: Float = 0.28f
+) {
+    val yRad = yRotDeg * PI.toFloat() / 180f
+    val xRad = xTiltDeg * PI.toFloat() / 180f
+    val cy = cos(yRad); val sy = sin(yRad)
+    val cx = cos(xRad); val sx = sin(xRad)
+
+    // Rotate all 8 vertices: Y-axis first, then X-axis tilt
+    val rotated = Array(8) { i ->
+        val v = CUBE_VERTICES[i]
+        val vx = v[0]; val vy = v[1]; val vz = v[2]
+        val rx1 = vx * cy + vz * sy
+        val rz1 = -vx * sy + vz * cy
+        val ry2 = vy * cx - rz1 * sx
+        val rz2 = vy * sx + rz1 * cx
+        floatArrayOf(rx1, ry2, rz2)
+    }
+
+    // Perspective project (focal = 2.5 keeps the cube nicely proportioned)
+    val focal = 2.5f
+    val scale = halfSizePx * 2f
+    val projected = Array(8) { i ->
+        val v = rotated[i]
+        val sz = v[2] + focal
+        Offset(
+            centerX + v[0] * scale / sz,
+            centerY - v[1] * scale / sz
+        )
+    }
+
+    // Painter's algorithm: draw back faces first (highest Z = farthest)
+    val sortedFaceIndices = (0 until 6).sortedByDescending { fi ->
+        CUBE_FACES[fi].sumOf { vi -> rotated[vi][2].toDouble() }
+    }
+
+    sortedFaceIndices.forEach { fi ->
+        // Back-face culling: rotate normal Z through Y then X; cull if Z >= 0 (facing away)
+        val n = CUBE_NORMALS[fi]
+        val nz1 = -n[0] * sy + n[2] * cy
+        val nz2 = n[1] * sx + nz1 * cx
+        if (nz2 >= 0f) return@forEach
+
+        val face = CUBE_FACES[fi]
+        val path = Path().apply {
+            val p0 = projected[face[0]]
+            moveTo(p0.x, p0.y)
+            for (k in 1 until face.size) {
+                val pk = projected[face[k]]
+                lineTo(pk.x, pk.y)
+            }
+            close()
+        }
+        drawPath(path, color = faceColors[fi])
+        drawPath(path, color = Color.White.copy(alpha = edgeAlpha), style = Stroke(width = 2.dp.toPx()))
+    }
+}
 
 private fun buildRainParticles(seed: Int, count: Int): List<RainParticle> {
     val rng = Random(seed * 4_337 + 13)
