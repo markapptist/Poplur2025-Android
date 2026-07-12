@@ -52,6 +52,13 @@ class CombinedGdxAdapter(
     @Volatile
     var isInteractionEnabled: Boolean = true
 
+    @Volatile
+    var autoRotate: Boolean = false
+        set(value) {
+            field = value
+            if (value) appInstance?.postRunnable { Gdx.graphics.requestRendering() }
+        }
+
     private var camera: PerspectiveCamera? = null
     private var modelBatch: ModelBatch? = null
     private var channelObjectModel: Model? = null
@@ -531,6 +538,11 @@ class CombinedGdxAdapter(
             )
             .rotate(Vector3.X, cubeRestingPitchDegrees)
             .rotate(Vector3.Y, currentYawDegrees + GdxState.tiltYawOffset)
+            .apply {
+                // The Welcome model's CHECK/OK artwork is on -Z. Lift that face to +Y while
+                // keeping +X as FORWARD; the outer Y rotation then remains a true vertical spin.
+                if (autoRotate) rotate(Vector3.X, 90f)
+            }
             .scale(scale, scale, scale)
             .translate(-cubeModelCenter.x, -cubeModelCenter.y, -cubeModelCenter.z)
         loadedScene.modelInstance.calculateTransforms()
@@ -539,7 +551,7 @@ class CombinedGdxAdapter(
         modelBatch?.render(loadedScene.modelInstance, environment)
         modelBatch?.end()
         reportFirstFrameRendered()
-        if (dragging || now < channelObjectEndMillis || bouncePhase != BouncePhase.Idle || GdxState.tiltYawOffset != 0f) {
+        if (autoRotate || dragging || now < channelObjectEndMillis || bouncePhase != BouncePhase.Idle || GdxState.tiltYawOffset != 0f) {
             Gdx.graphics.requestRendering()
         }
     }
@@ -1035,6 +1047,10 @@ class CombinedGdxAdapter(
             val deltaTime = Gdx.graphics.deltaTime
             time += deltaTime
             if (dragging || bouncePhase != BouncePhase.Idle) updateAnimation()
+            if (autoRotate && !dragging && bouncePhase == BouncePhase.Idle) {
+                currentYawDegrees += deltaTime * WELCOME_AUTO_ROTATE_DEGREES_PER_SECOND
+                targetYawDegrees = currentYawDegrees
+            }
             updatePeekAnimation(deltaTime)
             
             val w = lastWidth.coerceAtLeast(1)
@@ -1149,3 +1165,5 @@ class CombinedGdxAdapter(
         val GLB_JSON_PADDING_BYTE: Byte = 0x20
     }
 }
+
+private const val WELCOME_AUTO_ROTATE_DEGREES_PER_SECOND = 12f

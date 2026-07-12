@@ -155,11 +155,27 @@ internal fun WelcomeAuthScreenContent(
     }
     var loading by remember { mutableStateOf(false) }
     var logoBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var welcomeLogoBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var welcomeTicketBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     
     LaunchedEffect(Unit) {
         logoBitmap = withContext(Dispatchers.IO) {
             runCatching {
                 context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+            }.getOrNull()
+        }
+        welcomeLogoBitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                context.assets.open("welcome_logo.png").use {
+                    BitmapFactory.decodeStream(it).asImageBitmap()
+                }
+            }.getOrNull()
+        }
+        welcomeTicketBitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                context.assets.open("prelogin_ticket.png").use {
+                    BitmapFactory.decodeStream(it).asImageBitmap()
+                }
             }.getOrNull()
         }
     }
@@ -186,25 +202,22 @@ internal fun WelcomeAuthScreenContent(
         }
     }
 
-    // Sequence timings with 550ms head start:
-    // bannerDelayMs = 550 -> 1100ms
-    // logoDelayMs = 1350 -> 1900ms
-    // buttonsDelayMs = 2400 -> 2950ms
-    val bannerOffsetY = remember { Animatable(-1400f) }
-    val logoScale = remember { Animatable(0f) }
+    // Canonical Good Copy: artwork is present immediately, logo drops at 300ms, and the
+    // two controls fade in together at 1.3s. The cube is managed independently by PoplurRoot.
+    val bannerOffsetY = remember { Animatable(0f) }
+    val welcomeLogoOffsetY = remember { Animatable(-1000f) }
     val buttonsAlpha = remember { Animatable(0f) }
-    
+
     LaunchedEffect(Unit) {
-        delay(1100)
-        bannerOffsetY.animateTo(0f, animationSpec = spring(dampingRatio = 0.34f, stiffness = 130f))
+        delay(300)
+        welcomeLogoOffsetY.animateTo(
+            0f,
+            animationSpec = spring(dampingRatio = 0.62f, stiffness = 150f)
+        )
     }
     LaunchedEffect(Unit) {
-        delay(1900)
-        logoScale.animateTo(1f, animationSpec = spring(dampingRatio = 0.42f, stiffness = 160f))
-    }
-    LaunchedEffect(Unit) {
-        delay(2950)
-        buttonsAlpha.animateTo(1f, animationSpec = tween(700))
+        delay(1300)
+        buttonsAlpha.animateTo(1f, animationSpec = tween(500))
     }
 
     val activity = remember(context) { context.findFragmentActivity() }
@@ -259,28 +272,30 @@ internal fun WelcomeAuthScreenContent(
             )
         }
 
-        // Mute button in top left
-        IconButton(
-            onClick = { isMuted = !isMuted },
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(12.dp)
-                .zIndex(50f)
-        ) {
-            // White circle behind the pink icon — matches iOS PoplurMuteButton.
-            Box(
+        // Good Copy keeps the Welcome artwork clean; the mute control remains available on
+        // Login and Sign Up where it does not compete with the hero logo.
+        if (mode != AuthMode.Welcome) {
+            IconButton(
+                onClick = { isMuted = !isMuted },
                 modifier = Modifier
-                    .size(44.dp)
-                    .background(Color.White, androidx.compose.foundation.shape.CircleShape)
-                    .border(1.5.dp, Color.Black.copy(alpha = 0.08f), androidx.compose.foundation.shape.CircleShape),
-                contentAlignment = Alignment.Center
+                    .statusBarsPadding()
+                    .padding(12.dp)
+                    .zIndex(50f)
             ) {
-                Icon(
-                    imageVector = if (isMuted) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
-                    contentDescription = "Mute",
-                    tint = Color(0xFFFF2D8E), // Branding color
-                    modifier = Modifier.size(20.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(Color.White, androidx.compose.foundation.shape.CircleShape)
+                        .border(1.5.dp, Color.Black.copy(alpha = 0.08f), androidx.compose.foundation.shape.CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isMuted) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
+                        contentDescription = "Mute",
+                        tint = Color(0xFFFF2D8E),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
 
@@ -308,7 +323,15 @@ internal fun WelcomeAuthScreenContent(
             label = "authCarousel"
         ) { panel ->
             Box(Modifier.fillMaxSize()) {
-                if (panel == AuthMode.SignUp) {
+                if (panel == AuthMode.Welcome) {
+                    WelcomeBackdrop(
+                        ticketBitmap = welcomeTicketBitmap,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(1f)
+                            .offset { IntOffset(0, bannerOffsetY.value.roundToInt()) }
+                    )
+                } else if (panel == AuthMode.SignUp) {
                     Box(
                         Modifier
                             .align(Alignment.TopStart)
@@ -338,9 +361,9 @@ internal fun WelcomeAuthScreenContent(
                 Box(Modifier.fillMaxSize().zIndex(3f)) {
                     when (panel) {
                         AuthMode.Welcome -> WelcomeTicketContent(
-                            logoBitmap = logoBitmap,
+                            logoBitmap = welcomeLogoBitmap ?: logoBitmap,
                             layout = authLayout,
-                            logoScale = logoScale.value,
+                            logoOffsetY = welcomeLogoOffsetY.value,
                             buttonsAlpha = buttonsAlpha.value,
                             onSignIn = { mode = AuthMode.Login },
                             onCreateAccount = { mode = AuthMode.SignUp }
@@ -450,24 +473,21 @@ private fun WelcomeTicketContent(
     layout: AuthLayoutMetrics,
     onSignIn: () -> Unit,
     onCreateAccount: () -> Unit,
-    logoScale: Float = 1f,
+    logoOffsetY: Float = 0f,
     buttonsAlpha: Float = 1f
 ) {
     Box(
-        Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
+        Modifier.fillMaxSize()
     ) {
         WelcomeLogo(
             logoBitmap = logoBitmap,
+            floats = false,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = layout.welcomeLogoTop)
-                .size(layout.logoSize)
+                .size(layout.welcomeLogoSize)
                 .graphicsLayer {
-                    scaleX = logoScale
-                    scaleY = logoScale
+                    translationY = logoOffsetY
                 }
         )
 
@@ -477,13 +497,13 @@ private fun WelcomeTicketContent(
                 .padding(top = layout.welcomeButtonTop)
                 .alpha(buttonsAlpha),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(layout.welcomeButtonGap)
         ) {
             // Pill button with black shadow/border matching screenshot
             Box(
                 modifier = Modifier
                     .width(layout.welcomeButtonWidth)
-                    .height(layout.welcomeButtonHeight + 8.dp)
+                    .height(layout.welcomeButtonHeight)
                     .clickable { onSignIn() }
             ) {
                 // Bottom shadow (black extrusion)
@@ -491,7 +511,7 @@ private fun WelcomeTicketContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(layout.welcomeButtonHeight)
-                        .offset(y = 8.dp)
+                        .offset(y = layout.welcomeButtonShadowOffset)
                         .background(Color.Black, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
                 )
                 // Main white button surface
@@ -507,7 +527,7 @@ private fun WelcomeTicketContent(
                         "Sign In",
                         color = Color.Black,
                         fontWeight = FontWeight.Black,
-                        fontSize = (layout.welcomeButtonTextSize * 1.05f).sp
+                        fontSize = layout.welcomeButtonTextSize.sp
                     )
                 }
             }
@@ -515,23 +535,23 @@ private fun WelcomeTicketContent(
             // Sign Up button
             Box(
                 modifier = Modifier
-                    .width(layout.welcomeButtonWidth * 0.88f)
-                    .height((layout.welcomeButtonHeight * 0.84f) + 4.dp)
+                    .width(layout.welcomeButtonWidth)
+                    .height(layout.welcomeButtonHeight)
                     .clickable { onCreateAccount() }
             ) {
                 // Bottom shadow (black extrusion) — matches Sign In / iOS
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight * 0.84f)
-                        .offset(y = 4.dp)
+                        .height(layout.welcomeButtonHeight)
+                        .offset(y = layout.welcomeButtonShadowOffset)
                         .background(Color.Black, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
                 )
                 // Main white surface — iOS shows Sign Up solid white with black text, like Sign In
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight * 0.84f)
+                        .height(layout.welcomeButtonHeight)
                         .background(Color.White, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
                         .border(1.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(layout.welcomeButtonHeight / 2f)),
                     contentAlignment = Alignment.Center
@@ -540,7 +560,7 @@ private fun WelcomeTicketContent(
                         "Sign Up",
                         color = Color.Black,
                         fontWeight = FontWeight.Black,
-                        fontSize = (layout.welcomeButtonTextSize * 0.8f).sp
+                        fontSize = layout.welcomeButtonTextSize.sp
                     )
                 }
             }
@@ -1213,6 +1233,48 @@ private fun validateSignup(
 }
 
 @Composable
+private fun WelcomeBackdrop(
+    ticketBitmap: androidx.compose.ui.graphics.ImageBitmap?,
+    modifier: Modifier = Modifier
+) {
+    val welcomePink = Color(0xFFFF2D96)
+    Box(modifier.background(welcomePink)) {
+        if (ticketBitmap != null) {
+            Image(
+                bitmap = ticketBitmap,
+                contentDescription = null,
+                contentScale = ContentScale.FillWidth,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+            )
+        }
+
+        // The artifact finishes with a white perforated ticket edge. Drawing this separately
+        // keeps it pinned to every Android screen height while the map artwork scales by width.
+        Canvas(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(18.dp)
+        ) {
+            drawRect(Color.White)
+            val radius = 9.dp.toPx()
+            val step = 26.dp.toPx()
+            var centerX = 13.dp.toPx()
+            while (centerX < size.width + radius) {
+                drawCircle(
+                    color = welcomePink,
+                    radius = radius,
+                    center = Offset(centerX, radius)
+                )
+                centerX += step
+            }
+        }
+    }
+}
+
+@Composable
 private fun TicketPanel(modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val panelColor = Color(0xFFFF2D8E) // Vibrant pink matching screenshot
@@ -1336,28 +1398,24 @@ private fun Dp.safeCoerceIn(minV: Dp, maxV: Dp): Dp = coerceIn(minOf(minV, maxV)
 
 private class AuthLayoutMetrics(screenWidth: Dp, screenHeight: Dp, mode: AuthMode) {
     val scale = (minOf(screenWidth.coerceAtMost(430.dp)/430.dp, screenHeight/932.dp)).coerceIn(0.86f, 1.18f)
+    private val welcomeScale = minOf(screenWidth / 430.dp, screenHeight / 932.dp).coerceIn(0.72f, 1.18f)
     val ticketHorizontalInset = (screenWidth * 0.05f).coerceIn(16.dp, 32.dp)
     val ticketTopInset = if (mode == AuthMode.Welcome) 48.dp else 100.dp
     // Ticket should fill more vertical space. Decrease bottom inset.
     val ticketBottomInset = (if (mode == AuthMode.Welcome) 80.dp else 120.dp)
     val logoSize = (screenWidth * 0.48f).coerceIn(200.dp, 240.dp)
     val ticketHeight = (screenHeight - ticketTopInset - ticketBottomInset).coerceAtLeast(1.dp)
-    val welcomeLogoTop = (ticketTopInset + 40.dp).safeCoerceIn(ticketTopInset + 20.dp, ticketTopInset + 80.dp)
-
-    val welcomeButtonWidth = (screenWidth * 0.36f).coerceIn(180.dp, 220.dp)
-    val welcomeButtonHeight = (64.dp * scale).coerceIn(60.dp, 72.dp)
-    val welcomeButtonTextSize = (22f * scale).coerceIn(20f, 24f)
-
-    // Equal gap above and below the Sign In / Sign Up pair: logo↔buttons == buttons↔cube.
-    // Logo bottom is approx welcomeLogoTop + logoSize.
-    // Cube top is approx screenHeight - 274dp (based on CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP=174 and size=200).
-    val cubeTop = screenHeight - 274.dp
-    val logoBottom = welcomeLogoTop + logoSize
-    // Sign In (height + 8dp shadow) + 16dp column spacing + Sign Up (height * 0.84 + 4dp shadow) —
-    // see WelcomeTicketContent. Was a flat "-40.dp" fudge that under-corrected by ~30-40dp,
-    // pushing the button pair too close to the cube and leaving too much room below the logo.
-    val welcomeButtonColumnHeight = welcomeButtonHeight * 1.84f + 28.dp
-    val welcomeButtonTop = (logoBottom + cubeTop - welcomeButtonColumnHeight) / 2f
+    // Canonical Good Copy uses a 430 × 932 layout. Scaling those exact coordinates keeps the
+    // visual centers at roughly y=155 (logo), y=350 (cube), y=566/635 (buttons) on 390 × 845.
+    val welcomeLogoTop = 96.dp * welcomeScale
+    val welcomeLogoSize = 148.dp * welcomeScale
+    val welcomeButtonWidth = 250.dp * welcomeScale
+    val welcomeButtonHeight = 58.dp * welcomeScale
+    val welcomeButtonGap = 18.dp * welcomeScale
+    val welcomeButtonShadowOffset = 6.dp * welcomeScale
+    val welcomeButtonTextSize = 22f * welcomeScale
+    val welcomeButtonTop = screenHeight - (200.dp * welcomeScale) -
+        (welcomeButtonHeight * 2f + welcomeButtonGap)
     val backButtonStart = (screenWidth * 0.068f).coerceIn(24.dp, 34.dp); val backButtonTop = (screenHeight * 0.073f).coerceIn(66.dp, 84.dp); val backButtonSize = (68.dp * scale).coerceIn(60.dp, 74.dp); val backIconSize = (38.dp * scale).coerceIn(34.dp, 42.dp)
     val formHorizontalInset = (screenWidth * 0.122f).coerceIn(44.dp, 58.dp); val loginLogoTop = (screenHeight * 0.202f).coerceIn(184.dp, 218.dp); val submitButtonHeight = (screenHeight * 0.102f).coerceIn(88.dp, 106.dp); val fieldGap = (screenHeight * 0.028f).coerceIn(22.dp, 30.dp); val fieldHeight = (58.dp * scale).coerceIn(52.dp, 64.dp)
     val submitButtonTop = (ticketTopInset + ticketHeight - submitButtonHeight - (ticketHeight * 0.075f)).safeCoerceIn(ticketTopInset + (ticketHeight * 0.68f), ticketTopInset + ticketHeight - submitButtonHeight - 34.dp)
@@ -1367,7 +1425,11 @@ private class AuthLayoutMetrics(screenWidth: Dp, screenHeight: Dp, mode: AuthMod
 }
 
 @Composable
-private fun WelcomeLogo(logoBitmap: androidx.compose.ui.graphics.ImageBitmap?, modifier: Modifier) {
+private fun WelcomeLogo(
+    logoBitmap: androidx.compose.ui.graphics.ImageBitmap?,
+    modifier: Modifier,
+    floats: Boolean = true
+) {
     // Matches iOS's SKAction float loop: amplitude 10pt, 2.6s period, ease in/out, forever.
     val infiniteTransition = rememberInfiniteTransition(label = "welcomeLogoAnim")
     val floatProgress by infiniteTransition.animateFloat(
@@ -1381,7 +1443,7 @@ private fun WelcomeLogo(logoBitmap: androidx.compose.ui.graphics.ImageBitmap?, m
     )
 
     Box(modifier = modifier.graphicsLayer {
-        translationY = -10f * floatProgress
+        translationY = if (floats) -10f * floatProgress else 0f
     }, contentAlignment = Alignment.Center) {
         if (logoBitmap != null) {
             Image(bitmap = logoBitmap, contentDescription = "Poplur", modifier = Modifier.fillMaxSize())

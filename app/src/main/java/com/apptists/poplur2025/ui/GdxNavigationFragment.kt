@@ -50,6 +50,7 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
     private var pendingSkin: CubeSkin = CubeSkin.Clay
     private var pendingModelAssetPathOverride: String? = null
     private var pendingInteractionEnabled: Boolean = true
+    private var pendingAutoRotate: Boolean = false
     private var inputView: View? = null
     private var textureView: TransparentGLTextureView? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -107,6 +108,11 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
         adapter?.modelAssetPathOverride = path
     }
 
+    fun setAutoRotate(enabled: Boolean) {
+        pendingAutoRotate = enabled
+        adapter?.autoRotate = enabled
+    }
+
     fun setInteractionEnabled(enabled: Boolean) {
         pendingInteractionEnabled = enabled
         adapter?.isInteractionEnabled = enabled
@@ -161,6 +167,7 @@ open class GdxNavigationFragment() : AndroidFragmentApplication() {
         )
         adapter.skin = pendingSkin
         adapter.modelAssetPathOverride = pendingModelAssetPathOverride
+        adapter.autoRotate = pendingAutoRotate
         if (pendingChannelObjectToken > 0) adapter.showChannelObject(pendingChannelObjectId)
 
         val gdxView = initializeTransparentForView(adapter, config)

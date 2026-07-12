@@ -189,10 +189,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
             // Decorative cube must be BELOW Compose to let buttons work (translationZ 1 vs 2)
             container.translationZ = if (config.isInteractive) 10f else 1f
             
-            val params = cubeOverlayLayoutParams()
-            if (container.layoutParams.width != params.width || container.layoutParams.height != params.height) {
-                container.layoutParams = params
-            }
+            container.layoutParams = cubeOverlayLayoutParams(config)
 
             val manager = supportFragmentManager
             val existing = manager.findFragmentById(cubeContainerId) as? GdxNavigationFragment
@@ -290,6 +287,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
             setInteractionEnabled(config.isInteractive)
             setSkin(config.cubeSkin)
             setModelAssetPathOverride(config.modelAssetPathOverride)
+            setAutoRotate(config.autoRotate)
             showChannelObject(config.channelObjectId, config.channelObjectPopToken)
         }
     }
@@ -306,6 +304,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
             setInteractionEnabled(config.isInteractive)
             setSkin(config.cubeSkin)
             setModelAssetPathOverride(config.modelAssetPathOverride)
+            setAutoRotate(config.autoRotate)
             showChannelObject(config.channelObjectId, config.channelObjectPopToken)
             onVerticalSwipe = if (config.isInteractive) config.onVerticalSwipe else null
             onLongPress = if (config.isInteractive) config.onLongPress else null
@@ -317,15 +316,26 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
         }
     }
 
-    private fun cubeOverlayLayoutParams(): FrameLayout.LayoutParams {
+    private fun cubeOverlayLayoutParams(
+        config: PersistentCubeOverlayConfig? = null
+    ): FrameLayout.LayoutParams {
         val density = resources.displayMetrics.density
         val overlaySize = (CUBE_OVERLAY_SIZE_DP * density).roundToInt()
         return FrameLayout.LayoutParams(
             overlaySize,
             overlaySize
         ).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            bottomMargin = ((CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP - CUBE_OVERLAY_SIZE_DP / 2f) * density).roundToInt()
+            val centerFromTopFraction = config?.centerFromTopFraction
+            if (centerFromTopFraction != null) {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                val screenHeight = resources.displayMetrics.heightPixels
+                topMargin = (
+                    screenHeight * centerFromTopFraction.coerceIn(0f, 1f) - overlaySize / 2f
+                ).roundToInt()
+            } else {
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                bottomMargin = ((CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP - CUBE_OVERLAY_SIZE_DP / 2f) * density).roundToInt()
+            }
         }
     }
 

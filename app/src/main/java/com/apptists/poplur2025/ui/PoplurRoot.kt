@@ -251,7 +251,7 @@ fun PoplurRoot(
     var isFeedTvGuideVisible by remember { mutableStateOf(false) }
     var isCubeSurfaceReady by remember { mutableStateOf(false) }
     var isCubeFirstFrameReady by remember { mutableStateOf(false) }
-    var authCubeLabel by remember { mutableStateOf("Welcome") }
+    var authCubeLabel by remember { mutableStateOf("poplur") }
     var authBackAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var profileCubeCommandId by remember { mutableIntStateOf(0) }
     var profileCubeMenuCommand by remember { mutableStateOf<ProfileCubeMenuCommand?>(null) }
@@ -270,8 +270,8 @@ fun PoplurRoot(
     val cubeAlpha = remember { Animatable(0f) }
     LaunchedEffect(isSignedIn) {
         if (isSignedIn == false) {
-            delay(3800) // headStartMs(550) + cubeDelayMs(3250)
-            cubeAlpha.animateTo(1f, animationSpec = tween(900))
+            // The approved Welcome keeps its rotating FORWARD cube visible from first paint.
+            cubeAlpha.snapTo(1f)
         } else {
             cubeAlpha.snapTo(1f)
         }
@@ -1323,12 +1323,17 @@ fun PoplurRoot(
         )
 
         if (isCubeSurfaceReady) {
+            val isWelcomeAuthScreen = isSignedIn == false && authCubeLabel == "poplur"
             val loginCubeAssetPath = if (isSignedIn != true) {
                 LOGIN_CUBE_ASSET_PATH
             } else {
                 null
             }
-            val displayTabIndex = if (isSignedIn == false) 3 else tab.cubeTabIndex()
+            val displayTabIndex = when {
+                isWelcomeAuthScreen -> 0 // LOGIN_CUBE face 0 is the canonical FORWARD artwork.
+                isSignedIn == false -> 3 // Login/Sign Up retain their existing BACK cube face.
+                else -> tab.cubeTabIndex()
+            }
             PersistentCubeOverlay(
                 modifier = Modifier
                     .zIndex(200f)
@@ -1354,7 +1359,9 @@ fun PoplurRoot(
                 onFirstFrameRendered = cubeFirstFrameLambda,
                 channelObjectId = channelObjectId,
                 channelObjectPopToken = channelObjectPopToken,
-                modelAssetPathOverride = loginCubeAssetPath
+                modelAssetPathOverride = loginCubeAssetPath,
+                autoRotate = isWelcomeAuthScreen,
+                centerFromTopFraction = if (isWelcomeAuthScreen) 0.4056f else null
             )
         }
 
