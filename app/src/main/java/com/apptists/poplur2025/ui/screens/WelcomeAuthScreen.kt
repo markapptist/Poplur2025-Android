@@ -17,7 +17,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import android.animation.ValueAnimator
 import android.graphics.BitmapFactory
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -47,10 +50,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -477,15 +482,6 @@ private fun WelcomeTicketContent(
     logoOffsetY: Float = 0f,
     buttonsAlpha: Float = 1f
 ) {
-    val density = LocalDensity.current
-    val buttonTextShadow = with(density) {
-        Shadow(
-            color = Color.Black.copy(alpha = 0.16f),
-            offset = Offset(0f, 1.dp.toPx()),
-            blurRadius = 1.dp.toPx()
-        )
-    }
-
     Box(
         Modifier.fillMaxSize()
     ) {
@@ -533,12 +529,9 @@ private fun WelcomeTicketContent(
                         .border(1.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(layout.welcomeButtonHeight / 2f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        "Sign In",
-                        color = Color.Black,
-                        fontWeight = FontWeight.Black,
-                        fontSize = layout.welcomeButtonTextSize.sp,
-                        style = LocalTextStyle.current.copy(shadow = buttonTextShadow)
+                    WelcomeButtonShaderText(
+                        text = "Sign In",
+                        fontSize = layout.welcomeButtonTextSize
                     )
                 }
             }
@@ -567,17 +560,90 @@ private fun WelcomeTicketContent(
                         .border(1.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(layout.welcomeButtonHeight / 2f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        "Sign Up",
-                        color = Color.Black,
-                        fontWeight = FontWeight.Black,
-                        fontSize = layout.welcomeButtonTextSize.sp,
-                        style = LocalTextStyle.current.copy(shadow = buttonTextShadow)
+                    WelcomeButtonShaderText(
+                        text = "Sign Up",
+                        fontSize = layout.welcomeButtonTextSize
                     )
                 }
             }
         }
     }
+}
+
+@Composable
+private fun WelcomeButtonShaderText(
+    text: String,
+    fontSize: Float
+) {
+    val context = LocalContext.current
+    val animationsEnabled = remember(context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ValueAnimator.areAnimatorsEnabled()
+        } else {
+            Settings.Global.getFloat(
+                context.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            ) > 0f
+        }
+    }
+    val phase = if (animationsEnabled) {
+        val transition = rememberInfiniteTransition(label = "welcomeButtonTextShader")
+        val animatedPhase by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(3_200, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "welcomeButtonTextShaderPhase"
+        )
+        animatedPhase
+    } else {
+        0.48f
+    }
+    var textWidthPx by remember { mutableFloatStateOf(1f) }
+    val gradientWidthPx = textWidthPx * 3f
+    // CSS percentage positioning uses (containerWidth - imageWidth) * position. Animate the
+    // canonical 300%-wide tile from 100% to -200%, and freeze it at 48% for reduced motion.
+    val backgroundPosition = if (animationsEnabled) 1f - 3f * phase else 0.48f
+    val startX = (textWidthPx - gradientWidthPx) * backgroundPosition
+    val shader = Brush.linearGradient(
+        colorStops = arrayOf(
+            0f to Color(0xFF080207),
+            0.16f to Color(0xFF5B1238),
+            0.31f to Color(0xFFFF2D8A),
+            0.45f to Color(0xFF7A003E),
+            0.59f to Color(0xFF160711),
+            0.76f to Color(0xFFFF4D9E),
+            0.90f to Color(0xFF2A0A1D),
+            1f to Color(0xFF080207)
+        ),
+        start = Offset(startX, 0f),
+        end = Offset(startX + gradientWidthPx, 0f),
+        tileMode = TileMode.Repeated
+    )
+    val density = LocalDensity.current
+    val textShadow = with(density) {
+        Shadow(
+            color = Color.Black.copy(alpha = 0.16f),
+            offset = Offset(0f, 1.dp.toPx()),
+            blurRadius = 1.dp.toPx()
+        )
+    }
+
+    Text(
+        text = text,
+        modifier = Modifier.onSizeChanged {
+            textWidthPx = it.width.toFloat().coerceAtLeast(1f)
+        },
+        fontWeight = FontWeight.Black,
+        fontSize = fontSize.sp,
+        style = LocalTextStyle.current.copy(
+            brush = shader,
+            shadow = textShadow
+        )
+    )
 }
 
 @Composable
