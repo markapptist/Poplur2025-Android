@@ -11,12 +11,18 @@ import android.view.ViewGroup
 import android.view.KeyEvent
 import android.widget.FrameLayout
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Typography
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -31,12 +37,16 @@ import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.GdxNavigationFragment
 import com.apptists.poplur2025.ui.PoplurRoot
 import com.apptists.poplur2025.ui.ConfettiAnimationFragment
+import com.apptists.poplur2025.auth.AuthViewModel
+import com.apptists.poplur2025.ui.components.PoplurClaySplashOverlay
 import com.apptists.poplur2025.ui.components.PersistentCubeOverlayConfig
 import com.apptists.poplur2025.ui.components.PersistentCubeOverlayHost
 import com.apptists.poplur2025.wear.WearRadiusSync
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentContainerView
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.badlogic.gdx.backends.android.AndroidFragmentApplication
@@ -52,9 +62,16 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
 
     @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
-        setTheme(R.style.Theme_Poplur)
+        val splashScreen = installSplashScreen()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         super.onCreate(savedInstanceState)
+        splashScreen.setOnExitAnimationListener { provider ->
+            provider.view.animate()
+                .alpha(0f)
+                .setDuration(180L)
+                .withEndAction(provider::remove)
+                .start()
+        }
         UITestFlags.authBypass = intent?.getBooleanExtra("uiTestAuthBypass", false) ?: false
         UITestFlags.hooksEnabled = intent?.getBooleanExtra("uiTestHooks", false) ?: false
         enableEdgeToEdge()
@@ -67,7 +84,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
         val root = FrameLayout(this).apply {
             clipChildren = false
             clipToPadding = false
-            setBackgroundColor(android.graphics.Color.WHITE)
+            setBackgroundColor(android.graphics.Color.parseColor("#0A0709"))
         }
 
         // 1. Confetti at the back
@@ -125,8 +142,24 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                     } else {
                         Modifier.fillMaxSize()
                     }
-                    Surface(rootModifier, color = Color.Transparent) {
-                        PoplurRoot()
+                    Box(Modifier.fillMaxSize()) {
+                        var showSplash by remember { mutableStateOf(true) }
+
+                        if (!showSplash) {
+                            Surface(rootModifier, color = Color.Transparent) {
+                                PoplurRoot()
+                            }
+                        }
+
+                        if (showSplash) {
+                            val authViewModel: AuthViewModel = viewModel()
+                            val isSignedIn by authViewModel.isSignedIn.collectAsState()
+                            PoplurClaySplashOverlay(
+                                isReady = isSignedIn != null,
+                                onFinished = { showSplash = false },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                 }
             }

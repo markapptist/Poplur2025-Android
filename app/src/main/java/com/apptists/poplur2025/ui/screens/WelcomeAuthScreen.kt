@@ -1249,28 +1249,6 @@ private fun WelcomeBackdrop(
                     .fillMaxWidth()
             )
         }
-
-        // The artifact finishes with a white perforated ticket edge. Drawing this separately
-        // keeps it pinned to every Android screen height while the map artwork scales by width.
-        Canvas(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(18.dp)
-        ) {
-            drawRect(Color.White)
-            val radius = 9.dp.toPx()
-            val step = 26.dp.toPx()
-            var centerX = 13.dp.toPx()
-            while (centerX < size.width + radius) {
-                drawCircle(
-                    color = welcomePink,
-                    radius = radius,
-                    center = Offset(centerX, radius)
-                )
-                centerX += step
-            }
-        }
     }
 }
 

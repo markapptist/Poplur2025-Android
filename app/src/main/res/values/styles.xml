@@ -2,9 +2,22 @@
     <style name="Theme.Poplur" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">@drawable/launch_screen</item>
+        <item name="android:colorBackground">#0A0709</item>
     </style>
 
     <style name="Theme.Poplur.Starting" parent="Theme.Poplur">
         <item name="android:windowBackground">@drawable/launch_screen</item>
+    </style>
+
+    <style name="Theme.Poplur.SplashScreen" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0A0709</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_transparent_icon</item>
+        <item name="windowSplashScreenIconBackgroundColor">#0A0709</item>
+        <item name="postSplashScreenTheme">@style/Theme.Poplur</item>
+        <item name="android:windowBackground">@drawable/launch_screen</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#0A0709</item>
+        <item name="android:navigationBarColor">#0A0709</item>
     </style>
 </resources>
