@@ -17,10 +17,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import android.animation.ValueAnimator
 import android.graphics.BitmapFactory
-import android.os.Build
-import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
@@ -50,12 +47,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -505,124 +500,37 @@ private fun WelcomeTicketContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(layout.welcomeButtonGap)
         ) {
-            // Pill button with black shadow/border matching screenshot
-            Box(
-                modifier = Modifier
-                    .width(layout.welcomeButtonWidth)
-                    .height(layout.welcomeButtonHeight)
-                    .clickable { onSignIn() }
-            ) {
-                // Bottom shadow (black extrusion)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight)
-                        .offset(y = layout.welcomeButtonShadowOffset)
-                        .background(Color.Black, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
-                )
-                // Main white button surface
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight)
-                        .background(Color.White, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
-                        .border(1.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(layout.welcomeButtonHeight / 2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    WelcomeButtonShaderText(
-                        text = "Sign In",
-                        fontSize = layout.welcomeButtonTextSize
-                    )
-                }
-            }
+            WelcomeShaderButton(
+                text = "Sign In",
+                width = layout.welcomeButtonWidth,
+                height = layout.welcomeButtonHeight,
+                shadowOffset = layout.welcomeButtonShadowOffset,
+                textSize = layout.welcomeButtonTextSize,
+                onClick = onSignIn
+            )
 
-            // Sign Up button
-            Box(
-                modifier = Modifier
-                    .width(layout.welcomeButtonWidth)
-                    .height(layout.welcomeButtonHeight)
-                    .clickable { onCreateAccount() }
-            ) {
-                // Bottom shadow (black extrusion) — matches Sign In / iOS
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight)
-                        .offset(y = layout.welcomeButtonShadowOffset)
-                        .background(Color.Black, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
-                )
-                // Main white surface — iOS shows Sign Up solid white with black text, like Sign In
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight)
-                        .background(Color.White, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
-                        .border(1.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(layout.welcomeButtonHeight / 2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    WelcomeButtonShaderText(
-                        text = "Sign Up",
-                        fontSize = layout.welcomeButtonTextSize
-                    )
-                }
-            }
+            WelcomeShaderButton(
+                text = "Sign Up",
+                width = layout.welcomeButtonWidth,
+                height = layout.welcomeButtonHeight,
+                shadowOffset = layout.welcomeButtonShadowOffset,
+                textSize = layout.welcomeButtonTextSize,
+                onClick = onCreateAccount
+            )
         }
     }
 }
 
 @Composable
-private fun WelcomeButtonShaderText(
+private fun WelcomeShaderButton(
     text: String,
-    fontSize: Float
+    width: Dp,
+    height: Dp,
+    shadowOffset: Dp,
+    textSize: Float,
+    onClick: () -> Unit
 ) {
-    val context = LocalContext.current
-    val animationsEnabled = remember(context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ValueAnimator.areAnimatorsEnabled()
-        } else {
-            Settings.Global.getFloat(
-                context.contentResolver,
-                Settings.Global.ANIMATOR_DURATION_SCALE,
-                1f
-            ) > 0f
-        }
-    }
-    val phase = if (animationsEnabled) {
-        val transition = rememberInfiniteTransition(label = "welcomeButtonTextShader")
-        val animatedPhase by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(3_200, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "welcomeButtonTextShaderPhase"
-        )
-        animatedPhase
-    } else {
-        0.48f
-    }
-    var textWidthPx by remember { mutableFloatStateOf(1f) }
-    val gradientWidthPx = textWidthPx * 3f
-    // CSS percentage positioning uses (containerWidth - imageWidth) * position. Animate the
-    // canonical 300%-wide tile from 100% to -200%, and freeze it at 48% for reduced motion.
-    val backgroundPosition = if (animationsEnabled) 1f - 3f * phase else 0.48f
-    val startX = (textWidthPx - gradientWidthPx) * backgroundPosition
-    val shader = Brush.linearGradient(
-        colorStops = arrayOf(
-            0f to Color(0xFF080207),
-            0.16f to Color(0xFF5B1238),
-            0.31f to Color(0xFFFF2D8A),
-            0.45f to Color(0xFF7A003E),
-            0.59f to Color(0xFF160711),
-            0.76f to Color(0xFFFF4D9E),
-            0.90f to Color(0xFF2A0A1D),
-            1f to Color(0xFF080207)
-        ),
-        start = Offset(startX, 0f),
-        end = Offset(startX + gradientWidthPx, 0f),
-        tileMode = TileMode.Repeated
-    )
+    val shape = RoundedCornerShape(height / 2f)
     val density = LocalDensity.current
     val textShadow = with(density) {
         Shadow(
@@ -632,18 +540,72 @@ private fun WelcomeButtonShaderText(
         )
     }
 
-    Text(
-        text = text,
-        modifier = Modifier.onSizeChanged {
-            textWidthPx = it.width.toFloat().coerceAtLeast(1f)
-        },
-        fontWeight = FontWeight.Black,
-        fontSize = fontSize.sp,
-        style = LocalTextStyle.current.copy(
-            brush = shader,
-            shadow = textShadow
+    Box(
+        modifier = Modifier
+            .width(width)
+            .height(height)
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(height)
+                .offset(y = shadowOffset)
+                .background(Color.Black, shape)
         )
-    )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color.White,
+                            Color(0xFFFFEEF8),
+                            Color(0xFFE2E0E7)
+                        )
+                    )
+                )
+                .border(1.dp, Color.Black.copy(alpha = 0.1f), shape),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(Modifier.matchParentSize()) {
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.66f), Color.Transparent),
+                        start = Offset.Zero,
+                        end = Offset(size.width * 0.72f, size.height * 0.72f)
+                    ),
+                    cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
+                )
+                drawRoundRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.11f)),
+                        startY = size.height * 0.45f,
+                        endY = size.height
+                    ),
+                    cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
+                )
+                drawRoundRect(
+                    color = Color.White.copy(alpha = 0.58f),
+                    topLeft = Offset(8.dp.toPx(), 6.dp.toPx()),
+                    size = Size(
+                        width = size.width - 16.dp.toPx(),
+                        height = size.height - 12.dp.toPx()
+                    ),
+                    cornerRadius = CornerRadius((size.height - 12.dp.toPx()) / 2f),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+            }
+            Text(
+                text = text,
+                color = Color.Black,
+                fontWeight = FontWeight.Black,
+                fontSize = textSize.sp,
+                style = LocalTextStyle.current.copy(shadow = textShadow)
+            )
+        }
+    }
 }
 
 @Composable
@@ -1321,10 +1283,8 @@ private fun WelcomeBackdrop(
             Image(
                 bitmap = ticketBitmap,
                 contentDescription = null,
-                contentScale = ContentScale.FillWidth,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
             )
         }
     }
