@@ -46,6 +46,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -476,6 +477,15 @@ private fun WelcomeTicketContent(
     logoOffsetY: Float = 0f,
     buttonsAlpha: Float = 1f
 ) {
+    val density = LocalDensity.current
+    val buttonTextShadow = with(density) {
+        Shadow(
+            color = Color.Black.copy(alpha = 0.16f),
+            offset = Offset(0f, 1.dp.toPx()),
+            blurRadius = 1.dp.toPx()
+        )
+    }
+
     Box(
         Modifier.fillMaxSize()
     ) {
@@ -527,7 +537,8 @@ private fun WelcomeTicketContent(
                         "Sign In",
                         color = Color.Black,
                         fontWeight = FontWeight.Black,
-                        fontSize = layout.welcomeButtonTextSize.sp
+                        fontSize = layout.welcomeButtonTextSize.sp,
+                        style = LocalTextStyle.current.copy(shadow = buttonTextShadow)
                     )
                 }
             }
@@ -560,7 +571,8 @@ private fun WelcomeTicketContent(
                         "Sign Up",
                         color = Color.Black,
                         fontWeight = FontWeight.Black,
-                        fontSize = layout.welcomeButtonTextSize.sp
+                        fontSize = layout.welcomeButtonTextSize.sp,
+                        style = LocalTextStyle.current.copy(shadow = buttonTextShadow)
                     )
                 }
             }
@@ -1389,7 +1401,7 @@ private class AuthLayoutMetrics(screenWidth: Dp, screenHeight: Dp, mode: AuthMod
     val welcomeLogoSize = 148.dp * welcomeScale
     val welcomeButtonWidth = 250.dp * welcomeScale
     val welcomeButtonHeight = 58.dp * welcomeScale
-    val welcomeButtonGap = 18.dp * welcomeScale
+    val welcomeButtonGap = 28.dp * welcomeScale
     val welcomeButtonShadowOffset = 6.dp * welcomeScale
     val welcomeButtonTextSize = 22f * welcomeScale
     val welcomeButtonTop = screenHeight - (200.dp * welcomeScale) -
