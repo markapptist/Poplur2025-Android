@@ -47,10 +47,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -531,6 +533,25 @@ private fun WelcomeShaderButton(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(height / 2f)
+    var textWidthPx by remember { mutableFloatStateOf(1f) }
+    var textHeightPx by remember { mutableFloatStateOf(1f) }
+    val gradientWidthPx = textWidthPx * 3f
+    val gradientStartX = (textWidthPx - gradientWidthPx) * 0.48f
+    val textShader = Brush.linearGradient(
+        colorStops = arrayOf(
+            0f to Color(0xFF080207),
+            0.16f to Color(0xFF5B1238),
+            0.31f to Color(0xFFFF2D8A),
+            0.45f to Color(0xFF7A003E),
+            0.59f to Color(0xFF160711),
+            0.76f to Color(0xFFFF4D9E),
+            0.90f to Color(0xFF2A0A1D),
+            1f to Color(0xFF080207)
+        ),
+        start = Offset(gradientStartX, -textHeightPx * 0.7f),
+        end = Offset(gradientStartX + gradientWidthPx, textHeightPx * 1.7f),
+        tileMode = TileMode.Repeated
+    )
     val density = LocalDensity.current
     val textShadow = with(density) {
         Shadow(
@@ -599,10 +620,16 @@ private fun WelcomeShaderButton(
             }
             Text(
                 text = text,
-                color = Color.Black,
+                modifier = Modifier.onSizeChanged {
+                    textWidthPx = it.width.toFloat().coerceAtLeast(1f)
+                    textHeightPx = it.height.toFloat().coerceAtLeast(1f)
+                },
                 fontWeight = FontWeight.Black,
                 fontSize = textSize.sp,
-                style = LocalTextStyle.current.copy(shadow = textShadow)
+                style = LocalTextStyle.current.copy(
+                    brush = textShader,
+                    shadow = textShadow
+                )
             )
         }
     }
