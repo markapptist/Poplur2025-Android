@@ -254,7 +254,10 @@ adb uninstall "${APP_ID}" >/dev/null 2>&1 || true
 run_with_timeout "${INSTALL_TIMEOUT_SECONDS}" adb shell pm install /data/local/tmp/poplur-debug.apk
 
 info "Clearing logcat and launching ${MAIN_ACTIVITY}"
-adb logcat -c || true
+# The default clear omits the events buffer on some Android builds, which can
+# make a prior app crash fail a later clean handoff run. Clear every buffer so
+# crash/ANR events scanned below are scoped to this launch.
+adb logcat -b all -c || true
 adb shell am force-stop "${APP_ID}" || true
 adb shell am start -W -n "${MAIN_ACTIVITY}"
 APP_PID_BEFORE="$(adb shell pidof "${APP_ID}" 2>/dev/null | tr -d '\r' | awk '{print $1}')"
