@@ -11,7 +11,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
-import com.apptists.poplur2025.BuildConfig
 import com.apptists.poplur2025.R
 
 /**
@@ -31,11 +30,11 @@ fun rememberDrawableBitmap(@DrawableRes resId: Int): ImageBitmap? {
 
 val CubeSkin.appIconAliasName: String
     get() = when (this) {
-        CubeSkin.Default -> "IconDefaultLauncherAlias"
+        CubeSkin.Default, CubeSkin.Clay -> "IconDefaultLauncherAlias"
         CubeSkin.Gold -> "IconGoldAlias"
         CubeSkin.Toy -> "IconToyAlias"
         CubeSkin.Rainbow -> "IconRainbowAlias"
-        CubeSkin.Carbon, CubeSkin.Clay -> "IconSparklePinkAlias"
+        CubeSkin.Carbon -> "IconSparklePinkAlias"
         CubeSkin.Ice -> "IconIceAlias"
         CubeSkin.Chocolate -> "IconChocolateAlias"
         CubeSkin.Space -> "IconSpaceAlias"
@@ -45,11 +44,11 @@ val CubeSkin.appIconAliasName: String
 @get:DrawableRes
 val CubeSkin.appIconResId: Int
     get() = when (this) {
-        CubeSkin.Default -> R.mipmap.ic_launcher
+        CubeSkin.Default, CubeSkin.Clay -> R.mipmap.ic_launcher
         CubeSkin.Gold -> R.mipmap.ic_launcher_gold
         CubeSkin.Toy -> R.mipmap.ic_launcher_toy
         CubeSkin.Rainbow -> R.mipmap.ic_launcher_rainbow
-        CubeSkin.Carbon, CubeSkin.Clay -> R.mipmap.ic_launcher_sparkle_pink
+        CubeSkin.Carbon -> R.mipmap.ic_launcher_sparkle_pink
         CubeSkin.Ice -> R.mipmap.ic_launcher_ice
         CubeSkin.Chocolate -> R.mipmap.ic_launcher_chocolate
         CubeSkin.Space -> R.mipmap.ic_launcher_space
@@ -118,15 +117,13 @@ object AppIconThemeManager {
         setAliasState(EXPLICIT_LAUNCH_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
         setAliasState(selectedAlias, PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
 
-        if (!BuildConfig.DEBUG) {
-            allAliasNames
-                .filterNot { it == selectedAlias }
-                .forEach { alias ->
-                    setAliasState(
-                        alias,
-                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-                    )
-                }
-        }
+        allAliasNames
+            .filterNot { it == selectedAlias }
+            .forEach { alias ->
+                setAliasState(
+                    alias,
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                )
+            }
     }
 }

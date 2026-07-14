@@ -134,7 +134,7 @@
         </activity-alias>
         <activity-alias
             android:name=".IconGoldAlias"
-            android:enabled="true"
+            android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher_gold"
             android:label="Poplur"
