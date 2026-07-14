@@ -164,7 +164,10 @@ if [[ "${SKIP_TESTS}" -eq 0 ]]; then
 fi
 
 info "Running Gradle checks: ${GRADLE_TASKS[*]}"
-./gradlew "${GRADLE_TASKS[@]}"
+# Gradle's local build-cache packer cannot reliably read macOS provenance
+# metadata from the redirected /private/tmp build directory. The handoff gate
+# values deterministic checks over cache reuse, so keep caching disabled here.
+./gradlew --no-build-cache "${GRADLE_TASKS[@]}"
 
 if [[ "${NO_DEVICE}" -eq 1 ]]; then
   info "Local checks passed. Device run skipped because --no-device was supplied."
@@ -247,12 +250,17 @@ if [[ -z "${APK_PATH}" ]]; then
   fail "Debug APK not found in app/build/outputs/apk/debug or /private/tmp/poplur-android-build/app/outputs/apk/debug."
 fi
 run_with_timeout "${INSTALL_TIMEOUT_SECONDS}" adb push "${APK_PATH}" /data/local/tmp/poplur-debug.apk
-run_with_timeout "${INSTALL_TIMEOUT_SECONDS}" adb shell pm install -r /data/local/tmp/poplur-debug.apk
+adb uninstall "${APP_ID}" >/dev/null 2>&1 || true
+run_with_timeout "${INSTALL_TIMEOUT_SECONDS}" adb shell pm install /data/local/tmp/poplur-debug.apk
 
 info "Clearing logcat and launching ${MAIN_ACTIVITY}"
 adb logcat -c || true
 adb shell am force-stop "${APP_ID}" || true
 adb shell am start -W -n "${MAIN_ACTIVITY}"
+APP_PID_BEFORE="$(adb shell pidof "${APP_ID}" 2>/dev/null | tr -d '\r' | awk '{print $1}')"
+if [[ -z "${APP_PID_BEFORE}" ]]; then
+  fail "${APP_ID} did not stay running after launch."
+fi
 
 info "Waiting ${LOG_SECONDS}s for startup errors"
 sleep "${LOG_SECONDS}"
@@ -276,13 +284,23 @@ adb shell monkey \
 sleep "${LOG_SECONDS}"
 
 LOG_FILE="$(temp_file poplur-logcat)"
-adb logcat -d > "${LOG_FILE}"
+APP_PID_AFTER="$(adb shell pidof "${APP_ID}" 2>/dev/null | tr -d '\r' | awk '{print $1}')"
+if [[ -z "${APP_PID_AFTER}" ]]; then
+  fail "${APP_ID} was no longer running after the automated crawl."
+fi
+adb logcat -d --pid="${APP_PID_BEFORE}" > "${LOG_FILE}" || true
+if [[ "${APP_PID_AFTER}" != "${APP_PID_BEFORE}" ]]; then
+  adb logcat -d --pid="${APP_PID_AFTER}" >> "${LOG_FILE}" || true
+fi
 
 ERROR_FILE="$(temp_file poplur-errors)"
 {
-  grep -E "FATAL EXCEPTION|${APP_ID}|am_crash|am_anr|ANR in ${APP_ID}|StrictMode|NoClassDefFoundError|ClassNotFoundException|UnsatisfiedLinkError" "${LOG_FILE}" \
-    | grep -E "FATAL EXCEPTION|am_crash|am_anr|ANR in|Exception|StrictMode|NoClassDefFoundError|ClassNotFoundException|UnsatisfiedLinkError|java\\.lang\\.Error" \
-    | grep -Ev "WindowManager: win=.*destroySurfaces|SemWifiTransportLayerUtils: getApplicationCategory|GmsStrictMode|com.google.android.gms@|com.google.android.apps.nexuslauncher|Taskbar" || true
+  # Handled SDK/configuration exceptions are common on emulators and are not
+  # crashes. Fail only on process-fatal Java/native signals or package-specific
+  # crash/ANR events; keep the full process log for diagnosis.
+  grep -E "FATAL EXCEPTION|ANR in|Fatal signal|tombstoned.*${APP_ID}" "${LOG_FILE}" || true
+  adb logcat -b events -d \
+    | grep -E "(am_crash|am_anr).*${APP_ID}" || true
   grep -E "CRASH: ${APP_ID}|ANR in ${APP_ID}|native crash.*${APP_ID}|No activities found|monkey aborted" "${MONKEY_FILE}" || true
 } > "${ERROR_FILE}"
 

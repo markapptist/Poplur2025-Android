@@ -4,6 +4,7 @@ import android.os.Looper
 import com.apptists.poplur2025.data.mapillary.MapillaryError
 import com.apptists.poplur2025.data.mapillary.MapillaryImage
 import com.apptists.poplur2025.data.mapillary.MapillaryImageProvider
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,6 +30,9 @@ class MapViewModelStreetViewTest {
         private val error: Throwable? = null
     ) : MapillaryImageProvider {
         override suspend fun nearestImage(latitude: Double, longitude: Double): MapillaryImage? {
+            // Match the real provider's asynchronous network boundary so callers
+            // can observe the Checking state before the result is delivered.
+            yield()
             error?.let { throw it }
             return result(latitude, longitude)
         }
