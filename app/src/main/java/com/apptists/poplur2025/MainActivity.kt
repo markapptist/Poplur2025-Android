@@ -11,7 +11,16 @@ import android.view.ViewGroup
 import android.view.KeyEvent
 import android.widget.FrameLayout
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.apptists.poplur2025.auth.AuthViewModel
+import com.apptists.poplur2025.ui.components.PoplurClaySplashOverlay
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
@@ -37,6 +46,7 @@ import com.apptists.poplur2025.wear.WearRadiusSync
 import androidx.fragment.app.FragmentContainerView
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.badlogic.gdx.backends.android.AndroidFragmentApplication
@@ -52,9 +62,15 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
 
     @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
-        setTheme(R.style.Theme_Poplur)
+        // Official Android 12+ splash control: dark, icon-free OS splash that fades into
+        // the clay splash. postSplashScreenTheme (Theme.Poplur) is applied after.
+        val splashScreen = installSplashScreen()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         super.onCreate(savedInstanceState)
+        splashScreen.setOnExitAnimationListener { provider ->
+            provider.view.animate().alpha(0f).setDuration(200L)
+                .withEndAction { provider.remove() }.start()
+        }
         UITestFlags.authBypass = intent?.getBooleanExtra("uiTestAuthBypass", false) ?: false
         UITestFlags.hooksEnabled = intent?.getBooleanExtra("uiTestHooks", false) ?: false
         enableEdgeToEdge()
@@ -67,7 +83,9 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
         val root = FrameLayout(this).apply {
             clipChildren = false
             clipToPadding = false
-            setBackgroundColor(android.graphics.Color.WHITE)
+            // Dark ink (not white) so the cold-start window blends into the clay splash's
+            // near-black opening frame instead of flashing a white screen.
+            setBackgroundColor(android.graphics.Color.parseColor("#0A0709"))
         }
 
         // 1. Confetti at the back
@@ -125,8 +143,25 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                     } else {
                         Modifier.fillMaxSize()
                     }
-                    Surface(rootModifier, color = Color.Transparent) {
-                        PoplurRoot()
+                    // The clay splash renders alone (PoplurRoot deferred). This keeps the libGDX
+                    // cube SurfaceView (translationZ=10) from compositing in FRONT of the splash
+                    // and hiding it. PoplurRoot mounts once the splash finishes; the in-app cube
+                    // init cover is suppressed so there is no second loader.
+                    Box(Modifier.fillMaxSize()) {
+                        var showSplash by rememberSaveable { mutableStateOf(true) }
+                        if (!showSplash) {
+                            Surface(rootModifier, color = Color.Transparent) {
+                                PoplurRoot()
+                            }
+                        }
+                        if (showSplash) {
+                            val splashAuth: AuthViewModel = viewModel()
+                            val splashSignedIn by splashAuth.isSignedIn.collectAsState()
+                            PoplurClaySplashOverlay(
+                                isSignedIn = splashSignedIn,
+                                onFinished = { showSplash = false }
+                            )
+                        }
                     }
                 }
             }
@@ -189,8 +224,15 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
             // Decorative cube must be BELOW Compose to let buttons work (translationZ 1 vs 2)
             container.translationZ = if (config.isInteractive) 10f else 1f
             
-            val params = cubeOverlayLayoutParams()
-            if (container.layoutParams.width != params.width || container.layoutParams.height != params.height) {
+            val params = cubeOverlayLayoutParams(config)
+            val currentParams = container.layoutParams as? FrameLayout.LayoutParams
+            if (
+                currentParams == null ||
+                currentParams.width != params.width ||
+                currentParams.height != params.height ||
+                currentParams.bottomMargin != params.bottomMargin ||
+                currentParams.gravity != params.gravity
+            ) {
                 container.layoutParams = params
             }
 
@@ -317,15 +359,21 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
         }
     }
 
-    private fun cubeOverlayLayoutParams(): FrameLayout.LayoutParams {
+    private fun cubeOverlayLayoutParams(config: PersistentCubeOverlayConfig? = null): FrameLayout.LayoutParams {
         val density = resources.displayMetrics.density
-        val overlaySize = (CUBE_OVERLAY_SIZE_DP * density).roundToInt()
+        val overlaySizeDp = config?.overlaySizeDp ?: CUBE_OVERLAY_SIZE_DP
+        val overlaySize = (overlaySizeDp * density).roundToInt()
+        val centerFromBottomDp = if (config?.centerVertically == true) {
+            (resources.displayMetrics.heightPixels / density) / 2f + WELCOME_CUBE_LIFT_DP
+        } else {
+            CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP
+        }
         return FrameLayout.LayoutParams(
             overlaySize,
             overlaySize
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            bottomMargin = ((CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP - CUBE_OVERLAY_SIZE_DP / 2f) * density).roundToInt()
+            bottomMargin = ((centerFromBottomDp - overlaySizeDp / 2f) * density).roundToInt()
         }
     }
 
@@ -339,6 +387,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
 
 private const val CUBE_OVERLAY_SIZE_DP = 200f
 private const val CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP = 174f
+private const val WELCOME_CUBE_LIFT_DP = 18f
 private const val VOLUME_EVENT_MIN_INTERVAL_MS = 180L
 
 object PoplurVolumeEvents {

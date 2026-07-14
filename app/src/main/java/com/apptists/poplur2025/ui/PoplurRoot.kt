@@ -48,7 +48,7 @@ import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.Message
+import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -130,6 +130,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private const val PROFILE_AVATAR_3D_DEFAULT_PREF = "profile_avatar_3d_default_applied"
+private const val FIRST_LAUNCH_DONE_PREF = "poplur_did_complete_first_launch"
 private const val VOLUME_OVERLAY_MIN_RETRIGGER_MS = 900L
 private const val VOLUME_OVERLAY_FAST_UPDATE_MS = 220L
 private const val VOLUME_CHANGE_EPSILON = 0.005f
@@ -227,7 +228,13 @@ fun PoplurRoot(
     var tiltControlEnabled by rememberSaveable {
         mutableStateOf(settingsPrefs.getBoolean("tilt_control_enabled", false))
     }
-    var showAppInitializationCover by remember { mutableStateOf(true) }
+    // Match iOS: the full loading cover is a first-install experience. Returning users
+    // should go directly to app content instead of replaying initialization on every launch.
+    // The clay launch splash (MainActivity) is the only launch cover now — never show the
+    // in-app cube init cover (it produced a second loader + libGDX surface corruption).
+    var showAppInitializationCover by remember(settingsPrefs) {
+        mutableStateOf(false)
+    }
     var showSlowInitializationDetails by remember { mutableStateOf(false) }
     var feedInteractionTick by remember { mutableIntStateOf(0) }
     var isFeedChromeAsleep by remember { mutableStateOf(false) }
@@ -253,6 +260,9 @@ fun PoplurRoot(
     var isCubeFirstFrameReady by remember { mutableStateOf(false) }
     var authCubeLabel by remember { mutableStateOf("Welcome") }
     var authBackAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    // Starts true so the native cube cannot flash above the first frame of the Compose wallet.
+    // A completed intro sets it false; signing in primes the next signed-out composition.
+    var isWalletIntroVisible by remember { mutableStateOf(true) }
     var profileCubeCommandId by remember { mutableIntStateOf(0) }
     var profileCubeMenuCommand by remember { mutableStateOf<ProfileCubeMenuCommand?>(null) }
     var profileCubeCommittedIconTitle by remember { mutableStateOf<String?>(null) }
@@ -269,6 +279,7 @@ fun PoplurRoot(
     // Cube entrance animation for Welcome screen
     val cubeAlpha = remember { Animatable(0f) }
     LaunchedEffect(isSignedIn) {
+        if (isSignedIn != false) isWalletIntroVisible = true
         if (isSignedIn == false) {
             delay(3800) // headStartMs(550) + cubeDelayMs(3250)
             cubeAlpha.animateTo(1f, animationSpec = tween(900))
@@ -513,8 +524,11 @@ fun PoplurRoot(
                 if (isNewSignUp) {
                     isNewSignUp = false
                     showAppInitializationCover = false
+                    settingsPrefs.edit().putBoolean(FIRST_LAUNCH_DONE_PREF, true).apply()
                 } else {
-                    showAppInitializationCover = true
+                    // Clay splash covers launch — never raise the in-app cube init cover.
+                    showAppInitializationCover = false
+                    settingsPrefs.edit().putBoolean(FIRST_LAUNCH_DONE_PREF, true).apply()
                 }
                 showSlowInitializationDetails = false
                 isCubeFirstFrameReady = false
@@ -883,7 +897,7 @@ fun PoplurRoot(
         CubeMenuWheelItem(
             label = "CHAT",
             iconAssetPath = "hold_menu_icons/chat.png",
-            fallbackIcon = Icons.Default.Message,
+            fallbackIcon = Icons.AutoMirrored.Filled.Message,
             onSelected = {
                 previousTab = tab
                 tab = AppTab.Messages
@@ -950,7 +964,7 @@ fun PoplurRoot(
         CubeMenuWheelItem(
             label = "CHAT",
             iconAssetPath = "hold_menu_icons/chat.png",
-            fallbackIcon = Icons.Default.Message,
+            fallbackIcon = Icons.AutoMirrored.Filled.Message,
             onSelected = {
                 previousTab = tab
                 tab = AppTab.Messages
@@ -985,7 +999,7 @@ fun PoplurRoot(
         CubeMenuWheelItem(
             label = "CHAT",
             iconAssetPath = "hold_menu_icons/chat.png",
-            fallbackIcon = Icons.Default.Message,
+            fallbackIcon = Icons.AutoMirrored.Filled.Message,
             onSelected = {
                 previousTab = AppTab.Camera
                 tab = AppTab.Messages
@@ -1185,6 +1199,7 @@ fun PoplurRoot(
                         rootStripeMidpoint = null
                         rootStripeVisible = true
                     },
+                    onWalletIntroVisibilityChanged = { isWalletIntroVisible = it },
                     preLoginMusic = preLoginMusic
                 )
             } else if (isSignedIn == true) {
@@ -1322,7 +1337,7 @@ fun PoplurRoot(
             modifier = Modifier.zIndex(300f)
         )
 
-        if (isCubeSurfaceReady) {
+        if (isCubeSurfaceReady && !(isSignedIn == false && isWalletIntroVisible)) {
             val loginCubeAssetPath = if (isSignedIn != true) {
                 LOGIN_CUBE_ASSET_PATH
             } else {
@@ -1354,7 +1369,9 @@ fun PoplurRoot(
                 onFirstFrameRendered = cubeFirstFrameLambda,
                 channelObjectId = channelObjectId,
                 channelObjectPopToken = channelObjectPopToken,
-                modelAssetPathOverride = loginCubeAssetPath
+                modelAssetPathOverride = loginCubeAssetPath,
+                overlaySizeDp = 200f,
+                centerVertically = isSignedIn == false
             )
         }
 

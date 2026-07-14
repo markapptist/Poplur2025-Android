@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
+import com.apptists.poplur2025.BuildConfig
 import com.apptists.poplur2025.R
 
 /**
@@ -117,13 +118,15 @@ object AppIconThemeManager {
         setAliasState(EXPLICIT_LAUNCH_ALIAS, PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
         setAliasState(selectedAlias, PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
 
-        allAliasNames
-            .filterNot { it == selectedAlias }
-            .forEach { alias ->
-                setAliasState(
-                    alias,
-                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-                )
-            }
+        if (!BuildConfig.DEBUG) {
+            allAliasNames
+                .filterNot { it == selectedAlias }
+                .forEach { alias ->
+                    setAliasState(
+                        alias,
+                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                    )
+                }
+        }
     }
 }

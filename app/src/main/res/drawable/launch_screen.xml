@@ -1,16 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Dark, logo-free launch screen so the OS cold-start splash blends straight into the
+     clay splash video's near-black opening frame (no white icon flash). -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
-            <solid android:color="@android:color/white" />
+            <solid android:color="#0A0709" />
         </shape>
-    </item>
-    <item
-        android:gravity="center"
-        android:width="200dp"
-        android:height="200dp">
-        <bitmap
-            android:gravity="center"
-            android:src="@drawable/poplur_splash_logo" />
     </item>
 </layer-list>

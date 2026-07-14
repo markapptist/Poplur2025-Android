@@ -20,7 +20,7 @@
     <application android:name=".PoplurApp"
         android:allowBackup="true"
         android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.Poplur"
+        android:theme="@style/Theme.Poplur.SplashScreen"
         android:label="Poplur"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round">
@@ -29,7 +29,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.Poplur.Starting"
+            android:theme="@style/Theme.Poplur.SplashScreen"
             android:launchMode="singleTask"
             android:screenOrientation="portrait">
         </activity>
@@ -121,7 +121,7 @@
 
         <activity-alias
             android:name=".IconDefaultLauncherAlias"
-            android:enabled="false"
+            android:enabled="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:label="Poplur"
@@ -152,12 +152,7 @@
             android:icon="@mipmap/ic_launcher_toy"
             android:label="Poplur"
             android:roundIcon="@mipmap/ic_launcher_toy"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
+            android:targetActivity=".MainActivity" />
         <activity-alias
             android:name=".IconRainbowAlias"
             android:enabled="false"
@@ -165,12 +160,7 @@
             android:icon="@mipmap/ic_launcher_rainbow"
             android:label="Poplur"
             android:roundIcon="@mipmap/ic_launcher_rainbow"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
+            android:targetActivity=".MainActivity" />
         <activity-alias
             android:name=".IconSparklePinkAlias"
             android:enabled="false"
@@ -178,12 +168,7 @@
             android:icon="@mipmap/ic_launcher_sparkle_pink"
             android:label="Poplur"
             android:roundIcon="@mipmap/ic_launcher_sparkle_pink"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
+            android:targetActivity=".MainActivity" />
         <activity-alias
             android:name=".IconIceAlias"
             android:enabled="false"
@@ -191,12 +176,7 @@
             android:icon="@mipmap/ic_launcher_ice"
             android:label="Poplur"
             android:roundIcon="@mipmap/ic_launcher_ice"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
+            android:targetActivity=".MainActivity" />
         <activity-alias
             android:name=".IconChocolateAlias"
             android:enabled="false"
@@ -204,12 +184,7 @@
             android:icon="@mipmap/ic_launcher_chocolate"
             android:label="Poplur"
             android:roundIcon="@mipmap/ic_launcher_chocolate"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
+            android:targetActivity=".MainActivity" />
         <activity-alias
             android:name=".IconSpaceAlias"
             android:enabled="false"
@@ -217,12 +192,7 @@
             android:icon="@mipmap/ic_launcher_space"
             android:label="Poplur"
             android:roundIcon="@mipmap/ic_launcher_space"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
+            android:targetActivity=".MainActivity" />
         <activity-alias
             android:name=".IconCamoAlias"
             android:enabled="false"
@@ -230,11 +200,6 @@
             android:icon="@mipmap/ic_launcher_camo"
             android:label="Poplur"
             android:roundIcon="@mipmap/ic_launcher_camo"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
+            android:targetActivity=".MainActivity" />
     </application>
 </manifest>

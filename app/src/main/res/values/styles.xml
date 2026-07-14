@@ -2,9 +2,26 @@
     <style name="Theme.Poplur" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:fontFamily">sans</item>
+        <!-- Dark cold-start splash. The launcher aliases use THIS theme, and Samsung One UI
+             draws its splash from windowBackground (ignoring windowSplashScreenBackground), so
+             the dark launch drawable must be the windowBackground here. Result: a plain dark
+             screen that blends into the clay splash's near-black opening — no white icon flash. -->
+        <item name="android:windowBackground">@drawable/launch_screen</item>
+        <item name="android:colorBackground">#0A0709</item>
+        <item name="android:windowSplashScreenBackground">#0A0709</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_transparent_icon</item>
     </style>
 
     <style name="Theme.Poplur.Starting" parent="Theme.Poplur">
+        <item name="android:windowBackground">@drawable/launch_screen</item>
+    </style>
+
+    <!-- core-splashscreen theme: dark background + invisible icon, then hand off to Theme.Poplur.
+         This is the officially-supported way to control the Android 12+ launch splash. -->
+    <style name="Theme.Poplur.SplashScreen" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0A0709</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_transparent_icon</item>
+        <item name="postSplashScreenTheme">@style/Theme.Poplur</item>
         <item name="android:windowBackground">@drawable/launch_screen</item>
     </style>
 </resources>

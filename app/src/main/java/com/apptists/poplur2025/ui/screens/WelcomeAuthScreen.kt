@@ -31,8 +31,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.VolumeMute
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeMute
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -90,6 +90,7 @@ import android.speech.tts.TextToSpeech
 import java.util.Locale
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -106,6 +107,7 @@ fun WelcomeAuthScreen(
     onLabelChange: (String) -> Unit = {},
     onBackAvailable: ((() -> Unit)?) -> Unit = {},
     onSignUpSuccess: () -> Unit = {},
+    onWalletIntroVisibilityChanged: (Boolean) -> Unit = {},
     preLoginMusic: com.apptists.poplur2025.ui.components.PreLoginMusicPlayer? = null
 ) {
     WelcomeAuthScreenContent(
@@ -118,6 +120,7 @@ fun WelcomeAuthScreen(
         onLabelChange = onLabelChange,
         onBackAvailable = onBackAvailable,
         onSignUpSuccess = onSignUpSuccess,
+        onWalletIntroVisibilityChanged = onWalletIntroVisibilityChanged,
         preLoginMusic = preLoginMusic
     )
 }
@@ -130,10 +133,23 @@ internal fun WelcomeAuthScreenContent(
     onLabelChange: (String) -> Unit = {},
     onBackAvailable: ((() -> Unit)?) -> Unit = {},
     onSignUpSuccess: () -> Unit = {},
+    onWalletIntroVisibilityChanged: (Boolean) -> Unit = {},
     preLoginMusic: com.apptists.poplur2025.ui.components.PreLoginMusicPlayer? = null
 ) {
     val context = LocalContext.current
     var mode by remember { mutableStateOf(initialMode) }
+    // The wallet intro is scoped to this auth composition only. Navigating between auth panels
+    // does not replay it, while a newly-created signed-out flow starts fresh.
+    // Pre-login wallet intro is disabled — launch goes straight from the clay splash to Welcome.
+    var walletIntroVisible by remember { mutableStateOf(false) }
+    val walletVisibilityCallback by rememberUpdatedState(onWalletIntroVisibilityChanged)
+
+    LaunchedEffect(walletIntroVisible) {
+        walletVisibilityCallback(walletIntroVisible)
+    }
+    DisposableEffect(Unit) {
+        onDispose { walletVisibilityCallback(false) }
+    }
 
     // Stripe page-transition state
     val stripeVisible = remember { mutableStateOf(false) }
@@ -155,11 +171,19 @@ internal fun WelcomeAuthScreenContent(
     }
     var loading by remember { mutableStateOf(false) }
     var logoBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var ticketBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     
     LaunchedEffect(Unit) {
         logoBitmap = withContext(Dispatchers.IO) {
             runCatching {
                 context.assets.open("logo.png").use { BitmapFactory.decodeStream(it).asImageBitmap() }
+            }.getOrNull()
+        }
+        ticketBitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                context.assets.open("prelogin_ticket.png").use {
+                    BitmapFactory.decodeStream(it).asImageBitmap()
+                }
             }.getOrNull()
         }
     }
@@ -190,19 +214,25 @@ internal fun WelcomeAuthScreenContent(
     // bannerDelayMs = 550 -> 1100ms
     // logoDelayMs = 1350 -> 1900ms
     // buttonsDelayMs = 2400 -> 2950ms
-    val bannerOffsetY = remember { Animatable(-1400f) }
-    val logoScale = remember { Animatable(0f) }
-    val buttonsAlpha = remember { Animatable(0f) }
+    // The wallet is now the Welcome entrance. Keep the underlying panel settled so SKIP and the
+    // end-of-intro fade always reveal complete, usable auth controls.
+    val playLegacyEntrance = remember { !walletIntroVisible }
+    val bannerOffsetY = remember { Animatable(if (playLegacyEntrance) -1400f else 0f) }
+    val logoScale = remember { Animatable(if (playLegacyEntrance) 0f else 1f) }
+    val buttonsAlpha = remember { Animatable(if (playLegacyEntrance) 0f else 1f) }
     
-    LaunchedEffect(Unit) {
+    LaunchedEffect(playLegacyEntrance) {
+        if (!playLegacyEntrance) return@LaunchedEffect
         delay(1100)
         bannerOffsetY.animateTo(0f, animationSpec = spring(dampingRatio = 0.34f, stiffness = 130f))
     }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(playLegacyEntrance) {
+        if (!playLegacyEntrance) return@LaunchedEffect
         delay(1900)
         logoScale.animateTo(1f, animationSpec = spring(dampingRatio = 0.42f, stiffness = 160f))
     }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(playLegacyEntrance) {
+        if (!playLegacyEntrance) return@LaunchedEffect
         delay(2950)
         buttonsAlpha.animateTo(1f, animationSpec = tween(700))
     }
@@ -213,11 +243,20 @@ internal fun WelcomeAuthScreenContent(
     // music — starts from whichever the music player already has persisted.
     var isMuted by rememberSaveable { mutableStateOf(preLoginMusic?.isMuted ?: false) }
 
-    DisposableEffect(Unit) {
-        host?.showConfettiOverlay()
-        onDispose {
+    val currentMuted by rememberUpdatedState(isMuted)
+    LaunchedEffect(walletIntroVisible, host) {
+        if (walletIntroVisible) {
             host?.hideConfettiOverlay()
+        } else {
+            host?.showConfettiOverlay()
+            // The fragment transaction is asynchronous; apply the persisted mute state once the
+            // overlay has had a frame to attach.
+            delay(80)
+            host?.setConfettiMuted(currentMuted)
         }
+    }
+    DisposableEffect(host) {
+        onDispose { host?.hideConfettiOverlay() }
     }
 
     LaunchedEffect(isMuted) {
@@ -237,8 +276,9 @@ internal fun WelcomeAuthScreenContent(
         authGuideTts.value = engine
         onDispose { engine.stop(); engine.shutdown() }
     }
-    LaunchedEffect(mode, isMuted, authGuideTts.value) {
+    LaunchedEffect(mode, isMuted, walletIntroVisible, authGuideTts.value) {
         val engine = authGuideTts.value ?: return@LaunchedEffect
+        if (walletIntroVisible) { engine.stop(); return@LaunchedEffect }
         if (isMuted) { engine.stop(); return@LaunchedEffect }
         val greeting = when (mode) {
             AuthMode.Welcome -> "Welcome to Poplur — every post has a reach radius you control, from your block to the whole planet. Tap Sign Up to join, or Sign In to come back."
@@ -276,7 +316,7 @@ internal fun WelcomeAuthScreenContent(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (isMuted) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
+                    imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
                     contentDescription = "Mute",
                     tint = Color(0xFFFF2D8E), // Branding color
                     modifier = Modifier.size(20.dp)
@@ -317,21 +357,29 @@ internal fun WelcomeAuthScreenContent(
                             .background(Color.White)
                     )
                 } else {
+                    val ticketModifier = Modifier
+                        .align(Alignment.Center)
+                        .zIndex(1f)
+                        .fillMaxSize()
+                        .offset { IntOffset(0, bannerOffsetY.value.roundToInt()) }
+                        .then(
+                            if (panel == AuthMode.Welcome) {
+                                Modifier
+                            } else {
+                                Modifier
+                                    .statusBarsPadding()
+                                    .navigationBarsPadding()
+                                    .padding(
+                                        start = authLayout.ticketHorizontalInset,
+                                        end = authLayout.ticketHorizontalInset,
+                                        top = authLayout.ticketTopInset,
+                                        bottom = authLayout.ticketBottomInset
+                                    )
+                            }
+                        )
                     TicketPanel(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .zIndex(1f)
-                            .fillMaxWidth()
-                            .fillMaxHeight()
-                            .statusBarsPadding()
-                            .navigationBarsPadding()
-                            .offset { IntOffset(0, bannerOffsetY.value.roundToInt()) }
-                            .padding(
-                                start = authLayout.ticketHorizontalInset,
-                                end = authLayout.ticketHorizontalInset,
-                                top = authLayout.ticketTopInset,
-                                bottom = authLayout.ticketBottomInset
-                            )
+                        ticketBitmap = ticketBitmap,
+                        modifier = ticketModifier
                     )
                 }
 
@@ -413,6 +461,7 @@ internal fun WelcomeAuthScreenContent(
                 onComplete = { stripeVisible.value = false }
             )
         }
+
     }
 }
 
@@ -464,7 +513,7 @@ private fun WelcomeTicketContent(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = layout.welcomeLogoTop)
-                .size(layout.logoSize)
+                .size(layout.welcomeLogoSize)
                 .graphicsLayer {
                     scaleX = logoScale
                     scaleY = logoScale
@@ -479,71 +528,101 @@ private fun WelcomeTicketContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Pill button with black shadow/border matching screenshot
-            Box(
-                modifier = Modifier
-                    .width(layout.welcomeButtonWidth)
-                    .height(layout.welcomeButtonHeight + 8.dp)
-                    .clickable { onSignIn() }
-            ) {
-                // Bottom shadow (black extrusion)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight)
-                        .offset(y = 8.dp)
-                        .background(Color.Black, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
-                )
-                // Main white button surface
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight)
-                        .background(Color.White, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
-                        .border(1.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(layout.welcomeButtonHeight / 2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "Sign In",
-                        color = Color.Black,
-                        fontWeight = FontWeight.Black,
-                        fontSize = (layout.welcomeButtonTextSize * 1.05f).sp
-                    )
-                }
-            }
+            WelcomeShaderButton(
+                text = "Sign In",
+                width = layout.welcomeButtonWidth,
+                height = layout.welcomeButtonHeight,
+                shadowOffset = 8.dp,
+                textSize = layout.welcomeButtonTextSize * 1.05f,
+                onClick = onSignIn
+            )
 
-            // Sign Up button
-            Box(
-                modifier = Modifier
-                    .width(layout.welcomeButtonWidth * 0.88f)
-                    .height((layout.welcomeButtonHeight * 0.84f) + 4.dp)
-                    .clickable { onCreateAccount() }
-            ) {
-                // Bottom shadow (black extrusion) — matches Sign In / iOS
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight * 0.84f)
-                        .offset(y = 4.dp)
-                        .background(Color.Black, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
-                )
-                // Main white surface — iOS shows Sign Up solid white with black text, like Sign In
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight * 0.84f)
-                        .background(Color.White, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
-                        .border(1.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(layout.welcomeButtonHeight / 2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "Sign Up",
-                        color = Color.Black,
-                        fontWeight = FontWeight.Black,
-                        fontSize = (layout.welcomeButtonTextSize * 0.8f).sp
+            WelcomeShaderButton(
+                text = "Sign Up",
+                width = layout.welcomeButtonWidth * 0.88f,
+                height = layout.welcomeButtonHeight * 0.84f,
+                shadowOffset = 4.dp,
+                textSize = layout.welcomeButtonTextSize * 0.8f,
+                onClick = onCreateAccount
+            )
+        }
+    }
+}
+
+@Composable
+private fun WelcomeShaderButton(
+    text: String,
+    width: Dp,
+    height: Dp,
+    shadowOffset: Dp,
+    textSize: Float,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(height / 2f)
+    Box(
+        modifier = Modifier
+            .width(width)
+            .height(height + shadowOffset)
+            .clickable { onClick() }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(height)
+                .offset(y = shadowOffset)
+                .background(Color.Black, shape)
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(height)
+                .clip(shape)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color.White,
+                            Color(0xFFFFEEF8),
+                            Color(0xFFE2E0E7)
+                        )
                     )
-                }
+                )
+                .border(1.dp, Color.Black.copy(alpha = 0.1f), shape),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(Modifier.matchParentSize()) {
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.66f), Color.Transparent),
+                        start = Offset.Zero,
+                        end = Offset(size.width * 0.72f, size.height * 0.72f)
+                    ),
+                    cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
+                )
+                drawRoundRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.11f)),
+                        startY = size.height * 0.45f,
+                        endY = size.height
+                    ),
+                    cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
+                )
+                drawRoundRect(
+                    color = Color.White.copy(alpha = 0.58f),
+                    topLeft = Offset(8.dp.toPx(), 6.dp.toPx()),
+                    size = Size(
+                        width = size.width - 16.dp.toPx(),
+                        height = size.height - 12.dp.toPx()
+                    ),
+                    cornerRadius = CornerRadius((size.height - 12.dp.toPx()) / 2f),
+                    style = Stroke(width = 1.dp.toPx())
+                )
             }
+            Text(
+                text,
+                color = Color.Black,
+                fontWeight = FontWeight.Black,
+                fontSize = textSize.sp
+            )
         }
     }
 }
@@ -1213,7 +1292,20 @@ private fun validateSignup(
 }
 
 @Composable
-private fun TicketPanel(modifier: Modifier = Modifier) {
+private fun TicketPanel(
+    ticketBitmap: androidx.compose.ui.graphics.ImageBitmap?,
+    modifier: Modifier = Modifier
+) {
+    if (ticketBitmap != null) {
+        Image(
+            bitmap = ticketBitmap,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = modifier
+        )
+        return
+    }
+
     Canvas(modifier) {
         val panelColor = Color(0xFFFF2D8E) // Vibrant pink matching screenshot
         val dotColor = Color.White.copy(alpha = 0.22f)
@@ -1341,23 +1433,21 @@ private class AuthLayoutMetrics(screenWidth: Dp, screenHeight: Dp, mode: AuthMod
     // Ticket should fill more vertical space. Decrease bottom inset.
     val ticketBottomInset = (if (mode == AuthMode.Welcome) 80.dp else 120.dp)
     val logoSize = (screenWidth * 0.48f).coerceIn(200.dp, 240.dp)
+    val welcomeLogoSize = (screenWidth * 0.34f).coerceIn(132.dp, 148.dp)
     val ticketHeight = (screenHeight - ticketTopInset - ticketBottomInset).coerceAtLeast(1.dp)
-    val welcomeLogoTop = (ticketTopInset + 40.dp).safeCoerceIn(ticketTopInset + 20.dp, ticketTopInset + 80.dp)
+    val welcomeLogoTop = (screenHeight * 0.075f).coerceIn(52.dp, 82.dp)
 
     val welcomeButtonWidth = (screenWidth * 0.36f).coerceIn(180.dp, 220.dp)
     val welcomeButtonHeight = (64.dp * scale).coerceIn(60.dp, 72.dp)
     val welcomeButtonTextSize = (22f * scale).coerceIn(20f, 24f)
 
-    // Equal gap above and below the Sign In / Sign Up pair: logo↔buttons == buttons↔cube.
-    // Logo bottom is approx welcomeLogoTop + logoSize.
-    // Cube top is approx screenHeight - 274dp (based on CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP=174 and size=200).
-    val cubeTop = screenHeight - 274.dp
-    val logoBottom = welcomeLogoTop + logoSize
-    // Sign In (height + 8dp shadow) + 16dp column spacing + Sign Up (height * 0.84 + 4dp shadow) —
-    // see WelcomeTicketContent. Was a flat "-40.dp" fudge that under-corrected by ~30-40dp,
-    // pushing the button pair too close to the cube and leaving too much room below the logo.
+    val welcomeCubeSize = 200.dp
+    val welcomeCubeBottom = (screenHeight / 2f) - 18.dp + (welcomeCubeSize / 2f)
     val welcomeButtonColumnHeight = welcomeButtonHeight * 1.84f + 28.dp
-    val welcomeButtonTop = (logoBottom + cubeTop - welcomeButtonColumnHeight) / 2f
+    val welcomeButtonTop = (screenHeight * 0.74f).safeCoerceIn(
+        welcomeCubeBottom + 64.dp,
+        screenHeight - welcomeButtonColumnHeight - 88.dp
+    )
     val backButtonStart = (screenWidth * 0.068f).coerceIn(24.dp, 34.dp); val backButtonTop = (screenHeight * 0.073f).coerceIn(66.dp, 84.dp); val backButtonSize = (68.dp * scale).coerceIn(60.dp, 74.dp); val backIconSize = (38.dp * scale).coerceIn(34.dp, 42.dp)
     val formHorizontalInset = (screenWidth * 0.122f).coerceIn(44.dp, 58.dp); val loginLogoTop = (screenHeight * 0.202f).coerceIn(184.dp, 218.dp); val submitButtonHeight = (screenHeight * 0.102f).coerceIn(88.dp, 106.dp); val fieldGap = (screenHeight * 0.028f).coerceIn(22.dp, 30.dp); val fieldHeight = (58.dp * scale).coerceIn(52.dp, 64.dp)
     val submitButtonTop = (ticketTopInset + ticketHeight - submitButtonHeight - (ticketHeight * 0.075f)).safeCoerceIn(ticketTopInset + (ticketHeight * 0.68f), ticketTopInset + ticketHeight - submitButtonHeight - 34.dp)
@@ -1629,6 +1719,7 @@ internal fun GoldConfettiEffect() {
     }
 }
 
+@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 internal fun StripeTransitionOverlay(
     modifier: Modifier = Modifier,
