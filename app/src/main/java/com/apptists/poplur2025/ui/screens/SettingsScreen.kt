@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -32,12 +31,11 @@ import com.apptists.poplur2025.R
 import com.apptists.poplur2025.data.FeedAdProbability
 import com.apptists.poplur2025.data.FeedAdProbabilityConfig
 import com.apptists.poplur2025.data.PoplurLanguage
-import com.apptists.poplur2025.ui.AppIconThemeManager
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.SoftPink
-import com.apptists.poplur2025.ui.appIconResId
+import com.apptists.poplur2025.ui.uiTheme
 import com.apptists.poplur2025.ui.components.CubeMenuLayout
-import com.apptists.poplur2025.ui.rememberDrawableBitmap
+import com.apptists.poplur2025.ui.components.ThemedSkinPlate
 import kotlin.math.roundToInt
 
 /**
@@ -190,7 +188,6 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f)
                     ) {
                         onCubeSkinChange(skin)
-                        runCatching { AppIconThemeManager.apply(ctx, skin) }
                     }
                 }
             }
@@ -440,12 +437,17 @@ private fun SkinTile(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                rememberDrawableBitmap(skin.appIconResId)?.let { bmp ->
-                    Image(
-                        bitmap = bmp,
-                        contentDescription = "$label skin",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(18.dp))
+                ThemedSkinPlate(
+                    skin = skin,
+                    active = isSelected,
+                    cornerRadius = 18.dp,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Text(
+                        text = label.take(1),
+                        color = skin.uiTheme().primaryText,
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Black
                     )
                 }
             }
