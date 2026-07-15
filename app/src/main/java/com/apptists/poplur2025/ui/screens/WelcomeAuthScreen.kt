@@ -24,6 +24,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -49,9 +50,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
@@ -93,6 +97,12 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.apptists.poplur2025.ui.components.MarkHeadSceneView
+import com.google.android.filament.IndirectLight
+import com.google.android.filament.Skybox
+import dev.romainguy.kotlin.math.Float3
+import io.github.sceneview.SceneView
+import io.github.sceneview.node.ModelNode
 
 private tailrec fun android.content.Context.findFragmentActivity(): FragmentActivity? = when (this) {
     is FragmentActivity -> this
@@ -822,213 +832,276 @@ private fun BusinessSignupTicketContent(
             .navigationBarsPadding()
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = layout.formHorizontalInset)
-                .padding(top = 24.dp, bottom = 190.dp),
+            modifier = if (signupStep == 0) {
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = layout.formHorizontalInset)
+                    .padding(top = 24.dp, bottom = 20.dp)
+            } else {
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = layout.formHorizontalInset)
+                    .padding(top = 24.dp, bottom = 190.dp)
+            },
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             WelcomeLogo(
                 logoBitmap = logoBitmap,
                 modifier = Modifier.size((layout.logoSize * 0.58f).coerceIn(116.dp, 150.dp))
             )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                signupStepTitle(signupStep),
-                color = Color.Black,
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Black
-            )
-            Text(
-                signupStepSubtitle(signupStep, accountType),
-                color = Color.Black.copy(alpha = 0.78f),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            Spacer(Modifier.height(18.dp))
-
-            if (signupStep == 0) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SignupAccountTypeCard(
-                    title = "User",
-                    selected = accountType == AccountType.User,
-                    modifier = Modifier.weight(1f)
+            if (signupStep == 0) {
+                Spacer(Modifier.weight(1f))
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    selectedAccountType = AccountType.User.wireValue
-                    moveToStep(1)
-                    onValidationError(null)
-                }
-                SignupAccountTypeCard(
-                    title = "Business",
-                    selected = accountType == AccountType.Business,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    selectedAccountType = AccountType.Business.wireValue
-                    if (contactEmail.isBlank()) contactEmail = email
-                    moveToStep(1)
-                    onValidationError(null)
-                }
-            }
-
-            if (signupStep == 1) SignupSection("Account") {
-                SignupTextField("Email", email) {
-                    email = it
-                    if (contactEmail.isBlank()) contactEmail = it
-                }
-                SignupTextField("Password", password, isPassword = true) { password = it }
-                SignupTextField("Confirm password", confirmPassword, isPassword = true) { confirmPassword = it }
-            }
-
-            if (accountType == AccountType.Business && signupStep == 2) {
-                SignupSection("Create Business Profile") {
-                    SignupTextField("Business name", businessName) { businessName = it }
-                    SignupTextField("Business category", businessCategory) { businessCategory = it }
-                    SignupTextField("Description", businessDescription, singleLine = false) { businessDescription = it }
-                    SignupTextField("Address / location on map", businessAddress) { businessAddress = it }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SignupTextField("Latitude", latitude, modifier = Modifier.weight(1f)) { latitude = it }
-                        SignupTextField("Longitude", longitude, modifier = Modifier.weight(1f)) { longitude = it }
-                    }
-                    SignupMapLocationPreview(
-                        businessName = businessName.ifBlank { "Business location" },
-                        address = businessAddress,
-                        latitude = latitude,
-                        longitude = longitude
+                    SignupStepPagination(currentStep = 0, totalSteps = 5)
+                    Text(
+                        signupStepTitle(signupStep),
+                        color = Color.Black,
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Black
                     )
-                    SignupTextField("Contact email", contactEmail) { contactEmail = it }
-                    SignupTextField("Contact phone", contactPhone) { contactPhone = it }
-                    SignupTextField("Website", website) { website = it }
-                    SignupTextField("Logo/photos notes", logoPhotoNotes, singleLine = false) { logoPhotoNotes = it }
-                }
-            }
-
-            if (accountType == AccountType.Business && signupStep == 3) {
-                SignupSection("Request Verification") {
-                    Button(
-                        onClick = { verificationRequested = true },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(26.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Black, contentColor = Color.White)
+                    Text(
+                        signupStepSubtitle(signupStep, accountType),
+                        color = Color.Black.copy(alpha = 0.78f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    SignupAccountTypeCard(
+                        title = "Personal",
+                        isBusiness = false,
+                        selected = accountType == AccountType.User,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            if (verificationRequested) "Verification Requested" else "Verify My Business",
-                            fontWeight = FontWeight.Black
-                        )
+                        selectedAccountType = AccountType.User.wireValue
+                        onValidationError(null)
                     }
+                    SignupAccountTypeCard(
+                        title = "Business",
+                        isBusiness = true,
+                        selected = accountType == AccountType.Business,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        selectedAccountType = AccountType.Business.wireValue
+                        if (contactEmail.isBlank()) contactEmail = email
+                        onValidationError(null)
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                SignupNavigationCube(
+                    onBack = onBack,
+                    onForward = { advanceSignup() }
+                )
+            } else {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    signupStepTitle(signupStep),
+                    color = Color.Black,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    signupStepSubtitle(signupStep, accountType),
+                    color = Color.Black.copy(alpha = 0.78f),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(18.dp))
 
-                    if (verificationRequested) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = acceptedTerms, 
-                                onCheckedChange = { acceptedTerms = it },
-                                colors = CheckboxDefaults.colors(checkedColor = Color.Black, uncheckedColor = Color.Black)
-                            )
+                if (signupStep == 1) SignupSection("Account") {
+                    SignupTextField("Email", email) {
+                        email = it
+                        if (contactEmail.isBlank()) contactEmail = it
+                    }
+                    SignupTextField("Password", password, isPassword = true) { password = it }
+                    SignupTextField("Confirm password", confirmPassword, isPassword = true) { confirmPassword = it }
+                }
+
+                if (accountType == AccountType.Business && signupStep == 2) {
+                    SignupSection("Create Business Profile") {
+                        SignupTextField("Business name", businessName) { businessName = it }
+                        SignupTextField("Business category", businessCategory) { businessCategory = it }
+                        SignupTextField("Description", businessDescription, singleLine = false) { businessDescription = it }
+                        SignupTextField("Address / location on map", businessAddress) { businessAddress = it }
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            SignupTextField("Latitude", latitude, modifier = Modifier.weight(1f)) { latitude = it }
+                            SignupTextField("Longitude", longitude, modifier = Modifier.weight(1f)) { longitude = it }
+                        }
+                        SignupMapLocationPreview(
+                            businessName = businessName.ifBlank { "Business location" },
+                            address = businessAddress,
+                            latitude = latitude,
+                            longitude = longitude
+                        )
+                        SignupTextField("Contact email", contactEmail) { contactEmail = it }
+                        SignupTextField("Contact phone", contactPhone) { contactPhone = it }
+                        SignupTextField("Website", website) { website = it }
+                        SignupTextField("Logo/photos notes", logoPhotoNotes, singleLine = false) { logoPhotoNotes = it }
+                    }
+                }
+
+                if (accountType == AccountType.Business && signupStep == 3) {
+                    SignupSection("Request Verification") {
+                        Button(
+                            onClick = { verificationRequested = true },
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            shape = RoundedCornerShape(26.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Black, contentColor = Color.White)
+                        ) {
                             Text(
-                                "I agree that major changes to name, address, or ownership can trigger re-verification.",
-                                color = Color.Black,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
+                                if (verificationRequested) "Verification Requested" else "Verify My Business",
+                                fontWeight = FontWeight.Black
                             )
                         }
-                        Text(
-                            "Choose proof methods",
-                            color = Color.Black.copy(alpha = 0.78f),
-                            fontWeight = FontWeight.Black,
-                            fontSize = 12.sp
-                        )
-                        BusinessVerificationMethod.entries.forEach { method ->
-                            val checked = selectedMethods.contains(method.wireValue)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .clickable {
-                                        setVerificationMethod(method, !checked)
-                                    }
-                                    .background(Color.Black.copy(alpha = 0.05f))
-                                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+
+                        if (verificationRequested) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(
-                                    checked = checked,
-                                    onCheckedChange = { setVerificationMethod(method, it) },
+                                    checked = acceptedTerms,
+                                    onCheckedChange = { acceptedTerms = it },
                                     colors = CheckboxDefaults.colors(checkedColor = Color.Black, uncheckedColor = Color.Black)
                                 )
                                 Text(
-                                    method.label,
+                                    "I agree that major changes to name, address, or ownership can trigger re-verification.",
                                     color = Color.Black,
-                                    fontSize = 13.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
+                            Text(
+                                "Choose proof methods",
+                                color = Color.Black.copy(alpha = 0.78f),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 12.sp
+                            )
+                            BusinessVerificationMethod.entries.forEach { method ->
+                                val checked = selectedMethods.contains(method.wireValue)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable { setVerificationMethod(method, !checked) }
+                                        .background(Color.Black.copy(alpha = 0.05f))
+                                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = checked,
+                                        onCheckedChange = { setVerificationMethod(method, it) },
+                                        colors = CheckboxDefaults.colors(checkedColor = Color.Black, uncheckedColor = Color.Black)
+                                    )
+                                    Text(
+                                        method.label,
+                                        color = Color.Black,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            SignupTextField("Submit proof details", proofSummary, singleLine = false) { proofSummary = it }
                         }
-                        SignupTextField("Submit proof details", proofSummary, singleLine = false) { proofSummary = it }
                     }
                 }
-            }
 
-            if (accountType == AccountType.Business && signupStep == 4) {
-                SignupSection("Review Process") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        BusinessVerificationStatus.entries.forEach { status ->
-                            val active = status == if (verificationRequested) {
-                                BusinessVerificationStatus.PendingReview
-                            } else {
-                                BusinessVerificationStatus.NotVerified
+                if (accountType == AccountType.Business && signupStep == 4) {
+                    SignupSection("Review Process") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            BusinessVerificationStatus.entries.forEach { status ->
+                                val active = status == if (verificationRequested) {
+                                    BusinessVerificationStatus.PendingReview
+                                } else {
+                                    BusinessVerificationStatus.NotVerified
+                                }
+                                Text(
+                                    status.label,
+                                    color = if (active) Color.White else Color.Black,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(if (active) Color.Black else Color.Black.copy(alpha = 0.05f))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
                             }
-                            Text(
-                                status.label,
-                                color = if (active) Color.White else Color.Black,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Black,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(999.dp))
-                                    .background(if (active) Color.Black else Color.Black.copy(alpha = 0.05f))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
                         }
+                        Text(
+                            "Approved businesses show a verified badge and unlock business-only features. Rejected businesses can see the reason and resubmit proof.",
+                            color = Color.Black.copy(alpha = 0.74f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    enabled = !loading,
+                    onClick = { advanceSignup() },
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                    shape = RoundedCornerShape(29.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Black,
+                        contentColor = Color.White,
+                        disabledContainerColor = Color.Black.copy(alpha = 0.72f),
+                        disabledContentColor = Color.White.copy(alpha = 0.5f)
+                    )
+                ) {
                     Text(
-                        "Approved businesses show a verified badge and unlock business-only features. Rejected businesses can see the reason and resubmit proof.",
-                        color = Color.Black.copy(alpha = 0.74f),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        signupActionTitle(signupStep, accountType, loading),
+                        fontWeight = FontWeight.Black,
+                        fontSize = 16.sp
                     )
                 }
-            }
-
-            Spacer(Modifier.height(16.dp))
-            Button(
-                enabled = !loading,
-                onClick = { advanceSignup() },
-                modifier = Modifier.fillMaxWidth().height(58.dp),
-                shape = RoundedCornerShape(29.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.Black,
-                    contentColor = Color.White,
-                    disabledContainerColor = Color.Black.copy(alpha = 0.72f),
-                    disabledContentColor = Color.White.copy(alpha = 0.5f)
-                )
-            ) {
-                Text(
-                    signupActionTitle(signupStep, accountType, loading),
-                    fontWeight = FontWeight.Black,
-                    fontSize = 16.sp
-                )
             }
         }
     }
 }
 
 @Composable
+private fun SignupStepPagination(currentStep: Int, totalSteps: Int) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            repeat(totalSteps) { index ->
+                Box(
+                    Modifier
+                        .width(if (index == currentStep) 16.dp else 6.dp)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(
+                            if (index == currentStep) Color(0xFFFF2D96)
+                            else Color.Black.copy(alpha = 0.16f)
+                        )
+                )
+            }
+        }
+        Text(
+            "${currentStep + 1} / $totalSteps",
+            color = Color.Black.copy(alpha = 0.58f),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black
+        )
+    }
+}
+
+@Composable
 private fun SignupAccountTypeCard(
     title: String,
+    isBusiness: Boolean,
     selected: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val accent = if (title == "Business") Color(0xFFFF2D96) else Color(0xFF34C759)
+    val accent = if (isBusiness) Color(0xFFFF2D96) else Color(0xFF34C759)
     Box(
         modifier = modifier
             .height(58.dp)
@@ -1036,15 +1109,95 @@ private fun SignupAccountTypeCard(
             .background(if (selected) accent.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.04f))
             .border(1.5.dp, accent.copy(alpha = if (selected) 0.7f else 0.3f), RoundedCornerShape(18.dp))
             .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.CenterStart
     ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 8.dp)) {
+            if (isBusiness) {
+                SignupModelScene(
+                    modelPath = "signup/zoom_buildings.glb",
+                    modifier = Modifier.size(42.dp),
+                    background = Color(0xFFF3E9F8),
+                    rotationY = -28f
+                )
+            } else {
+                MarkHeadSceneView(
+                    isSpeaking = false,
+                    modifier = Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)),
+                    headBackground = Color(0xFFF7E7EF)
+                )
+            }
+            Text(
+                title,
+                fontWeight = FontWeight.Black,
+                fontSize = 18.sp,
+                style = TextStyle(
+                    brush = Brush.linearGradient(
+                        listOf(Color(0xFF080207), Color(0xFF751244), Color(0xFFFF2D8A), Color(0xFF371020), Color(0xFFFF4D9E))
+                    )
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun SignupNavigationCube(onBack: () -> Unit, onForward: () -> Unit) {
+    var showingBack by rememberSaveable { mutableStateOf(false) }
+    var dragX by remember { mutableFloatStateOf(0f) }
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+        SignupModelScene(
+            modelPath = "login_cube/poplr_login_cube_equal_faces.glb",
+            modifier = Modifier
+                .size(124.dp)
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { dragX = 0f },
+                        onDragEnd = { if (kotlin.math.abs(dragX) > 24f) showingBack = !showingBack },
+                        onDrag = { change, amount -> change.consume(); dragX += amount.x }
+                    )
+                }
+                .clickable { if (showingBack) onBack() else onForward() },
+            background = Color(0xFFFF2D96),
+            rotationY = if (showingBack) 124f else 214f,
+            rotationX = -26f
+        )
         Text(
-            title,
-            color = Color.Black,
-            fontWeight = FontWeight.Black,
-            fontSize = 18.sp
+            if (showingBack) "Back" else "Continue",
+            color = Color.Black.copy(alpha = 0.62f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
         )
     }
+}
+
+@Composable
+private fun SignupModelScene(
+    modelPath: String,
+    modifier: Modifier,
+    background: Color,
+    rotationY: Float,
+    rotationX: Float = -14f
+) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    AndroidView(
+        modifier = modifier.clip(RoundedCornerShape(12.dp)),
+        factory = { ctx ->
+            SceneView(ctx).apply {
+                lifecycle = lifecycleOwner.lifecycle
+                scene.skybox = Skybox.Builder().color(background.red, background.green, background.blue, 1f).build(engine)
+                indirectLight = IndirectLight.Builder().irradiance(1, floatArrayOf(1f, 1f, 1.05f)).intensity(55_000f).build(engine)
+                val instance = modelLoader.createModelInstance(modelPath)
+                val model = ModelNode(modelInstance = instance, scaleToUnits = 1.55f, centerOrigin = Float3(0f, 0f, 0f))
+                model.rotation = Float3(rotationX, rotationY, 0f)
+                childNodes = listOf(model)
+                cameraNode.position = Float3(0f, 0f, 3.4f)
+                cameraNode.lookAt(model)
+                tag = model
+            }
+        },
+        update = { view -> (view.tag as? ModelNode)?.rotation = Float3(rotationX, rotationY, 0f) },
+        onRelease = { it.destroy() }
+    )
 }
 
 @Composable
