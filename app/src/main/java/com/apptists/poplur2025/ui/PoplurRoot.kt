@@ -326,12 +326,6 @@ fun PoplurRoot(
         settingsPrefs.edit()
             .putString("selected_cube_skin", selectedCubeSkin.id)
             .apply()
-        // Applying icon changes can sometimes cause process restarts on certain devices.
-        // Doing it here ensures it only happens when explicitly changed by the user,
-        // rather than on every Application.onCreate() call.
-        runCatching {
-            AppIconThemeManager.apply(context, selectedCubeSkin)
-        }
     }
     LaunchedEffect(cubeMenuLayout) {
         settingsPrefs.edit().putString("cube_menu_layout", cubeMenuLayout.name).apply()

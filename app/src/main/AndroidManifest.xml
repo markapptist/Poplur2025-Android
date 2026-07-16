@@ -32,6 +32,10 @@
             android:theme="@style/Theme.Poplur.SplashScreen"
             android:launchMode="singleTask"
             android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
         </activity>
 
         <!-- DEBUG: launches straight into the native libGDX PoplurFPS game for verification -->
@@ -113,93 +117,5 @@
             android:theme="@style/Theme.Poplur"
             android:screenOrientation="portrait" />
 
-        <activity-alias
-            android:name=".IconDefaultAlias"
-            android:enabled="true"
-            android:exported="true"
-            android:targetActivity=".MainActivity" />
-
-        <activity-alias
-            android:name=".IconDefaultLauncherAlias"
-            android:enabled="true"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher"
-            android:label="Poplur"
-            android:roundIcon="@mipmap/ic_launcher_round"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".IconGoldAlias"
-            android:enabled="true"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_gold"
-            android:label="Poplur"
-            android:roundIcon="@mipmap/ic_launcher_gold"
-            android:targetActivity=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity-alias>
-        <activity-alias
-            android:name=".IconToyAlias"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_toy"
-            android:label="Poplur"
-            android:roundIcon="@mipmap/ic_launcher_toy"
-            android:targetActivity=".MainActivity" />
-        <activity-alias
-            android:name=".IconRainbowAlias"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_rainbow"
-            android:label="Poplur"
-            android:roundIcon="@mipmap/ic_launcher_rainbow"
-            android:targetActivity=".MainActivity" />
-        <activity-alias
-            android:name=".IconSparklePinkAlias"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_sparkle_pink"
-            android:label="Poplur"
-            android:roundIcon="@mipmap/ic_launcher_sparkle_pink"
-            android:targetActivity=".MainActivity" />
-        <activity-alias
-            android:name=".IconIceAlias"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_ice"
-            android:label="Poplur"
-            android:roundIcon="@mipmap/ic_launcher_ice"
-            android:targetActivity=".MainActivity" />
-        <activity-alias
-            android:name=".IconChocolateAlias"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_chocolate"
-            android:label="Poplur"
-            android:roundIcon="@mipmap/ic_launcher_chocolate"
-            android:targetActivity=".MainActivity" />
-        <activity-alias
-            android:name=".IconSpaceAlias"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_space"
-            android:label="Poplur"
-            android:roundIcon="@mipmap/ic_launcher_space"
-            android:targetActivity=".MainActivity" />
-        <activity-alias
-            android:name=".IconCamoAlias"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@mipmap/ic_launcher_camo"
-            android:label="Poplur"
-            android:roundIcon="@mipmap/ic_launcher_camo"
-            android:targetActivity=".MainActivity" />
     </application>
 </manifest>

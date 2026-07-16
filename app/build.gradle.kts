@@ -24,7 +24,7 @@ val mapillaryAccessToken: String = localProperties.getProperty("MAPILLARY_ACCESS
 android { namespace = "com.apptists.poplur2025"
     compileSdk = 35;
     defaultConfig {
-        applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 2; versionName = "1.0.1"
+        applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 4; versionName = "1.0.3"
         buildConfigField("String", "MAPILLARY_ACCESS_TOKEN", "\"$mapillaryAccessToken\"")
     }
 
