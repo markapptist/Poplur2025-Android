@@ -1324,7 +1324,7 @@ private fun WelcomeBackdrop(
         0f
     }
     val density = LocalDensity.current
-    val dotSpacingPx = with(density) { 12.dp.toPx() }
+    val dotSpacingPx = with(density) { 8.5.dp.toPx() }
     var backdropSize by remember { mutableStateOf(IntSize.Zero) }
     val worldDots = remember(backdropSize, dotSpacingPx) {
         buildWelcomeWorldMapDots(
