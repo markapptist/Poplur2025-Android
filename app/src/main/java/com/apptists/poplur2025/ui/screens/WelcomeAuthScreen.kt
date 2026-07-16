@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +59,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -295,6 +297,16 @@ internal fun WelcomeAuthScreenContent(
                 .fillMaxSize()
                 .offset { IntOffset(0, bannerOffsetY.value.roundToInt()) }
         )
+
+        // The approved Welcome artwork includes the dotted world map. Keep it in the
+        // persistent shell so auth-panel changes do not flash a different background.
+        if (mode == AuthMode.Welcome) {
+            WelcomeWorldMapOverlay(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(2f)
+            )
+        }
 
         AnimatedContent(
             targetState = mode,
@@ -1352,6 +1364,105 @@ private fun validateSignup(
     )?.let { return it }
     return null
 }
+
+@Composable
+private fun WelcomeWorldMapOverlay(modifier: Modifier = Modifier) {
+    val pulse by rememberInfiniteTransition(label = "welcomeWorldMap")
+        .animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(4_800, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "welcomeWorldMapPulse"
+        )
+    val density = LocalDensity.current
+    val spacing = with(density) { 12.dp.toPx() }
+    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+    val dots = remember(canvasSize, spacing) {
+        buildWelcomeWorldMapDots(canvasSize.width.toFloat(), canvasSize.height.toFloat(), spacing)
+    }
+
+    Canvas(modifier.onSizeChanged { canvasSize = it }) {
+        val mutedRadius = 2.15.dp.toPx()
+        val brightRadius = 2.55.dp.toPx()
+        dots.forEach { dot ->
+            if (!dot.isBright) {
+                drawCircle(Color.White.copy(alpha = 0.18f), mutedRadius, Offset(dot.x, dot.y))
+            } else {
+                val phase = (pulse + dot.phase) % 1f
+                val wave = ((sin(phase * 2f * PI) + 1.0) * 0.5).toFloat()
+                val pulseAmount = wave * wave
+                drawCircle(
+                    Color.White.copy(alpha = 0.56f + pulseAmount * 0.44f),
+                    brightRadius * (0.88f + pulseAmount * 0.28f),
+                    Offset(dot.x, dot.y)
+                )
+            }
+        }
+    }
+}
+
+private data class WelcomeWorldDot(
+    val x: Float,
+    val y: Float,
+    val isBright: Boolean,
+    val phase: Float
+)
+
+private fun buildWelcomeWorldMapDots(width: Float, height: Float, spacing: Float): List<WelcomeWorldDot> {
+    if (width <= 0f || height <= 0f || spacing <= 0f) return emptyList()
+    val dots = ArrayList<WelcomeWorldDot>()
+    val rows = (height / spacing).toInt() + 1
+    val columns = (width / spacing).toInt() + 1
+    for (row in 0 until rows) {
+        val y = (row + 0.5f) * spacing
+        if (y >= height) continue
+        for (column in 0 until columns) {
+            val x = (column + 0.5f) * spacing
+            if (x >= width) continue
+            val nx = x / width
+            val ny = y / height
+            if (!WELCOME_WORLD_LANDMASSES.any { polygonContains(nx, ny, it) }) continue
+            val bright = ((row * 73 + column * 151 + row * column * 19) % 41) < 4
+            val phase = ((row * 29 + column * 47 + row * column * 7) % 97) / 97f
+            dots += WelcomeWorldDot(x, y, bright, phase)
+        }
+    }
+    return dots
+}
+
+private fun polygonContains(x: Float, y: Float, polygon: List<Offset>): Boolean {
+    var inside = false
+    var previous = polygon.lastIndex
+    polygon.indices.forEach { current ->
+        val a = polygon[current]
+        val b = polygon[previous]
+        if ((a.y > y) != (b.y > y)) {
+            val crossingX = (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x
+            if (x < crossingX) inside = !inside
+        }
+        previous = current
+    }
+    return inside
+}
+
+// Simplified normalized coastlines matching the approved Good Copy Welcome backdrop.
+private val WELCOME_WORLD_LANDMASSES = listOf(
+    listOf(Offset(0.02f, 0.12f), Offset(0.08f, 0.07f), Offset(0.18f, 0.08f), Offset(0.25f, 0.13f), Offset(0.31f, 0.20f), Offset(0.28f, 0.28f), Offset(0.22f, 0.30f), Offset(0.19f, 0.37f), Offset(0.13f, 0.35f), Offset(0.10f, 0.29f), Offset(0.05f, 0.26f)),
+    listOf(Offset(0.31f, 0.04f), Offset(0.38f, 0.02f), Offset(0.44f, 0.08f), Offset(0.41f, 0.17f), Offset(0.34f, 0.16f), Offset(0.30f, 0.10f)),
+    listOf(Offset(0.20f, 0.30f), Offset(0.29f, 0.29f), Offset(0.35f, 0.37f), Offset(0.32f, 0.42f), Offset(0.27f, 0.37f), Offset(0.22f, 0.36f)),
+    listOf(Offset(0.30f, 0.38f), Offset(0.39f, 0.37f), Offset(0.46f, 0.44f), Offset(0.45f, 0.56f), Offset(0.41f, 0.66f), Offset(0.38f, 0.82f), Offset(0.33f, 0.72f), Offset(0.31f, 0.58f), Offset(0.27f, 0.48f)),
+    listOf(Offset(0.46f, 0.17f), Offset(0.52f, 0.12f), Offset(0.60f, 0.15f), Offset(0.62f, 0.23f), Offset(0.57f, 0.30f), Offset(0.49f, 0.28f), Offset(0.45f, 0.23f)),
+    listOf(Offset(0.47f, 0.28f), Offset(0.58f, 0.25f), Offset(0.66f, 0.34f), Offset(0.64f, 0.49f), Offset(0.59f, 0.67f), Offset(0.53f, 0.72f), Offset(0.49f, 0.59f), Offset(0.43f, 0.45f)),
+    listOf(Offset(0.57f, 0.13f), Offset(0.66f, 0.08f), Offset(0.79f, 0.10f), Offset(0.91f, 0.16f), Offset(0.97f, 0.25f), Offset(0.91f, 0.34f), Offset(0.83f, 0.36f), Offset(0.78f, 0.44f), Offset(0.69f, 0.40f), Offset(0.63f, 0.31f), Offset(0.58f, 0.28f)),
+    listOf(Offset(0.67f, 0.34f), Offset(0.75f, 0.35f), Offset(0.78f, 0.48f), Offset(0.73f, 0.56f), Offset(0.69f, 0.45f), Offset(0.64f, 0.41f)),
+    listOf(Offset(0.91f, 0.30f), Offset(0.94f, 0.27f), Offset(0.95f, 0.38f), Offset(0.92f, 0.42f)),
+    listOf(Offset(0.75f, 0.64f), Offset(0.84f, 0.60f), Offset(0.94f, 0.66f), Offset(0.92f, 0.79f), Offset(0.83f, 0.84f), Offset(0.74f, 0.78f), Offset(0.71f, 0.70f)),
+    listOf(Offset(0.66f, 0.57f), Offset(0.69f, 0.59f), Offset(0.68f, 0.72f), Offset(0.65f, 0.68f)),
+    listOf(Offset(0.08f, 0.90f), Offset(0.24f, 0.87f), Offset(0.40f, 0.91f), Offset(0.57f, 0.88f), Offset(0.76f, 0.90f), Offset(0.93f, 0.87f), Offset(0.98f, 0.95f), Offset(0.04f, 0.95f))
+)
 
 @Composable
 private fun TicketPanel(
