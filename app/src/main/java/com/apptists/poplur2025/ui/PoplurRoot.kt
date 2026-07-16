@@ -227,7 +227,8 @@ fun PoplurRoot(
     var tiltControlEnabled by rememberSaveable {
         mutableStateOf(settingsPrefs.getBoolean("tilt_control_enabled", false))
     }
-    var showAppInitializationCover by remember { mutableStateOf(true) }
+    // The native clay splash owns launch now, so do not show the legacy cube cover behind it.
+    var showAppInitializationCover by remember { mutableStateOf(false) }
     var showSlowInitializationDetails by remember { mutableStateOf(false) }
     var feedInteractionTick by remember { mutableIntStateOf(0) }
     var isFeedChromeAsleep by remember { mutableStateOf(false) }
@@ -514,7 +515,7 @@ fun PoplurRoot(
                     isNewSignUp = false
                     showAppInitializationCover = false
                 } else {
-                    showAppInitializationCover = true
+                    showAppInitializationCover = false
                 }
                 showSlowInitializationDetails = false
                 isCubeFirstFrameReady = false

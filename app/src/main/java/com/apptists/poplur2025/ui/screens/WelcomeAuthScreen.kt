@@ -17,6 +17,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import android.animation.ValueAnimator
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -46,16 +47,20 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -499,71 +504,135 @@ private fun WelcomeTicketContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(layout.welcomeButtonGap)
         ) {
-            // Pill button with black shadow/border matching screenshot
-            Box(
-                modifier = Modifier
-                    .width(layout.welcomeButtonWidth)
-                    .height(layout.welcomeButtonHeight)
-                    .clickable { onSignIn() }
-            ) {
-                // Bottom shadow (black extrusion)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight)
-                        .offset(y = layout.welcomeButtonShadowOffset)
-                        .background(Color.Black, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
-                )
-                // Main white button surface
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight)
-                        .background(Color.White, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
-                        .border(1.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(layout.welcomeButtonHeight / 2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "Sign In",
-                        color = Color.Black,
-                        fontWeight = FontWeight.Black,
-                        fontSize = layout.welcomeButtonTextSize.sp
-                    )
-                }
-            }
+            WelcomeShaderButton(
+                text = "Sign In",
+                width = layout.welcomeButtonWidth,
+                height = layout.welcomeButtonHeight,
+                shadowOffset = layout.welcomeButtonShadowOffset,
+                textSize = layout.welcomeButtonTextSize,
+                onClick = onSignIn
+            )
 
-            // Sign Up button
-            Box(
-                modifier = Modifier
-                    .width(layout.welcomeButtonWidth)
-                    .height(layout.welcomeButtonHeight)
-                    .clickable { onCreateAccount() }
-            ) {
-                // Bottom shadow (black extrusion) — matches Sign In / iOS
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight)
-                        .offset(y = layout.welcomeButtonShadowOffset)
-                        .background(Color.Black, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
-                )
-                // Main white surface — iOS shows Sign Up solid white with black text, like Sign In
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.welcomeButtonHeight)
-                        .background(Color.White, RoundedCornerShape(layout.welcomeButtonHeight / 2f))
-                        .border(1.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(layout.welcomeButtonHeight / 2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "Sign Up",
-                        color = Color.Black,
-                        fontWeight = FontWeight.Black,
-                        fontSize = layout.welcomeButtonTextSize.sp
+            WelcomeShaderButton(
+                text = "Sign Up",
+                width = layout.welcomeButtonWidth,
+                height = layout.welcomeButtonHeight,
+                shadowOffset = layout.welcomeButtonShadowOffset,
+                textSize = layout.welcomeButtonTextSize,
+                onClick = onCreateAccount
+            )
+        }
+    }
+}
+
+@Composable
+private fun WelcomeShaderButton(
+    text: String,
+    width: Dp,
+    height: Dp,
+    shadowOffset: Dp,
+    textSize: Float,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(height / 2f)
+    var textWidthPx by remember { mutableFloatStateOf(1f) }
+    var textHeightPx by remember { mutableFloatStateOf(1f) }
+    val gradientWidthPx = textWidthPx * 3f
+    val gradientStartX = (textWidthPx - gradientWidthPx) * 0.48f
+    val textShader = Brush.linearGradient(
+        colorStops = arrayOf(
+            0f to Color(0xFF080207),
+            0.16f to Color(0xFF5B1238),
+            0.31f to Color(0xFFFF2D8A),
+            0.45f to Color(0xFF7A003E),
+            0.59f to Color(0xFF160711),
+            0.76f to Color(0xFFFF4D9E),
+            0.90f to Color(0xFF2A0A1D),
+            1f to Color(0xFF080207)
+        ),
+        start = Offset(gradientStartX, -textHeightPx * 0.7f),
+        end = Offset(gradientStartX + gradientWidthPx, textHeightPx * 1.7f),
+        tileMode = TileMode.Repeated
+    )
+    val density = LocalDensity.current
+    val textShadow = with(density) {
+        Shadow(
+            color = Color.Black.copy(alpha = 0.16f),
+            offset = Offset(0f, 1.dp.toPx()),
+            blurRadius = 1.dp.toPx()
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .width(width)
+            .height(height)
+            .clickable(onClick = onClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(height)
+                .offset(y = shadowOffset)
+                .background(Color.Black, shape)
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color.White,
+                            Color(0xFFFFEEF8),
+                            Color(0xFFE2E0E7)
+                        )
                     )
-                }
+                )
+                .border(1.dp, Color.Black.copy(alpha = 0.1f), shape),
+            contentAlignment = Alignment.Center
+        ) {
+            Canvas(Modifier.matchParentSize()) {
+                drawRoundRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.66f), Color.Transparent),
+                        start = Offset.Zero,
+                        end = Offset(size.width * 0.72f, size.height * 0.72f)
+                    ),
+                    cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
+                )
+                drawRoundRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.11f)),
+                        startY = size.height * 0.45f,
+                        endY = size.height
+                    ),
+                    cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
+                )
+                drawRoundRect(
+                    color = Color.White.copy(alpha = 0.58f),
+                    topLeft = Offset(8.dp.toPx(), 6.dp.toPx()),
+                    size = Size(
+                        width = size.width - 16.dp.toPx(),
+                        height = size.height - 12.dp.toPx()
+                    ),
+                    cornerRadius = CornerRadius((size.height - 12.dp.toPx()) / 2f),
+                    style = Stroke(width = 1.dp.toPx())
+                )
             }
+            Text(
+                text = text,
+                modifier = Modifier.onSizeChanged {
+                    textWidthPx = it.width.toFloat().coerceAtLeast(1f)
+                    textHeightPx = it.height.toFloat().coerceAtLeast(1f)
+                },
+                fontWeight = FontWeight.Black,
+                fontSize = textSize.sp,
+                style = LocalTextStyle.current.copy(
+                    brush = textShader,
+                    shadow = textShadow
+                )
+            )
         }
     }
 }
@@ -1238,41 +1307,219 @@ private fun WelcomeBackdrop(
     modifier: Modifier = Modifier
 ) {
     val welcomePink = Color(0xFFFF2D96)
+    val animationsEnabled = remember { ValueAnimator.areAnimatorsEnabled() }
+    val pulseClock = if (animationsEnabled) {
+        val transition = rememberInfiniteTransition(label = "welcomeWorldMap")
+        val progress by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 4_800, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "welcomeWorldMapPulse"
+        )
+        progress
+    } else {
+        0f
+    }
+    val density = LocalDensity.current
+    val dotSpacingPx = with(density) { 8.5.dp.toPx() }
+    var backdropSize by remember { mutableStateOf(IntSize.Zero) }
+    val worldDots = remember(backdropSize, dotSpacingPx) {
+        buildWelcomeWorldMapDots(
+            width = backdropSize.width.toFloat(),
+            height = backdropSize.height.toFloat(),
+            spacing = dotSpacingPx
+        )
+    }
+
     Box(modifier.background(welcomePink)) {
         if (ticketBitmap != null) {
             Image(
                 bitmap = ticketBitmap,
                 contentDescription = null,
-                contentScale = ContentScale.FillWidth,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
             )
         }
 
-        // The artifact finishes with a white perforated ticket edge. Drawing this separately
-        // keeps it pinned to every Android screen height while the map artwork scales by width.
         Canvas(
             Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(18.dp)
+                .fillMaxSize()
+                .onSizeChanged { backdropSize = it }
         ) {
-            drawRect(Color.White)
-            val radius = 9.dp.toPx()
-            val step = 26.dp.toPx()
-            var centerX = 13.dp.toPx()
-            while (centerX < size.width + radius) {
-                drawCircle(
-                    color = welcomePink,
-                    radius = radius,
-                    center = Offset(centerX, radius)
-                )
-                centerX += step
+            val mutedRadius = 2.15.dp.toPx()
+            val brightRadius = 2.55.dp.toPx()
+
+            worldDots.forEach { dot ->
+                if (!dot.isBright) {
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.18f),
+                        radius = mutedRadius,
+                        center = Offset(dot.x, dot.y)
+                    )
+                } else {
+                    val wave = if (animationsEnabled) {
+                        val phase = (pulseClock + dot.phase) % 1f
+                        ((sin(phase * 2f * PI) + 1.0) * 0.5).toFloat()
+                    } else {
+                        0.82f
+                    }
+                    val pulse = wave * wave
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.56f + pulse * 0.44f),
+                        radius = brightRadius * (0.88f + pulse * 0.28f),
+                        center = Offset(dot.x, dot.y)
+                    )
+                }
             }
         }
     }
 }
+
+private data class WelcomeWorldDot(
+    val x: Float,
+    val y: Float,
+    val isBright: Boolean,
+    val phase: Float
+)
+
+private fun buildWelcomeWorldMapDots(
+    width: Float,
+    height: Float,
+    spacing: Float
+): List<WelcomeWorldDot> {
+    if (width <= 0f || height <= 0f || spacing <= 0f) return emptyList()
+
+    val dots = ArrayList<WelcomeWorldDot>()
+    val rowCount = (height / spacing).toInt() + 1
+    val columnCount = (width / spacing).toInt() + 1
+
+    for (row in 0 until rowCount) {
+        val y = (row + 0.5f) * spacing
+        if (y >= height) continue
+
+        for (column in 0 until columnCount) {
+            val x = (column + 0.5f) * spacing
+            if (x >= width) continue
+
+            val normalizedX = x / width
+            val normalizedY = y / height
+            if (!WELCOME_WORLD_LANDMASSES.any { polygon ->
+                    polygonContains(normalizedX, normalizedY, polygon)
+                }
+            ) continue
+
+            // Stable, scattered highlights avoid the striped patterns produced by simpler
+            // row/column modulo rules while keeping the same dots bright on every launch.
+            val isBright = ((row * 73 + column * 151 + row * column * 19) % 41) < 4
+            val phaseHash = (row * 29 + column * 47 + row * column * 7) % 97
+            dots += WelcomeWorldDot(
+                x = x,
+                y = y,
+                isBright = isBright,
+                phase = phaseHash / 97f
+            )
+        }
+    }
+
+    return dots
+}
+
+private fun polygonContains(x: Float, y: Float, polygon: List<Offset>): Boolean {
+    var inside = false
+    var previous = polygon.lastIndex
+
+    polygon.indices.forEach { current ->
+        val currentPoint = polygon[current]
+        val previousPoint = polygon[previous]
+        val crossesRow = (currentPoint.y > y) != (previousPoint.y > y)
+        if (crossesRow) {
+            val crossingX = (previousPoint.x - currentPoint.x) *
+                (y - currentPoint.y) / (previousPoint.y - currentPoint.y) + currentPoint.x
+            if (x < crossingX) inside = !inside
+        }
+        previous = current
+    }
+
+    return inside
+}
+
+// Normalized, intentionally simplified coastlines. Stretching the coordinates to the
+// available portrait bounds lets the dotted world span nearly the full phone or tablet
+// backdrop while retaining recognizable continental silhouettes.
+private val WELCOME_WORLD_LANDMASSES = listOf(
+    // North America
+    listOf(
+        Offset(0.02f, 0.12f), Offset(0.08f, 0.07f), Offset(0.18f, 0.08f),
+        Offset(0.25f, 0.13f), Offset(0.31f, 0.20f), Offset(0.28f, 0.28f),
+        Offset(0.22f, 0.30f), Offset(0.19f, 0.37f), Offset(0.13f, 0.35f),
+        Offset(0.10f, 0.29f), Offset(0.05f, 0.26f)
+    ),
+    // Greenland
+    listOf(
+        Offset(0.31f, 0.04f), Offset(0.38f, 0.02f), Offset(0.44f, 0.08f),
+        Offset(0.41f, 0.17f), Offset(0.34f, 0.16f), Offset(0.30f, 0.10f)
+    ),
+    // Central America
+    listOf(
+        Offset(0.20f, 0.30f), Offset(0.29f, 0.29f), Offset(0.35f, 0.37f),
+        Offset(0.32f, 0.42f), Offset(0.27f, 0.37f), Offset(0.22f, 0.36f)
+    ),
+    // South America
+    listOf(
+        Offset(0.30f, 0.38f), Offset(0.39f, 0.37f), Offset(0.46f, 0.44f),
+        Offset(0.45f, 0.56f), Offset(0.41f, 0.66f), Offset(0.38f, 0.82f),
+        Offset(0.33f, 0.72f), Offset(0.31f, 0.58f), Offset(0.27f, 0.48f)
+    ),
+    // Europe
+    listOf(
+        Offset(0.46f, 0.17f), Offset(0.52f, 0.12f), Offset(0.60f, 0.15f),
+        Offset(0.62f, 0.23f), Offset(0.57f, 0.30f), Offset(0.49f, 0.28f),
+        Offset(0.45f, 0.23f)
+    ),
+    // Africa
+    listOf(
+        Offset(0.47f, 0.28f), Offset(0.58f, 0.25f), Offset(0.66f, 0.34f),
+        Offset(0.64f, 0.49f), Offset(0.59f, 0.67f), Offset(0.53f, 0.72f),
+        Offset(0.49f, 0.59f), Offset(0.43f, 0.45f)
+    ),
+    // Asia
+    listOf(
+        Offset(0.57f, 0.13f), Offset(0.66f, 0.08f), Offset(0.79f, 0.10f),
+        Offset(0.91f, 0.16f), Offset(0.97f, 0.25f), Offset(0.91f, 0.34f),
+        Offset(0.83f, 0.36f), Offset(0.78f, 0.44f), Offset(0.69f, 0.40f),
+        Offset(0.63f, 0.31f), Offset(0.58f, 0.28f)
+    ),
+    // India and Southeast Asia
+    listOf(
+        Offset(0.67f, 0.34f), Offset(0.75f, 0.35f), Offset(0.78f, 0.48f),
+        Offset(0.73f, 0.56f), Offset(0.69f, 0.45f), Offset(0.64f, 0.41f)
+    ),
+    // Japan
+    listOf(
+        Offset(0.91f, 0.30f), Offset(0.94f, 0.27f), Offset(0.95f, 0.38f),
+        Offset(0.92f, 0.42f)
+    ),
+    // Australia
+    listOf(
+        Offset(0.75f, 0.64f), Offset(0.84f, 0.60f), Offset(0.94f, 0.66f),
+        Offset(0.92f, 0.79f), Offset(0.83f, 0.84f), Offset(0.74f, 0.78f),
+        Offset(0.71f, 0.70f)
+    ),
+    // Madagascar
+    listOf(
+        Offset(0.66f, 0.57f), Offset(0.69f, 0.59f), Offset(0.68f, 0.72f),
+        Offset(0.65f, 0.68f)
+    ),
+    // Antarctica
+    listOf(
+        Offset(0.08f, 0.90f), Offset(0.24f, 0.87f), Offset(0.40f, 0.91f),
+        Offset(0.57f, 0.88f), Offset(0.76f, 0.90f), Offset(0.93f, 0.87f),
+        Offset(0.98f, 0.95f), Offset(0.04f, 0.95f)
+    )
+)
 
 @Composable
 private fun TicketPanel(modifier: Modifier = Modifier) {
@@ -1411,7 +1658,7 @@ private class AuthLayoutMetrics(screenWidth: Dp, screenHeight: Dp, mode: AuthMod
     val welcomeLogoSize = 148.dp * welcomeScale
     val welcomeButtonWidth = 250.dp * welcomeScale
     val welcomeButtonHeight = 58.dp * welcomeScale
-    val welcomeButtonGap = 18.dp * welcomeScale
+    val welcomeButtonGap = 28.dp * welcomeScale
     val welcomeButtonShadowOffset = 6.dp * welcomeScale
     val welcomeButtonTextSize = 22f * welcomeScale
     val welcomeButtonTop = screenHeight - (200.dp * welcomeScale) -
