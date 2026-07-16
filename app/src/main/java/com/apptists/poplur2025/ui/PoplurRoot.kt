@@ -259,6 +259,7 @@ fun PoplurRoot(
     var isCubeSurfaceReady by remember { mutableStateOf(false) }
     var isCubeFirstFrameReady by remember { mutableStateOf(false) }
     var authCubeLabel by remember { mutableStateOf("Welcome") }
+    var welcomePermissionsGranted by remember { mutableStateOf(false) }
     var authBackAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     // Starts true so the native cube cannot flash above the first frame of the Compose wallet.
     // A completed intro sets it false; signing in primes the next signed-out composition.
@@ -1194,7 +1195,8 @@ fun PoplurRoot(
                         rootStripeVisible = true
                     },
                     onWalletIntroVisibilityChanged = { isWalletIntroVisible = it },
-                    preLoginMusic = preLoginMusic
+                    preLoginMusic = preLoginMusic,
+                    onWelcomePermissionsGranted = { welcomePermissionsGranted = it }
                 )
             } else if (isSignedIn == true) {
                 // Signed In
@@ -1365,7 +1367,8 @@ fun PoplurRoot(
                 channelObjectPopToken = channelObjectPopToken,
                 modelAssetPathOverride = loginCubeAssetPath,
                 overlaySizeDp = 200f,
-                centerVertically = isSignedIn == false
+                centerVertically = isSignedIn == false,
+                verticalLiftDp = if (isSignedIn == false && welcomePermissionsGranted) 24f else 0f
             )
         }
 

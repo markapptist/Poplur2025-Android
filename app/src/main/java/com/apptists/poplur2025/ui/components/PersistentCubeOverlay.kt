@@ -27,7 +27,8 @@ data class PersistentCubeOverlayConfig(
     val channelObjectPopToken: Int,
     val modelAssetPathOverride: String? = null,
     val overlaySizeDp: Float = 200f,
-    val centerVertically: Boolean = false
+    val centerVertically: Boolean = false,
+    val verticalLiftDp: Float = 0f
 )
 
 interface PersistentCubeOverlayHost {
@@ -59,7 +60,8 @@ fun PersistentCubeOverlay(
     channelObjectPopToken: Int = 0,
     modelAssetPathOverride: String? = null,
     overlaySizeDp: Float = 200f,
-    centerVertically: Boolean = false
+    centerVertically: Boolean = false,
+    verticalLiftDp: Float = 0f
 ) {
     @Suppress("UNUSED_EXPRESSION")
     modifier
@@ -84,14 +86,15 @@ fun PersistentCubeOverlay(
         channelObjectPopToken = channelObjectPopToken,
         modelAssetPathOverride = modelAssetPathOverride,
         overlaySizeDp = overlaySizeDp,
-        centerVertically = centerVertically
+        centerVertically = centerVertically,
+        verticalLiftDp = verticalLiftDp
     )
 
     LaunchedEffect(
         selectedTabIndex, mapCubeFaceTitle, cameraCubeFaceTitle, 
         feedCubeFaceTitle, profileCubeIconTitle, cubeSkin, isInteractive,
         channelObjectId, channelObjectPopToken, modelAssetPathOverride,
-        overlaySizeDp, centerVertically
+        overlaySizeDp, centerVertically, verticalLiftDp
     ) {
         host?.showPersistentCubeOverlay(config)
     }

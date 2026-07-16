@@ -1,5 +1,7 @@
 package com.apptists.poplur2025.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInHorizontally
@@ -52,6 +54,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
@@ -64,6 +67,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.fragment.app.FragmentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.tooling.preview.Preview
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.data.AccountType
@@ -116,7 +122,8 @@ fun WelcomeAuthScreen(
     onBackAvailable: ((() -> Unit)?) -> Unit = {},
     onSignUpSuccess: () -> Unit = {},
     onWalletIntroVisibilityChanged: (Boolean) -> Unit = {},
-    preLoginMusic: com.apptists.poplur2025.ui.components.PreLoginMusicPlayer? = null
+    preLoginMusic: com.apptists.poplur2025.ui.components.PreLoginMusicPlayer? = null,
+    onWelcomePermissionsGranted: (Boolean) -> Unit = {}
 ) {
     WelcomeAuthScreenContent(
         onSignIn = { email, password, onResult ->
@@ -129,7 +136,8 @@ fun WelcomeAuthScreen(
         onBackAvailable = onBackAvailable,
         onSignUpSuccess = onSignUpSuccess,
         onWalletIntroVisibilityChanged = onWalletIntroVisibilityChanged,
-        preLoginMusic = preLoginMusic
+        preLoginMusic = preLoginMusic,
+        onWelcomePermissionsGranted = onWelcomePermissionsGranted
     )
 }
 
@@ -142,10 +150,25 @@ internal fun WelcomeAuthScreenContent(
     onBackAvailable: ((() -> Unit)?) -> Unit = {},
     onSignUpSuccess: () -> Unit = {},
     onWalletIntroVisibilityChanged: (Boolean) -> Unit = {},
-    preLoginMusic: com.apptists.poplur2025.ui.components.PreLoginMusicPlayer? = null
+    preLoginMusic: com.apptists.poplur2025.ui.components.PreLoginMusicPlayer? = null,
+    onWelcomePermissionsGranted: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val isPreview = LocalInspectionMode.current
     var mode by remember { mutableStateOf(initialMode) }
+    var welcomePermissionsGranted by rememberSaveable { mutableStateOf(isPreview) }
+    val welcomePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val cameraGranted = grants[Manifest.permission.CAMERA] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val locationGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        welcomePermissionsGranted = cameraGranted && locationGranted
+        onWelcomePermissionsGranted(welcomePermissionsGranted)
+    }
     // The wallet intro is scoped to this auth composition only. Navigating between auth panels
     // does not replay it, while a newly-created signed-out flow starts fresh.
     // Pre-login wallet intro is disabled — launch goes straight from the clay splash to Welcome.
@@ -201,6 +224,30 @@ internal fun WelcomeAuthScreenContent(
             AuthMode.Welcome -> onLabelChange("poplur")
             AuthMode.Login -> onLabelChange("back")
             AuthMode.SignUp -> onLabelChange("back")
+        }
+    }
+
+    LaunchedEffect(mode, isPreview) {
+        if (mode != AuthMode.Welcome) return@LaunchedEffect
+        if (isPreview) {
+            welcomePermissionsGranted = true
+            onWelcomePermissionsGranted(true)
+            return@LaunchedEffect
+        }
+        val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val locationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (cameraGranted && locationGranted) {
+            welcomePermissionsGranted = true
+            onWelcomePermissionsGranted(true)
+        } else {
+            welcomePermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
         }
     }
 
@@ -324,6 +371,9 @@ internal fun WelcomeAuthScreenContent(
                             layout = authLayout,
                             logoScale = logoScale.value,
                             buttonsAlpha = buttonsAlpha.value,
+                            permissionsGranted = welcomePermissionsGranted,
+                            radioChannelTitle = preLoginMusic?.currentChannelTitle ?: "Local radio",
+                            radioAiText = preLoginMusic?.currentAIScript ?: "Poplur AI is mixing your local radio.",
                             onSignIn = { mode = AuthMode.Login },
                             onCreateAccount = { mode = AuthMode.SignUp }
                         )
@@ -431,7 +481,10 @@ private fun WelcomeTicketContent(
     onSignIn: () -> Unit,
     onCreateAccount: () -> Unit,
     logoScale: Float = 1f,
-    buttonsAlpha: Float = 1f
+    buttonsAlpha: Float = 1f,
+    permissionsGranted: Boolean = false,
+    radioChannelTitle: String = "Local radio",
+    radioAiText: String = "Poplur AI is mixing your local radio."
 ) {
     Box(
         Modifier
@@ -450,6 +503,32 @@ private fun WelcomeTicketContent(
                     scaleY = logoScale
                 }
         )
+
+        if (permissionsGranted) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = layout.welcomeCubeBottom - 24.dp + 8.dp)
+                    .padding(horizontal = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = radioChannelTitle,
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 15.sp
+                )
+                Text(
+                    text = radioAiText,
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    maxLines = 2
+                )
+            }
+        }
 
         Column(
             modifier = Modifier

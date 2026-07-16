@@ -364,9 +364,9 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
         val overlaySizeDp = config?.overlaySizeDp ?: CUBE_OVERLAY_SIZE_DP
         val overlaySize = (overlaySizeDp * density).roundToInt()
         val centerFromBottomDp = if (config?.centerVertically == true) {
-            (resources.displayMetrics.heightPixels / density) / 2f + WELCOME_CUBE_LIFT_DP
+            (resources.displayMetrics.heightPixels / density) / 2f + WELCOME_CUBE_LIFT_DP + (config?.verticalLiftDp ?: 0f)
         } else {
-            CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP
+            CUBE_OVERLAY_CENTER_FROM_BOTTOM_DP + (config?.verticalLiftDp ?: 0f)
         }
         return FrameLayout.LayoutParams(
             overlaySize,
