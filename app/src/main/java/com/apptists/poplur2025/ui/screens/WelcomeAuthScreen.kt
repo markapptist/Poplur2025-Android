@@ -1378,15 +1378,23 @@ private fun WelcomeWorldMapOverlay(modifier: Modifier = Modifier) {
             label = "welcomeWorldMapPulse"
         )
     val density = LocalDensity.current
-    val spacing = with(density) { 12.dp.toPx() }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+    // Keep the dot field at the same responsive density as the approved GCL/iOS
+    // Welcome backdrop instead of using a fixed grid that becomes sparse on
+    // larger screens and overly heavy on small devices.
+    val spacing = with(density) {
+        val widthDp = canvasSize.width.toFloat() / density.density
+        (widthDp / 59f).coerceIn(5.6f, 10.6f).dp.toPx()
+    }
     val dots = remember(canvasSize, spacing) {
         buildWelcomeWorldMapDots(canvasSize.width.toFloat(), canvasSize.height.toFloat(), spacing)
     }
 
     Canvas(modifier.onSizeChanged { canvasSize = it }) {
-        val mutedRadius = 2.15.dp.toPx()
-        val brightRadius = 2.55.dp.toPx()
+        val spacingDp = spacing / density.density
+        val radiusDp = (spacingDp * 0.22f).coerceIn(1.25f, 2.35f)
+        val mutedRadius = with(density) { radiusDp.dp.toPx() }
+        val brightRadius = with(density) { (radiusDp * 1.08f).dp.toPx() }
         dots.forEach { dot ->
             if (!dot.isBright) {
                 drawCircle(Color.White.copy(alpha = 0.18f), mutedRadius, Offset(dot.x, dot.y))
