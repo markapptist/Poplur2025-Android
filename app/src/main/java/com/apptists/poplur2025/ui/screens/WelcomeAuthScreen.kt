@@ -201,7 +201,6 @@ internal fun WelcomeAuthScreenContent(
     var loading by remember { mutableStateOf(false) }
     var logoBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var welcomeLogoBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
-    var welcomeTicketBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
 
     LaunchedEffect(Unit) {
         logoBitmap = withContext(Dispatchers.IO) {
@@ -212,13 +211,6 @@ internal fun WelcomeAuthScreenContent(
         welcomeLogoBitmap = withContext(Dispatchers.IO) {
             runCatching {
                 context.assets.open("welcome_logo.png").use {
-                    BitmapFactory.decodeStream(it).asImageBitmap()
-                }
-            }.getOrNull()
-        }
-        welcomeTicketBitmap = withContext(Dispatchers.IO) {
-            runCatching {
-                context.assets.open("prelogin_ticket.png").use {
                     BitmapFactory.decodeStream(it).asImageBitmap()
                 }
             }.getOrNull()
@@ -394,7 +386,6 @@ internal fun WelcomeAuthScreenContent(
             Box(Modifier.fillMaxSize()) {
                 if (panel == AuthMode.Welcome) {
                     WelcomeBackdrop(
-                        ticketBitmap = welcomeTicketBitmap,
                         modifier = Modifier
                             .fillMaxSize()
                             .zIndex(1f)
@@ -434,9 +425,6 @@ internal fun WelcomeAuthScreenContent(
                             layout = authLayout,
                             logoOffsetY = welcomeLogoOffsetY.value,
                             buttonsAlpha = buttonsAlpha.value,
-                            permissionsGranted = welcomePermissionsGranted,
-                            radioChannelTitle = preLoginMusic?.currentChannelTitle ?: "Local radio",
-                            radioAiText = preLoginMusic?.currentAIScript ?: "Poplur AI is mixing your local radio.",
                             onSignIn = { mode = AuthMode.Login },
                             onCreateAccount = { mode = AuthMode.SignUp }
                         )
@@ -546,11 +534,15 @@ private fun WelcomeTicketContent(
     onSignIn: () -> Unit,
     onCreateAccount: () -> Unit,
     logoOffsetY: Float = 0f,
-    buttonsAlpha: Float = 1f,
-    permissionsGranted: Boolean = false,
-    radioChannelTitle: String = "Local radio",
-    radioAiText: String = "Poplur AI is mixing your local radio."
+    buttonsAlpha: Float = 1f
 ) {
+    // Cream extruded clay type from the prototype good-copy-welcome.html `.clayText` layers.
+    val clayCream = Color(0xFFF8EFDC)
+    val clayShadow = Shadow(
+        color = Color(0xFF9E0E4E).copy(alpha = 0.5f),
+        offset = Offset(0f, 4f),
+        blurRadius = 8f
+    )
     Box(
         Modifier.fillMaxSize()
     ) {
@@ -566,30 +558,41 @@ private fun WelcomeTicketContent(
                 }
         )
 
-        if (permissionsGranted) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = layout.welcomeCubeBottom + 8.dp)
-                    .padding(horizontal = 28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Text(
-                    text = radioChannelTitle,
-                    color = Color.White,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 15.sp
-                )
-                Text(
-                    text = radioAiText,
-                    color = Color.White.copy(alpha = 0.92f),
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    maxLines = 2
-                )
-            }
+        // Prototype Welcome copy — replaces the old local-radio line.
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = layout.welcomeCubeBottom + 8.dp)
+                .padding(horizontal = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Welcome to Poplur!",
+                color = clayCream,
+                fontWeight = FontWeight.Black,
+                fontSize = 30.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                style = LocalTextStyle.current.copy(shadow = clayShadow)
+            )
+            Text(
+                text = "Post. Explore. Connect.\nExpand your world.",
+                color = clayCream,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 17.sp,
+                lineHeight = 24.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                style = LocalTextStyle.current.copy(shadow = clayShadow)
+            )
+            Text(
+                text = "Poplur AI is shaping tonight’s map for you…",
+                color = clayCream,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 13.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                maxLines = 2,
+                style = LocalTextStyle.current.copy(shadow = clayShadow)
+            )
         }
 
         Column(
@@ -631,31 +634,15 @@ private fun WelcomeShaderButton(
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(height / 2f)
-    var textWidthPx by remember { mutableFloatStateOf(1f) }
-    var textHeightPx by remember { mutableFloatStateOf(1f) }
-    val gradientWidthPx = textWidthPx * 3f
-    val gradientStartX = (textWidthPx - gradientWidthPx) * 0.48f
-    val textShader = Brush.linearGradient(
-        colorStops = arrayOf(
-            0f to Color(0xFF080207),
-            0.16f to Color(0xFF5B1238),
-            0.31f to Color(0xFFFF2D8A),
-            0.45f to Color(0xFF7A003E),
-            0.59f to Color(0xFF160711),
-            0.76f to Color(0xFFFF4D9E),
-            0.90f to Color(0xFF2A0A1D),
-            1f to Color(0xFF080207)
-        ),
-        start = Offset(gradientStartX, -textHeightPx * 0.7f),
-        end = Offset(gradientStartX + gradientWidthPx, textHeightPx * 1.7f),
-        tileMode = TileMode.Repeated
-    )
+    // Dark clay dough pill (prototype good-copy-welcome.html dark-mode `.cap-btn`): near-black
+    // body, a pink clay rim that reads as a glow, and solid pink pressed text.
+    val pinkRim = Color(0xFFF4459C)
     val density = LocalDensity.current
     val textShadow = with(density) {
         Shadow(
-            color = Color.Black.copy(alpha = 0.16f),
-            offset = Offset(0f, 1.dp.toPx()),
-            blurRadius = 1.dp.toPx()
+            color = Color(0xFF8E0F4C),
+            offset = Offset(0f, 2.5.dp.toPx()),
+            blurRadius = 2.dp.toPx()
         )
     }
 
@@ -670,64 +657,50 @@ private fun WelcomeShaderButton(
                 .fillMaxWidth()
                 .height(height)
                 .offset(y = shadowOffset)
-                .background(Color.Black, shape)
+                .background(Color(0xFF5A0228).copy(alpha = 0.55f), shape)
         )
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(shape)
                 .background(
-                    Brush.linearGradient(
+                    Brush.verticalGradient(
                         colors = listOf(
-                            Color.White,
-                            Color(0xFFFFEEF8),
-                            Color(0xFFE2E0E7)
+                            Color(0xFF322126),
+                            Color(0xFF241619),
+                            Color(0xFF16090D)
                         )
                     )
                 )
-                .border(1.dp, Color.Black.copy(alpha = 0.1f), shape),
+                .border(3.dp, pinkRim, shape),
             contentAlignment = Alignment.Center
         ) {
             Canvas(Modifier.matchParentSize()) {
+                // Soft top-left dough highlight (inset 0 3px 4px rgba(255,255,255,0.22)).
                 drawRoundRect(
                     brush = Brush.linearGradient(
-                        colors = listOf(Color.White.copy(alpha = 0.66f), Color.Transparent),
+                        colors = listOf(Color.White.copy(alpha = 0.18f), Color.Transparent),
                         start = Offset.Zero,
                         end = Offset(size.width * 0.72f, size.height * 0.72f)
                     ),
                     cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
                 )
+                // Pressed bottom shade (inset 0 -4px 7px rgba(0,0,0,0.5)).
                 drawRoundRect(
                     brush = Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.11f)),
-                        startY = size.height * 0.45f,
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)),
+                        startY = size.height * 0.5f,
                         endY = size.height
                     ),
                     cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
                 )
-                drawRoundRect(
-                    color = Color.White.copy(alpha = 0.58f),
-                    topLeft = Offset(8.dp.toPx(), 6.dp.toPx()),
-                    size = Size(
-                        width = size.width - 16.dp.toPx(),
-                        height = size.height - 12.dp.toPx()
-                    ),
-                    cornerRadius = CornerRadius((size.height - 12.dp.toPx()) / 2f),
-                    style = Stroke(width = 1.dp.toPx())
-                )
             }
             Text(
                 text = text,
-                modifier = Modifier.onSizeChanged {
-                    textWidthPx = it.width.toFloat().coerceAtLeast(1f)
-                    textHeightPx = it.height.toFloat().coerceAtLeast(1f)
-                },
+                color = pinkRim,
                 fontWeight = FontWeight.Black,
                 fontSize = textSize.sp,
-                style = LocalTextStyle.current.copy(
-                    brush = textShader,
-                    shadow = textShadow
-                )
+                style = LocalTextStyle.current.copy(shadow = textShadow)
             )
         }
     }
@@ -1542,7 +1515,6 @@ private fun validateSignup(
 
 @Composable
 private fun WelcomeBackdrop(
-    ticketBitmap: androidx.compose.ui.graphics.ImageBitmap?,
     modifier: Modifier = Modifier
 ) {
     val welcomePink = Color(0xFFFF2D96)
@@ -1563,7 +1535,9 @@ private fun WelcomeBackdrop(
         0f
     }
     val density = LocalDensity.current
-    val dotSpacingPx = with(density) { 8.5.dp.toPx() }
+    // Prototype good-copy-welcome.html `.pink` quilted texture presses a fine dot grid at a
+    // 10px tile across the whole pink field (not the old continent-clustered dots).
+    val dotSpacingPx = with(density) { 10.dp.toPx() }
     var backdropSize by remember { mutableStateOf(IntSize.Zero) }
     val worldDots = remember(backdropSize, dotSpacingPx) {
         buildWelcomeWorldMapDots(
@@ -1574,34 +1548,42 @@ private fun WelcomeBackdrop(
     }
 
     Box(modifier.background(welcomePink)) {
-        if (ticketBitmap != null) {
-            Image(
-                bitmap = ticketBitmap,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
+        // Static all-over quilted pressed-dot texture — matches the prototype's
+        // radial-gradient(rgba(214,16,108,0.38) 1.6px, transparent 2.2px) at a 10px tile.
+        // Drawn in its own Canvas so it is not re-rasterized every animation frame.
         Canvas(
             Modifier
                 .fillMaxSize()
                 .onSizeChanged { backdropSize = it }
         ) {
-            val brightRadius = 2.55.dp.toPx()
+            val pressedRadius = 1.6.dp.toPx()
+            val pressedColor = Color(0xFFD6106C).copy(alpha = 0.38f)
+            worldDots.forEach { dot ->
+                if (!dot.isBright) {
+                    drawCircle(
+                        color = pressedColor,
+                        radius = pressedRadius,
+                        center = Offset(dot.x, dot.y)
+                    )
+                }
+            }
+        }
 
+        // Sparse all-over living highlights — subtle, no longer continent-clustered.
+        Canvas(Modifier.fillMaxSize()) {
+            val brightRadius = 2.3.dp.toPx()
             worldDots.forEach { dot ->
                 if (dot.isBright) {
                     val wave = if (animationsEnabled) {
                         val phase = (pulseClock + dot.phase) % 1f
                         ((sin(phase * 2f * PI) + 1.0) * 0.5).toFloat()
                     } else {
-                        0.82f
+                        0.55f
                     }
                     val pulse = wave * wave
                     drawCircle(
-                        color = Color.White.copy(alpha = 0.56f + pulse * 0.44f),
-                        radius = brightRadius * (0.88f + pulse * 0.28f),
+                        color = Color.White.copy(alpha = 0.22f + pulse * 0.32f),
+                        radius = brightRadius * (0.85f + pulse * 0.3f),
                         center = Offset(dot.x, dot.y)
                     )
                 }
@@ -1636,16 +1618,11 @@ private fun buildWelcomeWorldMapDots(
             val x = (column + 0.5f) * spacing
             if (x >= width) continue
 
-            val normalizedX = x / width
-            val normalizedY = y / height
-            if (!WELCOME_WORLD_LANDMASSES.any { polygon ->
-                    polygonContains(normalizedX, normalizedY, polygon)
-                }
-            ) continue
-
-            // Stable, scattered highlights avoid the striped patterns produced by simpler
-            // row/column modulo rules while keeping the same dots bright on every launch.
-            val isBright = ((row * 73 + column * 151 + row * column * 19) % 41) < 4
+            // The prototype presses its dot texture across the entire pink field, so the grid
+            // is no longer gated to the WELCOME_WORLD_LANDMASSES continents (that produced the
+            // corner-clustered look). Every grid point becomes a pressed dot; a sparse, stable,
+            // scattered subset is promoted to a living highlight.
+            val isBright = ((row * 73 + column * 151 + row * column * 19) % 41) < 3
             val phaseHash = (row * 29 + column * 47 + row * column * 7) % 97
             dots += WelcomeWorldDot(
                 x = x,
