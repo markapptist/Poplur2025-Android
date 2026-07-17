@@ -171,7 +171,8 @@ internal fun WelcomeAuthScreenContent(
     var loading by remember { mutableStateOf(false) }
     var logoBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var welcomeLogoBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
-    
+    var welcomeTicketBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+
     LaunchedEffect(Unit) {
         logoBitmap = withContext(Dispatchers.IO) {
             runCatching {
@@ -181,6 +182,13 @@ internal fun WelcomeAuthScreenContent(
         welcomeLogoBitmap = withContext(Dispatchers.IO) {
             runCatching {
                 context.assets.open("welcome_logo.png").use {
+                    BitmapFactory.decodeStream(it).asImageBitmap()
+                }
+            }.getOrNull()
+        }
+        welcomeTicketBitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                context.assets.open("prelogin_ticket.png").use {
                     BitmapFactory.decodeStream(it).asImageBitmap()
                 }
             }.getOrNull()
@@ -332,6 +340,7 @@ internal fun WelcomeAuthScreenContent(
             Box(Modifier.fillMaxSize()) {
                 if (panel == AuthMode.Welcome) {
                     WelcomeBackdrop(
+                        ticketBitmap = welcomeTicketBitmap,
                         modifier = Modifier
                             .fillMaxSize()
                             .zIndex(1f)
@@ -1447,6 +1456,7 @@ private fun validateSignup(
 
 @Composable
 private fun WelcomeBackdrop(
+    ticketBitmap: androidx.compose.ui.graphics.ImageBitmap?,
     modifier: Modifier = Modifier
 ) {
     val welcomePink = Color(0xFFFF2D96)
@@ -1478,6 +1488,15 @@ private fun WelcomeBackdrop(
     }
 
     Box(modifier.background(welcomePink)) {
+        if (ticketBitmap != null) {
+            Image(
+                bitmap = ticketBitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         Canvas(
             Modifier
                 .fillMaxSize()
