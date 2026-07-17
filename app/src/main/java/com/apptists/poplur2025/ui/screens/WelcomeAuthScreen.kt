@@ -1,5 +1,7 @@
 package com.apptists.poplur2025.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInHorizontally
@@ -57,6 +59,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
@@ -69,6 +72,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.fragment.app.FragmentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.tooling.preview.Preview
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.data.AccountType
@@ -109,6 +115,13 @@ import dev.romainguy.kotlin.math.Float3
 import io.github.sceneview.SceneView
 import io.github.sceneview.node.ModelNode
 
+/**
+ * Vertical center of the native cube overlay on Welcome, as a fraction of screen height.
+ * PoplurRoot feeds this to PersistentCubeOverlay, and AuthLayoutMetrics.welcomeCubeBottom
+ * derives the cube's bottom edge from it so Compose content can sit under the cube.
+ */
+internal const val WELCOME_CUBE_CENTER_FROM_TOP_FRACTION = 0.4056f
+
 private tailrec fun android.content.Context.findFragmentActivity(): FragmentActivity? = when (this) {
     is FragmentActivity -> this
     is android.content.ContextWrapper -> baseContext.findFragmentActivity()
@@ -121,7 +134,8 @@ fun WelcomeAuthScreen(
     onLabelChange: (String) -> Unit = {},
     onBackAvailable: ((() -> Unit)?) -> Unit = {},
     onSignUpSuccess: () -> Unit = {},
-    preLoginMusic: com.apptists.poplur2025.ui.components.PreLoginMusicPlayer? = null
+    preLoginMusic: com.apptists.poplur2025.ui.components.PreLoginMusicPlayer? = null,
+    onWelcomePermissionsGranted: (Boolean) -> Unit = {}
 ) {
     WelcomeAuthScreenContent(
         onSignIn = { email, password, onResult ->
@@ -133,7 +147,8 @@ fun WelcomeAuthScreen(
         onLabelChange = onLabelChange,
         onBackAvailable = onBackAvailable,
         onSignUpSuccess = onSignUpSuccess,
-        preLoginMusic = preLoginMusic
+        preLoginMusic = preLoginMusic,
+        onWelcomePermissionsGranted = onWelcomePermissionsGranted
     )
 }
 
@@ -145,10 +160,25 @@ internal fun WelcomeAuthScreenContent(
     onLabelChange: (String) -> Unit = {},
     onBackAvailable: ((() -> Unit)?) -> Unit = {},
     onSignUpSuccess: () -> Unit = {},
-    preLoginMusic: com.apptists.poplur2025.ui.components.PreLoginMusicPlayer? = null
+    preLoginMusic: com.apptists.poplur2025.ui.components.PreLoginMusicPlayer? = null,
+    onWelcomePermissionsGranted: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val isPreview = LocalInspectionMode.current
     var mode by remember { mutableStateOf(initialMode) }
+    var welcomePermissionsGranted by rememberSaveable { mutableStateOf(isPreview) }
+    val welcomePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val cameraGranted = grants[Manifest.permission.CAMERA] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val locationGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        welcomePermissionsGranted = cameraGranted && locationGranted
+        onWelcomePermissionsGranted(welcomePermissionsGranted)
+    }
 
     // Stripe page-transition state
     val stripeVisible = remember { mutableStateOf(false) }
@@ -200,6 +230,30 @@ internal fun WelcomeAuthScreenContent(
             AuthMode.Welcome -> onLabelChange("poplur")
             AuthMode.Login -> onLabelChange("back")
             AuthMode.SignUp -> onLabelChange("back")
+        }
+    }
+
+    LaunchedEffect(mode, isPreview) {
+        if (mode != AuthMode.Welcome) return@LaunchedEffect
+        if (isPreview) {
+            welcomePermissionsGranted = true
+            onWelcomePermissionsGranted(true)
+            return@LaunchedEffect
+        }
+        val cameraGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val locationGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (cameraGranted && locationGranted) {
+            welcomePermissionsGranted = true
+            onWelcomePermissionsGranted(true)
+        } else {
+            welcomePermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
         }
     }
 
@@ -380,6 +434,9 @@ internal fun WelcomeAuthScreenContent(
                             layout = authLayout,
                             logoOffsetY = welcomeLogoOffsetY.value,
                             buttonsAlpha = buttonsAlpha.value,
+                            permissionsGranted = welcomePermissionsGranted,
+                            radioChannelTitle = preLoginMusic?.currentChannelTitle ?: "Local radio",
+                            radioAiText = preLoginMusic?.currentAIScript ?: "Poplur AI is mixing your local radio.",
                             onSignIn = { mode = AuthMode.Login },
                             onCreateAccount = { mode = AuthMode.SignUp }
                         )
@@ -489,7 +546,10 @@ private fun WelcomeTicketContent(
     onSignIn: () -> Unit,
     onCreateAccount: () -> Unit,
     logoOffsetY: Float = 0f,
-    buttonsAlpha: Float = 1f
+    buttonsAlpha: Float = 1f,
+    permissionsGranted: Boolean = false,
+    radioChannelTitle: String = "Local radio",
+    radioAiText: String = "Poplur AI is mixing your local radio."
 ) {
     Box(
         Modifier.fillMaxSize()
@@ -505,6 +565,32 @@ private fun WelcomeTicketContent(
                     translationY = logoOffsetY
                 }
         )
+
+        if (permissionsGranted) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = layout.welcomeCubeBottom + 8.dp)
+                    .padding(horizontal = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = radioChannelTitle,
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 15.sp
+                )
+                Text(
+                    text = radioAiText,
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    maxLines = 2
+                )
+            }
+        }
 
         Column(
             modifier = Modifier
@@ -1796,6 +1882,12 @@ private class AuthLayoutMetrics(screenWidth: Dp, screenHeight: Dp, mode: AuthMod
     val welcomeButtonTextSize = 22f * welcomeScale
     val welcomeButtonTop = screenHeight - (200.dp * welcomeScale) -
         (welcomeButtonHeight * 2f + welcomeButtonGap)
+    // Bottom edge of the native cube overlay, measured from the top of the screen. The cube is
+    // not a Compose child, so this mirrors the geometry MainActivity applies: a fixed
+    // CUBE_OVERLAY_SIZE_DP (200dp) square whose center sits at PoplurRoot's Welcome
+    // centerFromTopFraction (0.4056). Keep these three values in sync.
+    private val welcomeCubeSize = 200.dp
+    val welcomeCubeBottom = (screenHeight * WELCOME_CUBE_CENTER_FROM_TOP_FRACTION) + (welcomeCubeSize / 2f)
     val backButtonStart = (screenWidth * 0.068f).coerceIn(24.dp, 34.dp); val backButtonTop = (screenHeight * 0.073f).coerceIn(66.dp, 84.dp); val backButtonSize = (68.dp * scale).coerceIn(60.dp, 74.dp); val backIconSize = (38.dp * scale).coerceIn(34.dp, 42.dp)
     val formHorizontalInset = (screenWidth * 0.122f).coerceIn(44.dp, 58.dp); val loginLogoTop = (screenHeight * 0.202f).coerceIn(184.dp, 218.dp); val submitButtonHeight = (screenHeight * 0.102f).coerceIn(88.dp, 106.dp); val fieldGap = (screenHeight * 0.028f).coerceIn(22.dp, 30.dp); val fieldHeight = (58.dp * scale).coerceIn(52.dp, 64.dp)
     val submitButtonTop = (ticketTopInset + ticketHeight - submitButtonHeight - (ticketHeight * 0.075f)).safeCoerceIn(ticketTopInset + (ticketHeight * 0.68f), ticketTopInset + ticketHeight - submitButtonHeight - 34.dp)

@@ -1362,7 +1362,7 @@ fun PoplurRoot(
                 channelObjectPopToken = channelObjectPopToken,
                 modelAssetPathOverride = loginCubeAssetPath,
                 autoRotate = isWelcomeAuthScreen,
-                centerFromTopFraction = if (isWelcomeAuthScreen) 0.4056f else null
+                centerFromTopFraction = if (isWelcomeAuthScreen) WELCOME_CUBE_CENTER_FROM_TOP_FRACTION else null
             )
         }
 
