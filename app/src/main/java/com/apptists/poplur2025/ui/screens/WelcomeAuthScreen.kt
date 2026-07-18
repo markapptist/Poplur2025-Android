@@ -425,6 +425,9 @@ internal fun WelcomeAuthScreenContent(
                             layout = authLayout,
                             logoOffsetY = welcomeLogoOffsetY.value,
                             buttonsAlpha = buttonsAlpha.value,
+                            permissionsGranted = welcomePermissionsGranted,
+                            radioChannelTitle = preLoginMusic?.currentChannelTitle ?: "Local radio",
+                            radioAiText = preLoginMusic?.currentAIScript ?: "Poplur AI is mixing your local radio.",
                             onSignIn = { mode = AuthMode.Login },
                             onCreateAccount = { mode = AuthMode.SignUp }
                         )
@@ -534,7 +537,10 @@ private fun WelcomeTicketContent(
     onSignIn: () -> Unit,
     onCreateAccount: () -> Unit,
     logoOffsetY: Float = 0f,
-    buttonsAlpha: Float = 1f
+    buttonsAlpha: Float = 1f,
+    permissionsGranted: Boolean = false,
+    radioChannelTitle: String = "Local radio",
+    radioAiText: String = "Poplur AI is mixing your local radio."
 ) {
     // Cream extruded clay type from the prototype good-copy-welcome.html `.clayText` layers.
     val clayCream = Color(0xFFF8EFDC)
@@ -558,10 +564,8 @@ private fun WelcomeTicketContent(
                 }
         )
 
-        // Prototype Welcome copy — replaces the old local-radio line. Full-width column so the
-        // AI status caption (good-copy-welcome.html `.aiText`, width 84% centered) renders as a
-        // centered full-width line below the tagline instead of clipping — mirrors iOS's
-        // AuthConfettiBackground copy VStack `.frame(maxWidth: .infinity)`.
+        // Prototype Welcome copy. Once the Welcome permission gate is complete, the static AI
+        // teaser becomes the live local-radio channel and Poplur AI host status used by Map.
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -588,15 +592,36 @@ private fun WelcomeTicketContent(
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 style = LocalTextStyle.current.copy(shadow = clayShadow)
             )
-            Text(
-                text = "Poplur AI is shaping tonight’s map for you…",
-                color = clayCream,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 13.sp,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                maxLines = 2,
-                style = LocalTextStyle.current.copy(shadow = clayShadow)
-            )
+            if (permissionsGranted) {
+                Text(
+                    text = radioChannelTitle,
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 15.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    style = LocalTextStyle.current.copy(shadow = clayShadow)
+                )
+                Text(
+                    text = radioAiText,
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    maxLines = 2,
+                    modifier = Modifier.padding(horizontal = 34.dp),
+                    style = LocalTextStyle.current.copy(shadow = clayShadow)
+                )
+            } else {
+                Text(
+                    text = "Poplur AI is shaping tonight’s map for you…",
+                    color = clayCream,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 13.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    maxLines = 2,
+                    style = LocalTextStyle.current.copy(shadow = clayShadow)
+                )
+            }
         }
 
         Column(

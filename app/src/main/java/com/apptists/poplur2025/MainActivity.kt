@@ -364,6 +364,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                 val screenHeight = resources.displayMetrics.heightPixels
                 topMargin = (
                     screenHeight * centerFromTopFraction.coerceIn(0f, 1f) - overlaySize / 2f
+                    - (config?.verticalLiftDp ?: 0f) * density
                 ).roundToInt()
             } else {
                 gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL

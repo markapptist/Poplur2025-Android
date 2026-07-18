@@ -253,6 +253,7 @@ fun PoplurRoot(
     var isCubeSurfaceReady by remember { mutableStateOf(false) }
     var isCubeFirstFrameReady by remember { mutableStateOf(false) }
     var authCubeLabel by remember { mutableStateOf("poplur") }
+    var welcomePermissionsGranted by rememberSaveable { mutableStateOf(false) }
     var authBackAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var profileCubeCommandId by remember { mutableIntStateOf(0) }
     var profileCubeMenuCommand by remember { mutableStateOf<ProfileCubeMenuCommand?>(null) }
@@ -1180,6 +1181,7 @@ fun PoplurRoot(
                 WelcomeAuthScreen(
                     authViewModel = authViewModel,
                     onLabelChange = { authCubeLabel = it },
+                    onWelcomePermissionsGranted = { granted -> welcomePermissionsGranted = granted },
                     onBackAvailable = { authBackAction = it },
                     onSignUpSuccess = {
                         isNewSignUp = true
@@ -1325,10 +1327,13 @@ fun PoplurRoot(
 
         if (isCubeSurfaceReady) {
             val isWelcomeAuthScreen = isSignedIn == false && authCubeLabel == "poplur"
-            val loginCubeAssetPath = if (isSignedIn != true) {
-                LOGIN_CUBE_ASSET_PATH
-            } else {
-                null
+            // Welcome is the approved GCL pre-login prototype and uses the
+            // shared claymap cube. Keep the legacy equal-faces cube only for
+            // the other signed-out routes that still use the login treatment.
+            val loginCubeAssetPath = when {
+                isWelcomeAuthScreen -> "claymap/poplur_clay_cube.glb"
+                isSignedIn != true -> LOGIN_CUBE_ASSET_PATH
+                else -> null
             }
             val displayTabIndex = when {
                 isWelcomeAuthScreen -> 0 // LOGIN_CUBE face 0 is the canonical FORWARD artwork.
@@ -1362,7 +1367,8 @@ fun PoplurRoot(
                 channelObjectPopToken = channelObjectPopToken,
                 modelAssetPathOverride = loginCubeAssetPath,
                 autoRotate = isWelcomeAuthScreen,
-                centerFromTopFraction = if (isWelcomeAuthScreen) WELCOME_CUBE_CENTER_FROM_TOP_FRACTION else null
+                centerFromTopFraction = if (isWelcomeAuthScreen) WELCOME_CUBE_CENTER_FROM_TOP_FRACTION else null,
+                verticalLiftDp = if (isWelcomeAuthScreen && welcomePermissionsGranted) 24f else 0f
             )
         }
 
