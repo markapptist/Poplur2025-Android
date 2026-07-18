@@ -4,7 +4,6 @@ import android.app.Application
 import coil.Coil
 import coil.ImageLoader
 import com.apptists.poplur2025.ads.AdManager
-import com.apptists.poplur2025.ui.AppIconThemeManager
 import com.apptists.poplur2025.wear.WearRadiusSync
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
@@ -16,7 +15,6 @@ import okhttp3.OkHttpClient
 class PoplurApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        AppIconThemeManager.ensureExplicitLaunchAliasEnabled(this)
         FirebaseApp.initializeApp(this)
         FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
             if (BuildConfig.DEBUG) {

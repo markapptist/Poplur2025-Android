@@ -32,7 +32,6 @@ import com.apptists.poplur2025.R
 import com.apptists.poplur2025.data.FeedAdProbability
 import com.apptists.poplur2025.data.FeedAdProbabilityConfig
 import com.apptists.poplur2025.data.PoplurLanguage
-import com.apptists.poplur2025.ui.AppIconThemeManager
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.SoftPink
 import com.apptists.poplur2025.ui.appIconResId
@@ -190,7 +189,6 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f)
                     ) {
                         onCubeSkinChange(skin)
-                        runCatching { AppIconThemeManager.apply(ctx, skin) }
                     }
                 }
             }
