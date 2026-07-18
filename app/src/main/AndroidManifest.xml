@@ -67,6 +67,15 @@
             android:theme="@style/Theme.Poplur"
             android:screenOrientation="portrait" />
 
+        <!-- Pre-login web-embed host (Phase 1) — the approved prototype splash + welcome,
+             offline-hardened, rendered in a WebView (assets/prelogin). Replaces the native
+             WelcomeAuthScreen host as the pre-login entry until auth completes. -->
+        <activity
+            android:name=".PreloginWebActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Poplur.PreloginWeb"
+            android:screenOrientation="portrait" />
+
         <!-- Clay web map (Phase 1 embed) — the Mapbox GL JS clay map from
              poplur-clay-map running in a WebView, same bundle as iOS -->
         <activity

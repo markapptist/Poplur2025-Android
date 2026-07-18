@@ -10,6 +10,16 @@
         <item name="android:windowBackground">@drawable/launch_screen</item>
     </style>
 
+    <!-- Pre-login web-embed host: true NoActionBar (no "Poplur" title bar), dark chrome so the
+         WebView splash/welcome own the whole screen with no leftover system chrome. -->
+    <style name="Theme.Poplur.PreloginWeb" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@drawable/launch_screen</item>
+        <item name="android:colorBackground">#0A0709</item>
+        <item name="android:statusBarColor">#0A0709</item>
+        <item name="android:navigationBarColor">#0A0709</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
     <style name="Theme.Poplur.SplashScreen" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#0A0709</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/splash_transparent_icon</item>

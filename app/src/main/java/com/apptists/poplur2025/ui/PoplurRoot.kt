@@ -102,6 +102,7 @@ import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.data.businessProfileOrNull
 import com.apptists.poplur2025.data.poplurAccountType
 import com.apptists.poplur2025.PoplurVolumeEvents
+import com.apptists.poplur2025.PreloginWebActivity
 import com.apptists.poplur2025.ui.screens.*
 import com.apptists.poplur2025.ui.components.CubeMenuWheelController
 import com.apptists.poplur2025.ui.components.CubeMenuWheelItem
@@ -133,6 +134,21 @@ private const val PROFILE_AVATAR_3D_DEFAULT_PREF = "profile_avatar_3d_default_ap
 private const val VOLUME_OVERLAY_MIN_RETRIGGER_MS = 900L
 private const val VOLUME_OVERLAY_FAST_UPDATE_MS = 220L
 private const val VOLUME_CHANGE_EPSILON = 0.005f
+
+/**
+ * Pre-login entry: launches the approved prototype web screens (PreloginWebActivity) as a
+ * full-screen gate. It finishes itself when auth completes (bridge -> AuthViewModel -> Firebase),
+ * at which point PoplurRoot recomposes into the signed-in content. A dark placeholder sits behind
+ * it so there is no colour flash while the activity comes up.
+ */
+@Composable
+private fun PreloginWebHost() {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        context.startActivity(Intent(context, PreloginWebActivity::class.java))
+    }
+    Box(Modifier.fillMaxSize().background(Color(0xFF0A0709)))
+}
 
 @Composable
 fun PoplurRoot(
@@ -1171,19 +1187,11 @@ fun PoplurRoot(
     Box(Modifier.fillMaxSize()) {
         if (!showAppInitializationCover) {
             if (isSignedIn == false) {
-                // Signed Out
-                WelcomeAuthScreen(
-                    authViewModel = authViewModel,
-                    onLabelChange = { authCubeLabel = it },
-                    onWelcomePermissionsGranted = { granted -> welcomePermissionsGranted = granted },
-                    onBackAvailable = { authBackAction = it },
-                    onSignUpSuccess = {
-                        isNewSignUp = true
-                        rootStripeMidpoint = null
-                        rootStripeVisible = true
-                    },
-                    preLoginMusic = preLoginMusic
-                )
+                // Signed Out — pre-login now renders the approved prototype web screens
+                // (PreloginWebActivity, assets/prelogin) instead of the native remake. The native
+                // WelcomeAuthScreen host is intentionally left in place but unused (removal is a
+                // later cleanup); revert by restoring the WelcomeAuthScreen(...) call here.
+                PreloginWebHost()
             } else if (isSignedIn == true) {
                 // Signed In
                 Box(Modifier.fillMaxSize().zIndex(0f)) {
