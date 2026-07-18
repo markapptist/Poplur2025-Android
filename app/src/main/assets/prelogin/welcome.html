@@ -1073,6 +1073,19 @@
     function goBack() { setPane(BACK_FROM[paneIndex] != null ? BACK_FROM[paneIndex] : 0) }
     if (window.__poplurCubeOnBack) window.__poplurCubeOnBack(goBack)
     setPane(0)
+    // ── Phase-2 native bridge ─────────────────────────────────────────────
+    // The web flow is self-navigating; these calls signal the Android WebView
+    // host (window.PoplurNative.onAction(action, payloadJSON)) at the defined
+    // boundaries. Action set: signIn, signUp, requestPermission (kind
+    // camera|location), complete. Real auth + OS permission prompts are Phase-3
+    // native stubs — these calls only signal, they never fake success.
+    function poplurBridge(action, payload) {
+      try {
+        if (window.PoplurNative && typeof window.PoplurNative.onAction === 'function') {
+          window.PoplurNative.onAction(action, JSON.stringify(payload || {}))
+        }
+      } catch (e) {}
+    }
     document.getElementById('btnSignIn').addEventListener('click', function () { setPane(1) })
     document.getElementById('btnSignUp').addEventListener('click', function () { setPane(2) })
     panes.forEach(function (pane) {
@@ -1102,17 +1115,31 @@
     document.querySelector('#paneSignIn .paneBtn').addEventListener('click', function () {
       var email = document.querySelector('#paneSignIn .fieldMail').value.trim()
       var pass = document.querySelector('#paneSignIn .fieldPass').value
-      if (/.+@.+\..+/.test(email) && pass.length >= 4) cubeSuccess()
-      else signupError('That login doesn’t look right — check your email and password.')
+      if (/.+@.+\..+/.test(email) && pass.length >= 4) {
+        cubeSuccess()
+        poplurBridge('signIn', { email: email, password: pass })
+        poplurBridge('complete', { via: 'signIn' })
+      } else signupError('That login doesn’t look right — check your email and password.')
     })
     // Face ID sign-in: the simulated scan succeeds straight away.
-    document.getElementById('faceIdBtn').addEventListener('click', cubeSuccess)
+    document.getElementById('faceIdBtn').addEventListener('click', function () {
+      cubeSuccess()
+      poplurBridge('signIn', { method: 'faceId' })
+      poplurBridge('complete', { via: 'faceId' })
+    })
     // ── Multi-step sign-up: Choose Account → Create login → (business only:
     // Business profile → Verify → Review → Submit). Personal finishes after
     // Create login. Every step is a native pane matching the initial page. ──
     function isBusiness() { return document.querySelector('.acctB').classList.contains('on') }
     function finishSignup(message) {
       cubeSuccess()
+      var suEmail = '', suPass = ''
+      try {
+        suEmail = (document.querySelector('#paneCreateLogin input[type="email"]') || {}).value || ''
+        suPass = (document.querySelector('#paneCreateLogin input[type="password"]') || {}).value || ''
+      } catch (e) {}
+      poplurBridge('signUp', { email: suEmail.trim(), password: suPass, accountType: isBusiness() ? 'business' : 'personal' })
+      poplurBridge('complete', { via: 'signUp' })
       if (window.__poplurShowAlert) window.__poplurShowAlert(message, 'Nice!')
       setTimeout(function () { setPane(0) }, 1400)
     }
@@ -1352,13 +1379,19 @@
       setTimeout(function () { showPermission(permLocation) }, 3400)
       permLocation.querySelectorAll('.permission-action').forEach(function (btn) {
         btn.addEventListener('click', function () {
-          if (btn.dataset.permission !== 'location-deny') allowedAny = true
+          if (btn.dataset.permission !== 'location-deny') {
+            allowedAny = true
+            poplurBridge('requestPermission', { kind: 'location', choice: btn.dataset.permission })
+          }
           showPermission(permCamera)
         })
       })
       permCamera.querySelectorAll('.permission-action').forEach(function (btn) {
         btn.addEventListener('click', function () {
-          if (btn.dataset.permission === 'allow') allowedAny = true
+          if (btn.dataset.permission === 'allow') {
+            allowedAny = true
+            poplurBridge('requestPermission', { kind: 'camera', choice: btn.dataset.permission })
+          }
           sessionStorage.setItem('poplurWelcomePerms', '1')
           closePermissions()
           if (allowedAny) setAudio(true)
@@ -1371,13 +1404,51 @@
 <script type="module">
 import * as THREE from "three";
 import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
+import {DRACOLoader} from "three/addons/loaders/DRACOLoader.js";
 
 const loader = new GLTFLoader();
+// Phase-2 pre-login models are Draco-compressed (KHR_draco_mesh_compression) with
+// webp textures. Wire a DRACOLoader so GLTFLoader can decode them; the wasm
+// decoder is bundled offline next to three (zero network refs).
+const __poplurDraco = new DRACOLoader();
+__poplurDraco.setDecoderPath("/poplur-clay-map/node_modules/three/examples/jsm/libs/draco/gltf/");
+loader.setDRACOLoader(__poplurDraco);
+
+// Phase-2 bundled-build hardening (mirrors the iOS b3e0e9f fix). WebGL may be
+// unavailable (emulator software GPU, WebView GPU-context loss). Constructing a
+// THREE.WebGLRenderer would throw, and an uncaught module error blanks the whole
+// WebView. Feature-detect once up front; if WebGL is missing, skip every three.js
+// renderer, reveal the intro on schedule, and drop in a static 2D clay-cube image
+// so the hero cube still looks present (there is no CSS cube in the source).
+const POPLUR_WEBGL_OK = (function () {
+  try {
+    var c = document.createElement('canvas');
+    return !!(window.WebGLRenderingContext &&
+      (c.getContext('webgl2') || c.getContext('webgl') || c.getContext('experimental-webgl')));
+  } catch (e) { return false; }
+})();
+function poplurShowCube2D() {
+  var st = document.getElementById('lcubeStage');
+  if (!st || st.querySelector('.cube2D')) return;
+  var img = new Image();
+  img.className = 'cube2D';
+  img.setAttribute('aria-hidden', 'true');
+  img.src = '/poplur-clay-map/public/clay_cube.png';
+  img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;filter:drop-shadow(0 10px 14px rgba(80,0,40,.35))';
+  st.appendChild(img);
+}
+if (!POPLUR_WEBGL_OK) {
+  poplurShowCube2D();
+  if (window.__poplurCubeGLReady) { try { window.__poplurCubeGLReady(); } catch (e) {} }
+}
 
 // ── Sign-up account icons — the approved flow's live 3D renderer, ported ──
-document.querySelectorAll("canvas[data-account-model]").forEach(canvas => {
+if (POPLUR_WEBGL_OK) document.querySelectorAll("canvas[data-account-model]").forEach(canvas => {
   // preserveDrawingBuffer so we can snapshot the single frame to an image.
-  const renderer = new THREE.WebGLRenderer({canvas, alpha:true, antialias:true, powerPreference:"low-power", preserveDrawingBuffer:true});
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({canvas, alpha:true, antialias:true, powerPreference:"low-power", preserveDrawingBuffer:true});
+  } catch (e) { canvas.closest(".account-3d-icon")?.classList.add("model-error"); return; }
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(84, 84, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1418,7 +1489,21 @@ document.querySelectorAll("canvas[data-account-model]").forEach(canvas => {
   const stage = document.getElementById("lcubeStage");
   const canvas = document.getElementById("cubeGL");
   if (!stage || !canvas) return;
-  const renderer = new THREE.WebGLRenderer({canvas, alpha:true, antialias:true});
+  // No WebGL: show the static 2D clay cube instead of the (black) canvas and
+  // still fire the intro-ready hook so the copy reveals on schedule.
+  if (!POPLUR_WEBGL_OK) {
+    poplurShowCube2D();
+    if (window.__poplurCubeGLReady) { try { window.__poplurCubeGLReady(); } catch (e) {} }
+    return;
+  }
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({canvas, alpha:true, antialias:true});
+  } catch (e) {
+    poplurShowCube2D();
+    if (window.__poplurCubeGLReady) { try { window.__poplurCubeGLReady(); } catch (e2) {} }
+    return;
+  }
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(254, 254, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1450,6 +1535,11 @@ document.querySelectorAll("canvas[data-account-model]").forEach(canvas => {
       renderer.render(scene, camera);
     };
     draw();
+  }, undefined, () => {
+    // Model missing or failed to decode: keep the hero cube present with the
+    // static 2D clay-cube image instead of an empty stage.
+    poplurShowCube2D();
+    if (window.__poplurCubeGLReady) { try { window.__poplurCubeGLReady(); } catch (e) {} }
   });
 })();
 </script>

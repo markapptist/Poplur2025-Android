@@ -57,8 +57,18 @@ class PreloginWebActivity : ComponentActivity() {
         window.statusBarColor = splashBg
         window.navigationBarColor = splashBg
 
+        // Serve the bundled screens (/assets/prelogin/*.html) plus the mirrored
+        // asset tree the screens reference by absolute path — three.js + the Draco
+        // decoder under /poplur-clay-map/node_modules/…, the compressed 3D models,
+        // the 2D clay-cube fallback, audio, video and logo under
+        // /poplur-clay-map/public/… and /Poplur2025-iOS/Poplur2025/…. The mirror
+        // lives under assets/ at those exact paths, so a catch-all "/" handler
+        // (registered AFTER "/assets/", which is matched first) resolves each
+        // request 1:1 with zero network calls. This is why the bundle stays
+        // fully offline (grep -c http on welcome.html == 0).
         val assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .addPathHandler("/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
 
         webView = WebView(this).apply {
@@ -99,9 +109,21 @@ class PreloginWebActivity : ComponentActivity() {
 
     inner class Bridge {
         /**
-         * @param action  "signIn" | "signUp" | future flow actions.
-         * @param payload JSON string, e.g. {"email":"..","password":".."}. May be empty/non-JSON
-         *                until the web forms are wired to post credentials.
+         * The finalized Phase-2 bridge schema. The self-navigating web flow calls
+         * window.PoplurNative.onAction(action, payloadJson) at these boundaries:
+         *
+         *   action              payload                              Phase-2 handling
+         *   ------------------  -----------------------------------  ----------------------------------
+         *   signIn              {email,password} | {method:"faceId"} real auth if creds → finish; else log
+         *   signUp              {email,password,accountType}         real auth if creds → finish; else log
+         *   requestPermission   {kind:"camera"|"location", choice}   log only (Phase-3 real OS prompt)
+         *   complete            {via}                                hand off to signed-in path (finish
+         *                                                            once authenticated)
+         *
+         * Phase-3 stubs must never fake success: requestPermission does not grant, and signIn/signUp
+         * without real credentials only log — they do not sign the user in.
+         *
+         * @param payload JSON string; may be empty/non-JSON.
          */
         @JavascriptInterface
         fun onAction(action: String, payload: String?) {
@@ -109,6 +131,7 @@ class PreloginWebActivity : ComponentActivity() {
             val json = runCatching { JSONObject(payload ?: "") }.getOrNull()
             val email = json?.optString("email")?.takeIf { it.isNotBlank() }
             val password = json?.optString("password")?.takeIf { it.isNotBlank() }
+            val kind = json?.optString("kind")?.takeIf { it.isNotBlank() }
 
             when (action) {
                 "signIn" -> {
@@ -139,8 +162,26 @@ class PreloginWebActivity : ComponentActivity() {
                         Log.w(TAG, "signUp without credentials — TODO Phase 3 wiring, ignoring")
                     }
                 }
+                "requestPermission" -> {
+                    // Phase 3: raise the real Android runtime permission dialog for `kind`
+                    // (camera/location) and reflect the OS result back into the web. Phase 2 logs
+                    // only — it must NOT fake a grant.
+                    Log.i(TAG, "requestPermission kind=$kind — TODO Phase 3 real OS prompt, not granted")
+                }
+                "complete" -> {
+                    // Flow completion → hand off to the signed-in path. The activity only exits once
+                    // auth has actually succeeded (isSignedIn == true), so PoplurRoot recomposes into
+                    // the signed-in content instead of stranding on the dark placeholder. When the
+                    // flow completes before real auth (Phase-2 stubs), stay put — no faked handoff.
+                    val signedIn = authViewModel.isSignedIn.value == true
+                    if (signedIn) {
+                        runOnUiThread { finish() }
+                    } else {
+                        Log.i(TAG, "complete before auth — staying on pre-login (signIn/signUp finishes on real success)")
+                    }
+                }
                 else -> {
-                    // TODO Phase 3: permission prompts, Face ID, in-web navigation boundaries.
+                    // TODO Phase 3: Face ID, in-web navigation boundaries, openSettings.
                     Log.i(TAG, "unhandled bridge action=$action — TODO Phase 3")
                 }
             }
