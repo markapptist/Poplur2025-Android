@@ -73,9 +73,11 @@ class ConfettiAnimationAdapter : ApplicationAdapter() {
 
     private fun populateInitialPieces() {
         pieces.clear()
-        // Dense sprinkle to match iOS's confetti. The old lag came from per-frame ModelInstance
-        // allocation (now cached below), so a higher count is safe.
-        repeat(180) {
+        // Dense sprinkle to match the prototype/iOS confetti. iOS emits ~189 particles (birthRate 45
+        // x lifetime 4.2) across logical points; this GL surface renders in physical pixels (~3.5x the
+        // area on the A03s), so parity needs a proportionally higher count. The old lag came from
+        // per-frame ModelInstance allocation (now cached below), so a higher count is safe.
+        repeat(520) {
             pieces += ConfettiPiece().apply {
                 reset(fullScreen = true)
             }
@@ -107,9 +109,9 @@ class ConfettiAnimationAdapter : ApplicationAdapter() {
         // Light continuous sprinkle — was 1000/sec up to a cap of 2500, which (combined with
         // per-frame ModelInstance allocation) is what made this screen lag.
         spawnTimer += delta
-        val spawnInterval = 1f / 70f // ~70 particles/sec — dense continuous sprinkle like iOS
+        val spawnInterval = 1f / 180f // ~180 particles/sec — dense continuous sprinkle matching the prototype
         while (spawnTimer > spawnInterval) {
-            if (pieces.size < 350) { // cached ModelInstances make this cheap
+            if (pieces.size < 700) { // cached ModelInstances make this cheap
                 pieces += ConfettiPiece().apply { reset(fullScreen = false) }
             }
             spawnTimer -= spawnInterval

@@ -558,10 +558,14 @@ private fun WelcomeTicketContent(
                 }
         )
 
-        // Prototype Welcome copy — replaces the old local-radio line.
+        // Prototype Welcome copy — replaces the old local-radio line. Full-width column so the
+        // AI status caption (good-copy-welcome.html `.aiText`, width 84% centered) renders as a
+        // centered full-width line below the tagline instead of clipping — mirrors iOS's
+        // AuthConfettiBackground copy VStack `.frame(maxWidth: .infinity)`.
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
+                .fillMaxWidth()
                 .padding(top = layout.welcomeCubeBottom + 8.dp)
                 .padding(horizontal = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -1857,7 +1861,12 @@ private class AuthLayoutMetrics(screenWidth: Dp, screenHeight: Dp, mode: AuthMod
     val welcomeButtonGap = 28.dp * welcomeScale
     val welcomeButtonShadowOffset = 6.dp * welcomeScale
     val welcomeButtonTextSize = 22f * welcomeScale
-    val welcomeButtonTop = screenHeight - (200.dp * welcomeScale) -
+    // Buttons anchor to the BOTTOM like the prototype `.btns { bottom: clamp(88px, 12vh, 132px) }`
+    // (good-copy-welcome.html) and iOS's Sign Up center at 635/845. The previous 200dp bottom
+    // margin pushed the pills up into the tagline/status copy; a 12vh clamp keeps them low with
+    // clear space above the copy on every height.
+    private val welcomeButtonBottomMargin = (screenHeight * 0.12f).coerceIn(88.dp, 132.dp)
+    val welcomeButtonTop = screenHeight - welcomeButtonBottomMargin -
         (welcomeButtonHeight * 2f + welcomeButtonGap)
     // Bottom edge of the native cube overlay, measured from the top of the screen. The cube is
     // not a Compose child, so this mirrors the geometry MainActivity applies: a fixed
