@@ -35,12 +35,17 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
+    // FragmentContainerView (used by MainActivity to host the libGDX globe) needs fragment 1.2.0+;
+    // wear only pulled 1.1.0 transitively. Pin to 1.7.1 to match the app module.
+    implementation("androidx.fragment:fragment:1.7.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // LibGDX
     implementation("com.badlogicgames.gdx:gdx:1.13.1")
     implementation("com.badlogicgames.gdx:gdx-backend-android:1.13.1")
     implementation("com.badlogicgames.gdx:gdx-bullet:1.13.1")
+    // glTF loader + PBR renderer — loads the real Poplur clay globe .glb
+    implementation("com.github.mgsx-dev.gdx-gltf:gltf:2.2.1")
     "natives"("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-armeabi-v7a")
     "natives"("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-arm64-v8a")
     "natives"("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-x86")
