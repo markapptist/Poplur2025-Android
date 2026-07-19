@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><style>:root{color-scheme:dark}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#0a0709;color:#fff2f8}img{max-width:100%}</style><script>document.documentElement.dataset.theme="dark";document.documentElement.style.colorScheme="dark";</script></head><body>
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,interactive-widget=resizes-content"><meta name="color-scheme" content="dark"><style>:root{color-scheme:dark}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#0a0709;color:#fff2f8}img{max-width:100%}</style><script>document.documentElement.dataset.theme="dark";document.documentElement.style.colorScheme="dark";</script></head><body>
 <title>Poplur &#8212; Welcome</title>
 <!-- Canonical Claude artifact 4d731082, adapted only to remove artifact/phone chrome inside Good Copy. -->
 <style>
@@ -1079,12 +1079,18 @@
     // boundaries. Action set: signIn, signUp, requestPermission (kind
     // camera|location), complete. Real auth + OS permission prompts are Phase-3
     // native stubs — these calls only signal, they never fake success.
+    // Returns true when the message actually reached the native host, so callers
+    // can DEFER the success gesture until native posts window.poplurAuthResult
+    // (real Firebase outcome). Returns false in a plain browser (no host), where
+    // the flow falls back to an optimistic local success.
     function poplurBridge(action, payload) {
       try {
         if (window.PoplurNative && typeof window.PoplurNative.onAction === 'function') {
           window.PoplurNative.onAction(action, JSON.stringify(payload || {}))
+          return true
         }
       } catch (e) {}
+      return false
     }
     document.getElementById('btnSignIn').addEventListener('click', function () { setPane(1) })
     document.getElementById('btnSignUp').addEventListener('click', function () { setPane(2) })
@@ -1116,32 +1122,41 @@
       var email = document.querySelector('#paneSignIn .fieldMail').value.trim()
       var pass = document.querySelector('#paneSignIn .fieldPass').value
       if (/.+@.+\..+/.test(email) && pass.length >= 4) {
-        cubeSuccess()
-        poplurBridge('signIn', { email: email, password: pass })
-        poplurBridge('complete', { via: 'signIn' })
+        // Defer the success gesture to the real Firebase outcome (window.poplurAuthResult).
+        // Only fall back to an optimistic success when there is no native host.
+        if (!poplurBridge('signIn', { email: email, password: pass })) cubeSuccess()
       } else signupError('That login doesn’t look right — check your email and password.')
     })
-    // Face ID sign-in: the simulated scan succeeds straight away.
+    // Face ID sign-in: a simulated scan (real biometrics are Phase 3), succeeds visually.
     document.getElementById('faceIdBtn').addEventListener('click', function () {
       cubeSuccess()
       poplurBridge('signIn', { method: 'faceId' })
-      poplurBridge('complete', { via: 'faceId' })
     })
     // ── Multi-step sign-up: Choose Account → Create login → (business only:
     // Business profile → Verify → Review → Submit). Personal finishes after
     // Create login. Every step is a native pane matching the initial page. ──
     function isBusiness() { return document.querySelector('.acctB').classList.contains('on') }
     function finishSignup(message) {
-      cubeSuccess()
       var suEmail = '', suPass = ''
       try {
         suEmail = (document.querySelector('#paneCreateLogin input[type="email"]') || {}).value || ''
         suPass = (document.querySelector('#paneCreateLogin input[type="password"]') || {}).value || ''
       } catch (e) {}
-      poplurBridge('signUp', { email: suEmail.trim(), password: suPass, accountType: isBusiness() ? 'business' : 'personal' })
-      poplurBridge('complete', { via: 'signUp' })
-      if (window.__poplurShowAlert) window.__poplurShowAlert(message, 'Nice!')
-      setTimeout(function () { setPane(0) }, 1400)
+      var posted = poplurBridge('signUp', { email: suEmail.trim(), password: suPass, accountType: isBusiness() ? 'business' : 'personal' })
+      // With a native host the account is created for real; the success gesture and
+      // exit are driven by window.poplurAuthResult. Without a host, show it locally.
+      if (!posted) {
+        cubeSuccess()
+        if (window.__poplurShowAlert) window.__poplurShowAlert(message, 'Nice!')
+        setTimeout(function () { setPane(0) }, 1400)
+      }
+    }
+    // Native → web: the real Firebase sign-in/up outcome. Success → the cube's
+    // success gesture (native is already leaving pre-login); failure → the approved
+    // error banner + cube shake, so a bad login is honestly reflected.
+    window.poplurAuthResult = function (res) {
+      if (res && res.ok) cubeSuccess()
+      else signupError((res && res.error) || 'Something went wrong. Please try again.')
     }
     // Choose Account → Create login
     document.querySelector('#paneSignUp .paneBtn').addEventListener('click', function () { setPane(3) })

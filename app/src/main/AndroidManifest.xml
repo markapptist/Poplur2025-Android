@@ -74,6 +74,7 @@
             android:name=".PreloginWebActivity"
             android:exported="false"
             android:theme="@style/Theme.Poplur.PreloginWeb"
+            android:windowSoftInputMode="adjustResize"
             android:screenOrientation="portrait" />
 
         <!-- Clay web map (Phase 1 embed) — the Mapbox GL JS clay map from
