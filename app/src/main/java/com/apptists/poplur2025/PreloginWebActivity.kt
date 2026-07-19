@@ -192,7 +192,7 @@ class PreloginWebActivity : ComponentActivity() {
                         runOnUiThread {
                             authViewModel.signIn(email, password) { ok, err ->
                                 Log.i(TAG, "signIn result ok=$ok err=$err")
-                                if (ok) finish() else postAuthResult(false, err)
+                                if (ok) showLoadingThenFinish() else postAuthResult(false, err)
                             }
                         }
                     } else {
@@ -204,7 +204,7 @@ class PreloginWebActivity : ComponentActivity() {
                         runOnUiThread {
                             authViewModel.signUp(email, password) { ok, err ->
                                 Log.i(TAG, "signUp result ok=$ok err=$err")
-                                if (ok) finish() else postAuthResult(false, err)
+                                if (ok) showLoadingThenFinish() else postAuthResult(false, err)
                             }
                         }
                     } else {
@@ -229,6 +229,20 @@ class PreloginWebActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * On real auth success, show the APPROVED web Loading screen (clay globe) over
+     * the pre-login for a beat before finishing to the native home — the Phase 3
+     * post-login load screen, matching iOS. The auth-state listener has already
+     * flipped isSignedIn, so the home is warming up behind this Activity; finishing
+     * reveals it. (Android keeps its native home; only the load screen is web here.)
+     */
+    private fun showLoadingThenFinish() {
+        webView.setBackgroundColor(splashBg)
+        window.statusBarColor = splashBg
+        webView.loadUrl("$origin/loading.html?embed=Loading")
+        webView.postDelayed({ if (!isFinishing) finish() }, LOADING_HOLD_MS)
+    }
+
     override fun onDestroy() {
         hideVolumeRunnable?.let { webView.removeCallbacks(it) }
         webView.destroy()
@@ -239,5 +253,6 @@ class PreloginWebActivity : ComponentActivity() {
         const val TAG = "PreloginWeb"
         const val SPLASH_DELAY_MS = 3200L
         const val VOLUME_HIDE_MS = 1500L
+        const val LOADING_HOLD_MS = 3500L
     }
 }
