@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.PerspectiveCamera
 import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.math.Vector3
+import com.badlogic.gdx.math.collision.BoundingBox
 import net.mgsx.gltf.loaders.glb.GLBLoader
 import net.mgsx.gltf.scene3d.attributes.PBRCubemapAttribute
 import net.mgsx.gltf.scene3d.attributes.PBRTextureAttribute
@@ -27,6 +28,8 @@ class GlobeGdxAdapter : ApplicationAdapter() {
     private var sceneManager: SceneManager? = null
     private var sceneAsset: SceneAsset? = null
     private var scene: Scene? = null
+    private var wordAsset: SceneAsset? = null
+    private var wordScene: Scene? = null
     private var brdfLUT: Texture? = null
     private var envCubemap: Cubemap? = null
     private var diffuseCubemap: Cubemap? = null
@@ -74,6 +77,26 @@ class GlobeGdxAdapter : ApplicationAdapter() {
         } catch (e: Exception) {
             Gdx.app.error("GlobeGdxAdapter", "Failed to load poplur_clay_globe.glb", e)
         }
+
+        // The 3D "poplur" wordmark, placed in FRONT of the globe (toward the camera),
+        // centred and held still while the globe spins behind it.
+        try {
+            val wAsset = GLBLoader().load(Gdx.files.internal("poplur_wordmark.glb"))
+            wordAsset = wAsset
+            val ws = Scene(wAsset.scene)
+            wordScene = ws
+            manager.addScene(ws)
+            val bbox = BoundingBox()
+            ws.modelInstance.model.calculateBoundingBox(bbox)
+            val center = bbox.getCenter(Vector3())
+            val scale = 1.5f / maxOf(bbox.width, 0.001f)
+            ws.modelInstance.transform.idt()
+                .translate(0f, 0.15f, 1.0f)
+                .scale(scale, scale, scale)
+                .translate(-center.x, -center.y, -center.z)
+        } catch (e: Exception) {
+            Gdx.app.error("GlobeGdxAdapter", "Failed to load poplur_wordmark.glb", e)
+        }
     }
 
     override fun render() {
@@ -106,6 +129,7 @@ class GlobeGdxAdapter : ApplicationAdapter() {
     override fun dispose() {
         sceneManager?.dispose()
         sceneAsset?.dispose()
+        wordAsset?.dispose()
         brdfLUT?.dispose()
         envCubemap?.dispose()
         diffuseCubemap?.dispose()

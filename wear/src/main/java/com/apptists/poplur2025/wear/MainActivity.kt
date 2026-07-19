@@ -295,6 +295,11 @@ private fun RadiusWatchScreen(store: WatchRadiusStore) {
 
 @Composable
 private fun ClayBackground(modifier: Modifier = Modifier) {
+    var timeMs by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) {
+        val start = withFrameMillis { it }
+        while (true) { withFrameMillis { now -> timeMs = now - start } }
+    }
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
@@ -307,16 +312,24 @@ private fun ClayBackground(modifier: Modifier = Modifier) {
             ),
             size = size
         )
+        val t = timeMs / 1000f
         val step = 9.dp.toPx()
-        val r = 1.2.dp.toPx()
+        val baseR = 1.5.dp.toPx()
+        var gy = 0
         var y = step / 2f
         while (y < h) {
+            var gx = 0
             var x = step / 2f
             while (x < w) {
-                drawCircle(color = ClayDot, radius = r, center = Offset(x, y))
-                x += step
+                val pulse = 0.5f + 0.5f * sin(t * 2f + (gx * 0.06f + gy * 0.05f))
+                drawCircle(
+                    color = ClayDot.copy(alpha = 0.16f + 0.24f * pulse),
+                    radius = baseR * (0.7f + 0.5f * pulse),
+                    center = Offset(x, y)
+                )
+                x += step; gx++
             }
-            y += step
+            y += step; gy++
         }
     }
 }
