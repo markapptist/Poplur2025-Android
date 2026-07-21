@@ -77,6 +77,14 @@
             android:windowSoftInputMode="adjustResize"
             android:screenOrientation="portrait" />
 
+        <!-- Post-login web host — approved Loading screen over the approved clay-map Home,
+             matching the iOS handoff and replacing the older native Compose landing path. -->
+        <activity
+            android:name=".PostLoginWebActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Poplur.PreloginWeb"
+            android:screenOrientation="portrait" />
+
         <!-- Clay web map (Phase 1 embed) — the Mapbox GL JS clay map from
              poplur-clay-map running in a WebView, same bundle as iOS -->
         <activity

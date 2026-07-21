@@ -1,6 +1,7 @@
 package com.apptists.poplur2025
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.media.AudioManager
 import android.os.Bundle
 import android.util.Log
@@ -230,17 +231,13 @@ class PreloginWebActivity : ComponentActivity() {
     }
 
     /**
-     * On real auth success, show the APPROVED web Loading screen (clay globe) over
-     * the pre-login for a beat before finishing to the native home — the Phase 3
-     * post-login load screen, matching iOS. The auth-state listener has already
-     * flipped isSignedIn, so the home is warming up behind this Activity; finishing
-     * reveals it. (Android keeps its native home; only the load screen is web here.)
+     * On real auth success, hand off to the same approved web Loading → Home flow as iOS.
+     * The post-login Activity owns both surfaces so the older native Compose home is never
+     * exposed during the transition.
      */
     private fun showLoadingThenFinish() {
-        webView.setBackgroundColor(splashBg)
-        window.statusBarColor = splashBg
-        webView.loadUrl("$origin/loading.html?embed=Loading")
-        webView.postDelayed({ if (!isFinishing) finish() }, LOADING_HOLD_MS)
+        startActivity(Intent(this, PostLoginWebActivity::class.java))
+        finish()
     }
 
     override fun onDestroy() {
@@ -253,6 +250,5 @@ class PreloginWebActivity : ComponentActivity() {
         const val TAG = "PreloginWeb"
         const val SPLASH_DELAY_MS = 3200L
         const val VOLUME_HIDE_MS = 1500L
-        const val LOADING_HOLD_MS = 3500L
     }
 }
