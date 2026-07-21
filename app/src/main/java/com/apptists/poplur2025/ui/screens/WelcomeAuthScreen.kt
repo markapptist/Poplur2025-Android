@@ -287,12 +287,10 @@ internal fun WelcomeAuthScreenContent(
     // music — starts from whichever the music player already has persisted.
     var isMuted by rememberSaveable { mutableStateOf(preLoginMusic?.isMuted ?: false) }
 
-    DisposableEffect(Unit) {
-        host?.showConfettiOverlay()
-        onDispose {
-            host?.hideConfettiOverlay()
-        }
-    }
+    // Keep pre-login on the single WebView surface. A second full-screen
+    // LibGDX confetti context races the shared global Gdx handles during the
+    // splash → welcome handoff and can leave black compositor rectangles (and
+    // ModelBatch sort crashes) on physical Android devices.
 
     LaunchedEffect(isMuted) {
         host?.setConfettiMuted(isMuted)
