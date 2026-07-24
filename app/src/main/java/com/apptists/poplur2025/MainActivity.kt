@@ -64,7 +64,7 @@ import kotlin.math.roundToInt
  * web screen, which is what made startup slow and the app laggy on Android/iPad.
  * Flip false to restore the native app.
  */
-private const val USE_WEB_SURFACES = false
+private const val USE_WEB_SURFACES = true
 
 class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, PersistentCubeOverlayHost {
     private var composeView: ComposeView? = null

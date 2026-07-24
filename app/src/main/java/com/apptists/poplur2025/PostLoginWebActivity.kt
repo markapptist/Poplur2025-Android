@@ -56,6 +56,10 @@ class PostLoginWebActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // With MainActivity routing straight to the web surfaces (USE_WEB_SURFACES),
+        // PoplurRoot no longer runs to start this — keep incoming calls working.
+        com.apptists.poplur2025.call.CallSessionManager.startListeningForIncomingCalls()
+
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
         window.statusBarColor = darkLoading
@@ -170,8 +174,12 @@ class PostLoginWebActivity : ComponentActivity() {
             .alpha(0f)
             .setDuration(REVEAL_DURATION_MS)
             .withEndAction {
-                loadingWebView.visibility = View.GONE
-                loadingWebView.alpha = 1f
+                // DESTROY the loading WebView, don't just hide it: a whole second
+                // WebView (loading page + three.js globe) kept resident is real
+                // memory on a 3GB device that is already swapping — freeing it
+                // gives the home WebView room to run smoothly.
+                (loadingWebView.parent as? android.view.ViewGroup)?.removeView(loadingWebView)
+                loadingWebView.destroy()
             }
             .start()
     }
@@ -220,7 +228,9 @@ class PostLoginWebActivity : ComponentActivity() {
         revealRunnable?.let { loadingWebView.removeCallbacks(it) }
         hideVolumeRunnable?.let { homeWebView.removeCallbacks(it) }
         homeWebView.destroy()
-        loadingWebView.destroy()
+        // The loading WebView is destroyed at reveal time; only destroy here if
+        // the activity dies before the reveal (destroy() twice throws).
+        if (loadingWebView.parent != null) loadingWebView.destroy()
         super.onDestroy()
     }
 
