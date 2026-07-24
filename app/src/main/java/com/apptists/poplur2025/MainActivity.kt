@@ -11,7 +11,11 @@ import android.view.ViewGroup
 import android.view.KeyEvent
 import android.widget.FrameLayout
 import androidx.activity.enableEdgeToEdge
+import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +55,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.badlogic.gdx.backends.android.AndroidFragmentApplication
 import kotlin.math.roundToInt
+
+/**
+ * When true, MainActivity routes straight to the approved web surfaces
+ * (PreloginWebActivity / PostLoginWebActivity) and never composes the native
+ * PoplurRoot. Composing PoplurRoot boots the entire native stack — libGDX cube
+ * fragments, Mapbox, ~50 states and their effects — just to sit unseen behind a
+ * web screen, which is what made startup slow and the app laggy on Android/iPad.
+ * Flip false to restore the native app.
+ */
+private const val USE_WEB_SURFACES = false
 
 class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, PersistentCubeOverlayHost {
     private var composeView: ComposeView? = null
@@ -144,16 +158,33 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                     }
                     Box(Modifier.fillMaxSize()) {
                         var showSplash by remember { mutableStateOf(true) }
+                        val authViewModel: AuthViewModel = viewModel()
+                        val isSignedIn by authViewModel.isSignedIn.collectAsState()
 
                         if (!showSplash) {
-                            Surface(rootModifier, color = Color.Transparent) {
-                                PoplurRoot()
+                            if (USE_WEB_SURFACES) {
+                                // PERF: go straight to the approved web surfaces and never
+                                // compose the native PoplurRoot. Composing it spins up the
+                                // whole native stack (libGDX cube fragments, Mapbox, ~50
+                                // states + effects) purely to sit behind a web screen —
+                                // that startup cost is what made the app slow and laggy.
+                                val ctx = LocalContext.current
+                                LaunchedEffect(isSignedIn) {
+                                    if (isSignedIn == null) return@LaunchedEffect
+                                    ctx.startActivity(
+                                        if (isSignedIn == true) Intent(ctx, PostLoginWebActivity::class.java)
+                                        else Intent(ctx, PreloginWebActivity::class.java)
+                                    )
+                                }
+                                Box(Modifier.fillMaxSize().background(Color(0xFF0A0709)))
+                            } else {
+                                Surface(rootModifier, color = Color.Transparent) {
+                                    PoplurRoot()
+                                }
                             }
                         }
 
                         if (showSplash) {
-                            val authViewModel: AuthViewModel = viewModel()
-                            val isSignedIn by authViewModel.isSignedIn.collectAsState()
                             PoplurClaySplashOverlay(
                                 isReady = isSignedIn != null,
                                 onFinished = { showSplash = false },

@@ -147,12 +147,19 @@ class PostLoginWebActivity : ComponentActivity() {
         if (path.startsWith("/assets/")) return assetLoader.shouldInterceptRequest(url)
 
         val relativePath = path.removePrefix("/")
-        val clayPath = if (relativePath.isEmpty()) {
-            "/assets/claymap/index.html"
-        } else {
-            "/assets/claymap/$relativePath"
+        // Only the clay map's OWN root-relative requests belong under assets/claymap/.
+        // Shared bundles live at assets/<path> — notably the approved Loading screen's
+        // /poplur-clay-map/... three.js + DRACO + globe. Blanket-mapping everything to
+        // claymap/ made those 404 (FileNotFoundException on DRACOLoader.js), leaving the
+        // web home erroring and thrashing at ~13fps — the Android/iPad "lag".
+        val mappedPath = when {
+            relativePath.isEmpty() -> "/assets/claymap/index.html"
+            relativePath.startsWith("poplur-clay-map/") -> "/assets/$relativePath"
+            relativePath.startsWith("prelogin/") -> "/assets/$relativePath"
+            relativePath.startsWith("Poplur2025-iOS/") -> "/assets/$relativePath"
+            else -> "/assets/claymap/$relativePath"
         }
-        return assetLoader.shouldInterceptRequest(url.buildUpon().encodedPath(clayPath).build())
+        return assetLoader.shouldInterceptRequest(url.buildUpon().encodedPath(mappedPath).build())
     }
 
     private fun revealIfReady() {
