@@ -82,6 +82,7 @@
         <activity
             android:name=".PostLoginWebActivity"
             android:exported="false"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.Poplur.PreloginWeb"
             android:screenOrientation="portrait" />
 

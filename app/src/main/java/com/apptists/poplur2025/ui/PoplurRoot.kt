@@ -103,6 +103,7 @@ import com.apptists.poplur2025.data.businessProfileOrNull
 import com.apptists.poplur2025.data.poplurAccountType
 import com.apptists.poplur2025.PoplurVolumeEvents
 import com.apptists.poplur2025.PreloginWebActivity
+import com.apptists.poplur2025.PostLoginWebActivity
 import com.apptists.poplur2025.ui.screens.*
 import com.apptists.poplur2025.ui.components.CubeMenuWheelController
 import com.apptists.poplur2025.ui.components.CubeMenuWheelItem
@@ -146,6 +147,29 @@ private fun PreloginWebHost() {
     val context = LocalContext.current
     LaunchedEffect(Unit) {
         context.startActivity(Intent(context, PreloginWebActivity::class.java))
+    }
+    Box(Modifier.fillMaxSize().background(Color(0xFF0A0709)))
+}
+
+// When true, ALL signed-in users get the approved web home (PostLoginWebActivity)
+// instead of the heavy native SignedInContent (libGDX cube + Mapbox + full Compose).
+// This is what stops the native home from running alongside the web home — the
+// coexistence that made Android/iPad laggy. Flip false to restore the native home.
+private const val USE_WEB_HOME = true
+
+/**
+ * Post-login entry (mirrors PreloginWebHost): launches the approved web Loading →
+ * Home (PostLoginWebActivity) as a full-screen surface for EVERY signed-in user,
+ * not only fresh sign-ins. Because that activity is opaque, MainActivity stops and
+ * the native cube/GL + Compose home never render behind it — killing the lag.
+ * singleTask on the activity makes the (harmless) double-launch during a fresh
+ * sign-in a no-op.
+ */
+@Composable
+private fun PostLoginWebHost() {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        context.startActivity(Intent(context, PostLoginWebActivity::class.java))
     }
     Box(Modifier.fillMaxSize().background(Color(0xFF0A0709)))
 }
@@ -1193,7 +1217,13 @@ fun PoplurRoot(
                 // later cleanup); revert by restoring the WelcomeAuthScreen(...) call here.
                 PreloginWebHost()
             } else if (isSignedIn == true) {
-                // Signed In
+                if (USE_WEB_HOME) {
+                    // Post-login now renders the approved web home for ALL signed-in
+                    // users, so the heavy native SignedInContent never runs alongside
+                    // the web home — this is the fix for the native+web coexistence lag.
+                    PostLoginWebHost()
+                } else {
+                // Signed In (legacy native home — USE_WEB_HOME=false to restore)
                 Box(Modifier.fillMaxSize().zIndex(0f)) {
                     SignedInContent(
                         tab = tab,
@@ -1293,6 +1323,7 @@ fun PoplurRoot(
                         onIsFeedTvGuideVisibleChange = { isFeedTvGuideVisible = it },
                         onPhoneColorwaySelected = phoneColorwaySelected
                     )
+                }
                 }
 
             }
