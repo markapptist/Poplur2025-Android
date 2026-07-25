@@ -244,6 +244,15 @@ class PostLoginWebActivity : ComponentActivity() {
                     revealIfReady()
                 }
             }
+            if (type == "requestCameraRoll") {
+                runOnUiThread {
+                    if (PoplurWebCameraRoll.hasPermission(this@PostLoginWebActivity)) {
+                        PoplurWebCameraRoll.push(homeWebView)
+                    } else {
+                        PoplurWebCameraRoll.requestPermission(this@PostLoginWebActivity)
+                    }
+                }
+            }
             if (type == "requestLocation") {
                 runOnUiThread {
                     if (PoplurWebLocation.hasPermission(this@PostLoginWebActivity)) {
@@ -266,6 +275,13 @@ class PostLoginWebActivity : ComponentActivity() {
             grantResults.any { it == android.content.pm.PackageManager.PERMISSION_GRANTED }
         ) {
             PoplurWebLocation.pushLastKnown(homeWebView)
+        }
+        if (requestCode == PoplurWebCameraRoll.REQUEST_CODE) {
+            if (grantResults.any { it == android.content.pm.PackageManager.PERMISSION_GRANTED }) {
+                PoplurWebCameraRoll.push(homeWebView)
+            } else {
+                PoplurWebCameraRoll.deliverDenied(homeWebView)
+            }
         }
     }
 
