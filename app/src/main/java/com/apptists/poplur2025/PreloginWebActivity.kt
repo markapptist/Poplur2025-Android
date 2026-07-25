@@ -93,6 +93,16 @@ class PreloginWebActivity : ComponentActivity() {
                     view: WebView,
                     request: WebResourceRequest
                 ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
+
+                override fun onPageFinished(view: WebView, url: String?) {
+                    // 3GB-class devices: flatten the expensive effects (blur/filter),
+                    // keep layout + icons, and throttle the decorative animation
+                    // loops to a consistent gentle cadence — see PoplurLiteTier.
+                    if (PoplurLiteTier.isLowTier(view.context)) {
+                        PoplurLiteTier.injectLiteCss(view)
+                        PoplurLiteTier.injectRafThrottle(view)
+                    }
+                }
             }
             loadUrl("$origin/splash.html")
         }

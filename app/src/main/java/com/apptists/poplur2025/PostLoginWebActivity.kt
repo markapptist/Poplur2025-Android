@@ -132,6 +132,13 @@ class PostLoginWebActivity : ComponentActivity() {
                 view: WebView,
                 request: WebResourceRequest
             ): WebResourceResponse? = interceptAssetRequest(assetLoader, request)
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                // 3GB-class devices: flatten expensive effects (see PoplurLiteTier).
+                // The home bundle also self-detects via deviceMemory; injecting here
+                // covers the loading page too and is idempotent.
+                if (PoplurLiteTier.isLowTier(view.context)) PoplurLiteTier.injectLiteCss(view)
+            }
         }
     }
 
