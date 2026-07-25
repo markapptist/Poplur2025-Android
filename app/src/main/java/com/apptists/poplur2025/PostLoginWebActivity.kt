@@ -98,6 +98,15 @@ class PostLoginWebActivity : ComponentActivity() {
         homeWebView.loadUrl("$origin/claymap/index.html?view=home&tabs=1")
         loadingWebView.loadUrl("$origin/prelogin/loading.html?embed=Loading")
 
+        // Current-location start: the map falls back to Toronto unless native
+        // pushes a fix. Request the OS permission on first entry; push once
+        // granted (also re-pushed whenever the web asks via requestLocation).
+        if (PoplurWebLocation.hasPermission(this)) {
+            PoplurWebLocation.pushLastKnown(homeWebView)
+        } else {
+            PoplurWebLocation.requestPermission(this)
+        }
+
         // Match the approved iOS loading minimum. A bounded fallback avoids trapping a user
         // on Loading forever if Mapbox is unavailable and therefore cannot emit homeReady.
         revealRunnable = Runnable {
@@ -228,6 +237,28 @@ class PostLoginWebActivity : ComponentActivity() {
                     revealIfReady()
                 }
             }
+            if (type == "requestLocation") {
+                runOnUiThread {
+                    if (PoplurWebLocation.hasPermission(this@PostLoginWebActivity)) {
+                        PoplurWebLocation.pushLastKnown(homeWebView)
+                    } else {
+                        PoplurWebLocation.requestPermission(this@PostLoginWebActivity)
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PoplurWebLocation.REQUEST_CODE &&
+            grantResults.any { it == android.content.pm.PackageManager.PERMISSION_GRANTED }
+        ) {
+            PoplurWebLocation.pushLastKnown(homeWebView)
         }
     }
 
