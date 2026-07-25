@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.webkit.WebViewAssetLoader
 import com.apptists.poplur2025.ui.components.PoplurVolumeBars
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import org.json.JSONObject
 
 /**
@@ -262,6 +264,32 @@ class PostLoginWebActivity : ComponentActivity() {
                         PoplurWebLocation.requestPermission(this@PostLoginWebActivity)
                     }
                 }
+            }
+            if (type == "requestProfile") {
+                val user = FirebaseAuth.getInstance().currentUser ?: return
+                val fallback = user.displayName
+                    ?: user.email?.substringBefore("@")
+                    ?: "Poplur user"
+                FirebaseFirestore.getInstance().collection("users").document(user.uid).get()
+                    .addOnCompleteListener { task ->
+                        val document = task.result
+                        val username = document?.getString("username")
+                            ?: document?.getString("displayName")
+                            ?: fallback
+                        val accountType = document?.getString("accountType")
+                        val business = accountType.equals("business", ignoreCase = true)
+                            || document?.getBoolean("isBusinessAccount") == true
+                            || document?.get("businessProfile") != null
+                        val payload = JSONObject()
+                            .put("username", username)
+                            .put("business", business)
+                        runOnUiThread {
+                            homeWebView.evaluateJavascript(
+                                "window.poplurProfile?.(${payload});",
+                                null
+                            )
+                        }
+                    }
             }
         }
     }
