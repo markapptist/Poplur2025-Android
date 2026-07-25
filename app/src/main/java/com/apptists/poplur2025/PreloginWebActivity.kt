@@ -246,7 +246,9 @@ class PreloginWebActivity : ComponentActivity() {
      * exposed during the transition.
      */
     private fun showLoadingThenFinish() {
-        startActivity(Intent(this, PostLoginWebActivity::class.java))
+        // fromAuth: explicit sign-in/up shows the approved globe Loading; the
+        // already-signed-in launch path shows the looping splash instead (user rule).
+        startActivity(Intent(this, PostLoginWebActivity::class.java).putExtra("fromAuth", true))
         finish()
     }
 

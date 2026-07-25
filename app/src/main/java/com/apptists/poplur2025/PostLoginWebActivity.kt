@@ -96,7 +96,14 @@ class PostLoginWebActivity : ComponentActivity() {
 
         // Both URLs are the exact bundles used by the iOS post-login path.
         homeWebView.loadUrl("$origin/claymap/index.html?view=home&tabs=1")
-        loadingWebView.loadUrl("$origin/prelogin/loading.html?embed=Loading")
+        // User rule: the approved globe Loading only after explicit sign-in/up;
+        // an already-signed-in launch loops the splash (its clay bar refills)
+        // while the home warms up behind it.
+        val fromAuth = intent.getBooleanExtra("fromAuth", false)
+        loadingWebView.loadUrl(
+            if (fromAuth) "$origin/prelogin/loading.html?embed=Loading"
+            else "$origin/prelogin/splash.html"
+        )
 
         // Current-location start: the map falls back to Toronto unless native
         // pushes a fix. Request the OS permission on first entry; push once
