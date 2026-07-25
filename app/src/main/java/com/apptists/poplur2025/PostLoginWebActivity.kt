@@ -99,11 +99,12 @@ class PostLoginWebActivity : ComponentActivity() {
         // User rule: the approved globe Loading only after explicit sign-in/up;
         // an already-signed-in launch loops the splash (its clay bar refills)
         // while the home warms up behind it.
-        val fromAuth = intent.getBooleanExtra("fromAuth", false)
-        loadingWebView.loadUrl(
-            if (fromAuth) "$origin/prelogin/loading.html?embed=Loading"
-            else "$origin/prelogin/splash.html"
-        )
+        // The cover is ALWAYS the splash now: the approved globe Loading needed
+        // three.js + WebGL + model decode just to appear, delaying the very wait
+        // it was meant to cover. The splash is one hardware-decoded video with the
+        // same clay progress bar. The globe screen remains the approved GCL design
+        // (and is being kept for the watch/wear build).
+        loadingWebView.loadUrl("$origin/prelogin/splash.html")
 
         // Current-location start: the map falls back to Toronto unless native
         // pushes a fix. Request the OS permission on first entry; push once
