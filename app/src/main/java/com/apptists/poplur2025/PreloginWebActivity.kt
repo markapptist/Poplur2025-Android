@@ -59,7 +59,7 @@ class PreloginWebActivity : ComponentActivity() {
 
     private val origin = "https://appassets.androidplatform.net/assets/prelogin"
 
-    private val splashBg = 0xFF0A0709.toInt()
+    private val splashBg = 0xFF000000.toInt()
     private val welcomeBg = 0xFFFF2D96.toInt()
 
     private val volumeVisible = mutableStateOf(false)
@@ -104,7 +104,8 @@ class PreloginWebActivity : ComponentActivity() {
                     }
                 }
             }
-            loadUrl("$origin/splash.html")
+            // Launch splash dropped by request: straight to Welcome on black.
+            loadUrl("$origin/welcome.html")
         }
 
         // WebView + a Compose overlay hosting the app's custom volume bars, so a hardware volume
@@ -128,12 +129,6 @@ class PreloginWebActivity : ComponentActivity() {
         root.addView(volumeOverlay)
         setContentView(root)
 
-        webView.postDelayed({
-            if (isFinishing) return@postDelayed
-            webView.setBackgroundColor(welcomeBg)
-            window.statusBarColor = welcomeBg
-            webView.loadUrl("$origin/welcome.html")
-        }, SPLASH_DELAY_MS)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
