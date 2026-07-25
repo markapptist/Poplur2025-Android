@@ -1,5 +1,6 @@
 package com.apptists.poplur2025.wear
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -9,6 +10,7 @@ import android.os.BatteryManager
 import android.os.Bundle
 import android.view.View
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -55,11 +57,19 @@ import com.google.android.gms.wearable.DataMap
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.max
 import kotlin.math.sin
 
 class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks {
     override fun exit() { finish() }
+
+    private lateinit var radioHost: WearRadioHost
+
+    // Once the user grants location, refine the broadcast from "your area" to the real place.
+    private val locationPermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { if (::radioHost.isInitialized) radioHost.refreshLocation() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +79,10 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks {
             View.SYSTEM_UI_FLAG_FULLSCREEN or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         )
+        radioHost = WearRadioHost(applicationContext)
+        locationPermissionRequest.launch(
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        )
         setContent {
             val context = LocalContext.current
             val store = remember { WatchRadiusStore(context.applicationContext) }
@@ -76,8 +90,23 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks {
                 store.start()
                 onDispose { store.stop() }
             }
-            RadiusWatchScreen(store = store)
+            RadiusWatchScreen(store = store, radioHost = radioHost)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::radioHost.isInitialized) radioHost.start()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::radioHost.isInitialized) radioHost.stop()
+    }
+
+    override fun onDestroy() {
+        if (::radioHost.isInitialized) radioHost.release()
+        super.onDestroy()
     }
 }
 
@@ -255,8 +284,9 @@ private val ClayPink = listOf(
 // ── Clay watch face ────────────────────────────────────────────────────────────
 
 @Composable
-private fun RadiusWatchScreen(store: WatchRadiusStore) {
+private fun RadiusWatchScreen(store: WatchRadiusStore, radioHost: WearRadioHost) {
     var showKm by remember { mutableStateOf(true) }
+    var showStatic by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(4_000)
@@ -268,7 +298,21 @@ private fun RadiusWatchScreen(store: WatchRadiusStore) {
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
-                detectTapGestures(onTap = { showKm = !showKm })
+                // A quick tap toggles km/mi; a press held past the threshold drops the
+                // face to TV static (picture + sound) until released.
+                detectTapGestures(
+                    onPress = {
+                        val releasedQuickly = withTimeoutOrNull(300L) { tryAwaitRelease() }
+                        if (releasedQuickly == null) {
+                            showStatic = true
+                            radioHost.startStatic()
+                            tryAwaitRelease()
+                            showStatic = false
+                            radioHost.stopStatic()
+                        }
+                    },
+                    onTap = { showKm = !showKm }
+                )
             }
     ) {
         ClayBackground(modifier = Modifier.fillMaxSize())
@@ -287,6 +331,35 @@ private fun RadiusWatchScreen(store: WatchRadiusStore) {
                     .fillMaxWidth()
                     .weight(0.38f)
             )
+        }
+
+        if (showStatic) StaticOverlay(modifier = Modifier.fillMaxSize())
+    }
+}
+
+// ── TV static overlay (press-and-hold easter egg) ─────────────────────────────
+
+@Composable
+private fun StaticOverlay(modifier: Modifier = Modifier) {
+    var frame by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) { frame++; delay(40) }   // ~25fps noise, easy on the battery
+    }
+    Canvas(modifier = modifier) {
+        val block = 5.dp.toPx()
+        val cols = (size.width / block).toInt() + 1
+        val rows = (size.height / block).toInt() + 1
+        var s = (frame + 1).toULong() * 6364136223846793005uL xor 0x9E3779B97F4A7C15uL
+        for (r in 0 until rows) {
+            for (c in 0 until cols) {
+                s = s * 6364136223846793005uL + 1442695040888963407uL
+                val v = ((s shr 33).toDouble() / (1L shl 31).toDouble()).toFloat().coerceIn(0f, 1f)
+                drawRect(
+                    color = Color(v, v, v, 0.92f),
+                    topLeft = Offset(c * block, r * block),
+                    size = Size(block, block)
+                )
+            }
         }
     }
 }
@@ -347,15 +420,17 @@ private fun ConfettiLayer(modifier: Modifier = Modifier) {
         var seed = 0x9E3779B97F4A7C15uL
         fun rnd(): Float {
             seed = seed * 6364136223846793005uL + 1442695040888963407uL
-            return ((seed shr 33).toDouble() / UInt.MAX_VALUE.toDouble()).toFloat()
+            // `seed shr 33` tops out at 2^31, so dividing by UInt.MAX_VALUE only ever
+            // reached ~0.5 — which pinned every chip to the left half of the face.
+            return ((seed shr 33).toDouble() / (1L shl 31).toDouble()).toFloat()
         }
-        List(16) {
+        List(30) {
             ConfettiChip(
                 x0 = rnd(),
                 delay = rnd() * 3.2f,
                 dur = 3.0f + rnd() * 2.2f,
                 drift = (rnd() - 0.5f) * 0.28f,
-                size = 4f + rnd() * 4f,
+                size = 6f + rnd() * 5f,
                 color = ConfettiColors[(rnd() * ConfettiColors.size).toInt() % ConfettiColors.size]
             )
         }
