@@ -1,10 +1,17 @@
 package com.apptists.poplur2025.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -65,6 +73,8 @@ import com.apptists.poplur2025.ui.components.poplurCountdownDisplayModifier
 import com.apptists.poplur2025.ui.components.poplurRadiusDisplayModifier
 import com.apptists.poplur2025.ui.uiTheme
 import kotlinx.coroutines.delay
+import kotlin.math.abs
+import kotlin.math.sin
 
 private enum class ProfilePanel {
     Home,
@@ -578,7 +588,6 @@ private fun ProfileHome(
 /** Pink notification banner that drops from the top — matches iOS ProfileNotificationBanner. */
 @Composable
 private fun ProfileNotificationBanner() {
-    val bannerPink = Color(0xFFFF9EC7) // iOS RGB(1.0, 0.62, 0.78)
     data class Alert(
         val title: String,
         val detail: String,
@@ -592,61 +601,100 @@ private fun ProfileNotificationBanner() {
         Alert("Accumulated radius dipped", "Your total radius is down from the previous check.", Icons.Default.CardGiftcard, Color(0xFFFF9F0A), false)
     )
 
-    Column(
+    Box(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
-            .background(bannerPink)
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFFFF73BB), Color(0xFFF53798), Color(0xFFD91D78))
+                )
+            )
     ) {
-        Text(
-            "Notifications",
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Black,
-            color = Color.White,
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 14.dp)
-        )
-        Column(
-            Modifier
-                .heightIn(max = 340.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, end = 16.dp, bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            alerts.forEach { item ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White)
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    BadgedBox(
-                        badge = { if (item.unread) Badge(containerColor = Color.Red) }
+        ProfileNotificationDotMap(Modifier.matchParentSize())
+        Column {
+            Text(
+                "Notifications",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Black,
+                color = Color.White,
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 14.dp)
+            )
+            Column(
+                Modifier
+                    .heightIn(max = 340.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 16.dp, end = 16.dp, bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                alerts.forEach { item ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF850143).copy(alpha = 0.3f))
+                            .border(1.dp, Color(0xFFFFE9F6).copy(alpha = 0.28f), RoundedCornerShape(16.dp))
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.Top
                     ) {
-                        Box(
-                            Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(item.color.copy(alpha = 0.18f)),
-                            contentAlignment = Alignment.Center
+                        BadgedBox(
+                            badge = { if (item.unread) Badge(containerColor = Color(0xFFFFD1E8)) }
                         ) {
-                            Icon(item.icon, null, tint = item.color, modifier = Modifier.size(17.dp))
+                            Box(
+                                Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(item.icon, null, tint = Color.White, modifier = Modifier.size(17.dp))
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(item.title, fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color.White)
+                            Text(
+                                item.detail,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFFFF4FA).copy(alpha = 0.88f)
+                            )
                         }
                     }
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text(item.title, fontSize = 14.sp, fontWeight = FontWeight.Black, color = Color.Black)
-                        Text(
-                            item.detail,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.Black.copy(alpha = 0.55f)
-                        )
-                    }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileNotificationDotMap(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "profileNotificationDotMap")
+    val clock by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(4_800, easing = LinearEasing), RepeatMode.Restart),
+        label = "profileNotificationDotMapClock"
+    )
+
+    Canvas(modifier) {
+        val spacing = (size.width / 52f).coerceIn(6.5f, 10f)
+        val rows = (size.height / spacing).toInt()
+        val columns = (size.width / spacing).toInt()
+        for (row in 0..rows) {
+            for (column in 0..columns) {
+                val hash = abs(row * 73 + column * 151 + row * column * 19) % 41
+                if (hash >= 9) continue
+                val phase = (hash * 0.77f + row * 0.19f + column * 0.31f)
+                val pulse = (0.5f + 0.5f * sin((clock * 6.28318f + phase).toDouble()).toFloat())
+                val radius = (spacing * 0.21f).coerceAtLeast(1.55f) * (0.86f + pulse * 0.28f)
+                val center = Offset((column + 0.5f) * spacing, (row + 0.5f) * spacing)
+                drawCircle(Color(0xFF78063C).copy(alpha = 0.3f + pulse * 0.22f), radius, center + Offset(0f, 1.3f))
+                drawCircle(Color(0xFFFFC4E0).copy(alpha = 0.3f + pulse * 0.34f), radius, center + Offset(0f, -0.8f))
+                drawCircle(Color(0xFFFF74BA).copy(alpha = 0.5f + pulse * 0.4f), radius * 0.94f, center)
+                if (pulse > 0.9f) drawCircle(Color.White.copy(alpha = (pulse - 0.9f) * 1.6f), radius * 2.4f, center)
             }
         }
     }
