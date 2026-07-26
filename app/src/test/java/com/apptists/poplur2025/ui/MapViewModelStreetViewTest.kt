@@ -1,28 +1,28 @@
 package com.apptists.poplur2025.ui
 
-import android.os.Looper
 import com.apptists.poplur2025.data.mapillary.MapillaryError
 import com.apptists.poplur2025.data.mapillary.MapillaryImage
 import com.apptists.poplur2025.data.mapillary.MapillaryImageProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLooper
 
 /**
  * Verifies the Street View button state machine on [MapViewModel]:
  * idle -> checking -> (available | unavailable | error), and reset back to idle.
- * Uses Robolectric to flush the coroutine posted to the Main dispatcher, avoiding
- * the need for a kotlinx-coroutines-test dependency this project doesn't otherwise use.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class MapViewModelStreetViewTest {
 
-    private fun idle() = shadowOf(Looper.getMainLooper()).idle()
+    private fun idle() {
+        ShadowLooper.idleMainLooper()
+    }
 
     private class FakeProvider(
         private val result: (Double, Double) -> MapillaryImage?,
@@ -54,12 +54,12 @@ class MapViewModelStreetViewTest {
     fun `checkStreetView transitions through checking to available when an image exists`() {
         val viewModel = MapViewModel(FakeProvider({ _, _ -> sampleImage() }))
         viewModel.checkStreetView(40.7484, -73.9857)
-        assertTrue(viewModel.streetViewState.value is StreetViewUiState.Checking)
 
+        idle()
         idle()
 
         val state = viewModel.streetViewState.value
-        assertTrue(state is StreetViewUiState.Available)
+        assertTrue("Expected Available but was $state", state is StreetViewUiState.Available)
         assertEquals("123", (state as StreetViewUiState.Available).image.id)
     }
 

@@ -23,7 +23,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas as ComposeCanvas
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.background
@@ -1403,72 +1402,6 @@ fun PoplurRoot(
                 centerFromTopFraction = if (isWelcomeAuthScreen) WELCOME_CUBE_CENTER_FROM_TOP_FRACTION else null,
                 verticalLiftDp = if (isWelcomeAuthScreen && welcomePermissionsGranted) 24f else 0f
             )
-        }
-
-        // Edge swipe navigation — left/right 60dp strips trigger tab rotation
-        if (isSignedIn == true && !showAppInitializationCover && !isPhoneActive) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(400f)
-            ) {
-                // Left edge strip — swipe right → previous tab
-                Box(
-                    modifier = Modifier
-                        .width(60.dp)
-                        .fillMaxHeight()
-                        .align(Alignment.CenterStart)
-                        .pointerInput(tab) {
-                            var accDx = 0f
-                            var accDy = 0f
-                            var triggered = false
-                            detectDragGestures(
-                                onDragStart = { accDx = 0f; accDy = 0f; triggered = false },
-                                onDragEnd = {},
-                                onDragCancel = {},
-                                onDrag = { _, delta ->
-                                    if (!triggered) {
-                                        accDx += delta.x
-                                        accDy += delta.y
-                                        if (abs(accDx) > 80f && abs(accDx) > abs(accDy) * 2f && accDx > 0f) {
-                                            triggered = true
-                                            val prevIndex = (tab.cubeTabIndex() - 1 + 4) % 4
-                                            onTabChange(prevIndex)
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                )
-                // Right edge strip — swipe left → next tab
-                Box(
-                    modifier = Modifier
-                        .width(60.dp)
-                        .fillMaxHeight()
-                        .align(Alignment.CenterEnd)
-                        .pointerInput(tab) {
-                            var accDx = 0f
-                            var accDy = 0f
-                            var triggered = false
-                            detectDragGestures(
-                                onDragStart = { accDx = 0f; accDy = 0f; triggered = false },
-                                onDragEnd = {},
-                                onDragCancel = {},
-                                onDrag = { _, delta ->
-                                    if (!triggered) {
-                                        accDx += delta.x
-                                        accDy += delta.y
-                                        if (abs(accDx) > 80f && abs(accDx) > abs(accDy) * 2f && accDx < 0f) {
-                                            triggered = true
-                                            val nextIndex = (tab.cubeTabIndex() + 1) % 4
-                                            onTabChange(nextIndex)
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                )
-            }
         }
 
         PoplurAIAssistantOverlay(

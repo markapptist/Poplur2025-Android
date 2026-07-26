@@ -24,9 +24,6 @@ rootProject.name = "Poplur2025Android"
 include(":app")
 include(":wear")
 
-// Move build output outside iCloud-synced ~/Documents to prevent macOS
-// conflict-copy duplication (the "intermediates 2" / "compileDebugKotlin 2" problem).
-gradle.allprojects {
-    // Use /private/tmp to avoid symlink confusion on macOS which can cause "Storage already registered" errors in Kotlin
-    layout.buildDirectory.set(File("/private/tmp/poplur-android-build/${project.name}"))
-}
+// Use the default build directory. Avoid using /private/tmp for build outputs on macOS
+// as it can have limited space or be purged by the system, leading to build errors.
+// The project is located in ~/Developer, which is safe from iCloud sync issues.
