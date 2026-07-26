@@ -1,6 +1,7 @@
 package com.apptists.poplur2025.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -10,6 +11,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -47,6 +49,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -567,6 +570,7 @@ private fun ProfileHome(
             Box(
                 Modifier
                     .matchParentSize()
+                    .zIndex(9_999f)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -576,9 +580,28 @@ private fun ProfileHome(
 
         AnimatedVisibility(
             visible = showNotificationBanner,
-            enter = slideInVertically { -it } + fadeIn(),
-            exit = slideOutVertically { -it } + fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter)
+            enter = slideInVertically(
+                animationSpec = spring(
+                    dampingRatio = 0.36f,
+                    stiffness = Spring.StiffnessLow
+                ),
+                initialOffsetY = { fullHeight -> -fullHeight }
+            ) + fadeIn(animationSpec = tween(durationMillis = 220)),
+            exit = slideOutVertically(
+                animationSpec = spring(
+                    dampingRatio = 0.58f,
+                    stiffness = Spring.StiffnessLow
+                ),
+                targetOffsetY = { fullHeight -> -fullHeight }
+            ) + fadeOut(
+                animationSpec = tween(
+                    durationMillis = 340,
+                    delayMillis = 500
+                )
+            ),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .zIndex(10_000f)
         ) {
             ProfileNotificationBanner()
         }

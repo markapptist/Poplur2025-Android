@@ -25,6 +25,7 @@ class PoplurApp : Application() {
         )
         AdManager.initialize(this)
         WearRadiusSync.start(this)
+        PoplurNotifications.ensureChannel(this)
         setupImageLoader()
     }
 

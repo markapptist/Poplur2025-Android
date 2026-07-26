@@ -1,0 +1,18 @@
+<!--
+  Notification status-bar small icon. Android renders ONLY the alpha of this
+  drawable and tints it (system white on the shade, our accent elsewhere), so it
+  must be a flat monochrome silhouette — the full-colour clay tile can't be used
+  here (it would show as a white blob). This is a plain functional "P" glyph, not
+  the bespoke clay art; the full-colour clay icon rides along as the large icon.
+  Swap this file for a supplied white-on-transparent Poplur silhouette to refine.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M7,3.5 L13.2,3.5 C16.7,3.5 19.5,6.4 19.5,10 C19.5,13.6 16.7,16.5 13.2,16.5 L10.2,16.5 L10.2,20.5 L7,20.5 Z M10.2,6.6 L10.2,13.4 L13.2,13.4 C15,13.4 16.4,11.9 16.4,10 C16.4,8.1 15,6.6 13.2,6.6 Z" />
+</vector>

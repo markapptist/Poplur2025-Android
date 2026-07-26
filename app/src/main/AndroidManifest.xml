@@ -53,6 +53,14 @@
             android:theme="@style/Theme.Poplur"
             android:screenOrientation="portrait" />
 
+        <!-- DEBUG: posts a sample Poplur system notification for verifying the
+             clay-P small icon + clay large icon outside the app. -->
+        <activity
+            android:name=".NotificationDemoActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Poplur"
+            android:screenOrientation="portrait" />
+
         <!-- DEBUG: renders the real ProfileScreen (with 3D head) for verification -->
         <activity
             android:name=".ProfileDemoActivity"
