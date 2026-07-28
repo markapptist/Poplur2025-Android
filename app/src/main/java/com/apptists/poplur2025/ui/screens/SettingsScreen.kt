@@ -29,6 +29,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.apptists.poplur2025.R
+import com.apptists.poplur2025.PoplurLiteTier
 import com.apptists.poplur2025.data.FeedAdProbability
 import com.apptists.poplur2025.data.FeedAdProbabilityConfig
 import com.apptists.poplur2025.data.PoplurLanguage
@@ -73,6 +74,15 @@ fun SettingsScreen(
     var tvGuideFlipAnimation by remember { mutableStateOf(prefs.getBoolean("tv_guide_flip_animation", true)) }
     var customMapTheme by remember { mutableStateOf(prefs.getBoolean("poplur_customMapTheme", false)) }
     var use3DLoadingScreen by remember { mutableStateOf(prefs.getBoolean("poplur_use3DLoadingScreen", true)) }
+    var use3DMap by remember {
+        mutableStateOf(
+            if (prefs.contains("poplur_use3DMap")) {
+                prefs.getBoolean("poplur_use3DMap", !PoplurLiteTier.isLowTier(ctx))
+            } else {
+                !PoplurLiteTier.isLowTier(ctx)
+            }
+        )
+    }
     var cacheText by remember { mutableStateOf("—") }
     var adProbabilityConfig by remember { mutableStateOf(FeedAdProbability.currentConfig(ctx)) }
 
@@ -223,6 +233,10 @@ fun SettingsScreen(
                 RowDivider()
                 ToggleRow("Custom Map Theme", customMapTheme) {
                     customMapTheme = it; prefs.edit().putBoolean("poplur_customMapTheme", it).apply()
+                }
+                RowDivider()
+                ToggleRow("3D Poplur Map", use3DMap) {
+                    use3DMap = it; prefs.edit().putBoolean("poplur_use3DMap", it).apply()
                 }
                 RowDivider()
                 ToggleRow("3D Loading Screen", use3DLoadingScreen) {

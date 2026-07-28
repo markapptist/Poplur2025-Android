@@ -190,7 +190,8 @@ class PreloginWebActivity : ComponentActivity() {
             val json = runCatching { JSONObject(payload ?: "") }.getOrNull()
             val email = json?.optString("email")?.takeIf { it.isNotBlank() }
             val password = json?.optString("password")?.takeIf { it.isNotBlank() }
-            val kind = json?.optString("kind")?.takeIf { it.isNotBlank() }
+            val permission = json?.optString("permission")?.takeIf { it.isNotBlank() }
+            val choice = json?.optString("choice")?.takeIf { it.isNotBlank() }
 
             when (action) {
                 "signIn" -> {
@@ -218,7 +219,43 @@ class PreloginWebActivity : ComponentActivity() {
                     }
                 }
                 "requestPermission" -> {
-                    Log.i(TAG, "requestPermission kind=$kind — TODO Phase 3 real OS prompt, not granted")
+                    val normalizedChoice = choice?.lowercase()
+                    val primerPermission = when (permission) {
+                        "location" -> PoplurPermissionPrimer.LOCATION
+                        "camera", "photos" -> PoplurPermissionPrimer.PHOTOS
+                        else -> null
+                    }
+                    val denied = normalizedChoice?.endsWith("deny") == true
+                    val allowed = normalizedChoice == "allow" ||
+                        normalizedChoice?.endsWith("-allow") == true ||
+                        normalizedChoice?.endsWith("-once") == true
+                    if (primerPermission == null || (!denied && !allowed)) {
+                        Log.i(TAG, "requestPermission ignored invalid permission=$permission choice=$choice")
+                        return
+                    }
+                    PoplurPermissionPrimer.markHandled(this@PreloginWebActivity, primerPermission)
+                    if (denied) {
+                        Log.i(TAG, "requestPermission permission=$permission declined in-app — OS prompt not shown")
+                        return
+                    }
+                    runOnUiThread {
+                        when (permission) {
+                            "location" -> {
+                                if (!PoplurWebLocation.hasPermission(this@PreloginWebActivity)) {
+                                    PoplurWebLocation.requestPermission(this@PreloginWebActivity)
+                                }
+                            }
+                            // The approved pre-login card says camera roll. Its
+                            // historical payload name is "camera", but the OS
+                            // capability it grants is photo-library access.
+                            "camera", "photos" -> {
+                                if (!PoplurWebCameraRoll.hasPermission(this@PreloginWebActivity)) {
+                                    PoplurWebCameraRoll.requestPermission(this@PreloginWebActivity)
+                                }
+                            }
+                            else -> Log.i(TAG, "unhandled permission=$permission")
+                        }
+                    }
                 }
                 "complete" -> {
                     val signedIn = authViewModel.isSignedIn.value == true

@@ -199,3 +199,21 @@ tasks.register<CopyNativesTask>("copyNatives") {
 project.afterEvaluate {
     tasks.findByName("preBuild")?.dependsOn(tasks.getByName("copyNatives"))
 }
+
+// Frame-profile the freshly installed build on an attached low-tier phone (the
+// Galaxy A03s is the reference device). Hooked to installDebug rather than
+// assembleDebug: until the APK is actually on the device there is nothing to
+// measure. Runs detached so it never adds minutes to a build — results land in
+// .codex/a03-perf-history.jsonl and a regression is written to
+// .codex/a03-last-regression.txt. Opt out with -PskipA03Profile.
+tasks.matching { it.name == "installDebug" }.configureEach {
+    doLast {
+        if (project.hasProperty("skipA03Profile")) return@doLast
+        val script = File("/Users/matrix/Developer/.codex/profile-a03.sh")
+        if (!script.exists()) return@doLast
+        ProcessBuilder("bash", "-c",
+            "'${script.path}' --quiet > /Users/matrix/Developer/.codex/a03-last-regression.txt 2>&1 || true")
+            .start()
+        logger.lifecycle("A03 frame profile started in background — see .codex/a03-last-regression.txt")
+    }
+}

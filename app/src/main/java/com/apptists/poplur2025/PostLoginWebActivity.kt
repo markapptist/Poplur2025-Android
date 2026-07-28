@@ -1,8 +1,14 @@
 package com.apptists.poplur2025
 
 import android.annotation.SuppressLint
+import android.Manifest
+import android.content.ContentValues
+import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.JavascriptInterface
@@ -12,6 +18,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -22,9 +29,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.webkit.WebViewAssetLoader
 import com.apptists.poplur2025.ui.components.PoplurVolumeBars
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
 import org.json.JSONObject
+import java.util.UUID
 
 /**
  * Post-login host for the approved web flow.
@@ -51,6 +65,21 @@ class PostLoginWebActivity : ComponentActivity() {
     private val darkHome = 0xFF050407.toInt()
     private val darkLoading = 0xFF0A0709.toInt()
     private val origin = "https://appassets.androidplatform.net/assets"
+    private data class WebCapture(val uri: Uri, val mimeType: String)
+    private val webCaptures = mutableMapOf<String, WebCapture>()
+    private var pendingPhotoUri: Uri? = null
+    private var pendingVideoUri: Uri? = null
+
+    private val takeWebPhoto = registerForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
+        val uri = pendingPhotoUri
+        pendingPhotoUri = null
+        if (saved && uri != null) deliverCapture(uri, "photo", "image/jpeg")
+    }
+    private val takeWebVideo = registerForActivityResult(ActivityResultContracts.CaptureVideo()) { saved ->
+        val uri = pendingVideoUri
+        pendingVideoUri = null
+        if (saved && uri != null) deliverCapture(uri, "video", "video/mp4")
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,7 +124,42 @@ class PostLoginWebActivity : ComponentActivity() {
         setContentView(root)
 
         // Both URLs are the exact bundles used by the iOS post-login path.
-        homeWebView.loadUrl("$origin/claymap/index.html?view=home&tabs=1")
+        val mapPrefs = getSharedPreferences("poplur_settings", MODE_PRIVATE)
+        val lowTier = PoplurLiteTier.isLowTier(this)
+        val use3DMap = if (mapPrefs.contains("poplur_use3DMap")) {
+            mapPrefs.getBoolean("poplur_use3DMap", !lowTier)
+        } else {
+            !lowTier
+        }
+        val fromAuth = intent.getBooleanExtra("fromAuth", false)
+        val permissionQuery = if (fromAuth) {
+            ""
+        } else {
+            buildString {
+                if (!PoplurWebLocation.hasPermission(this@PostLoginWebActivity) &&
+                    !PoplurPermissionPrimer.wasHandled(
+                        this@PostLoginWebActivity,
+                        PoplurPermissionPrimer.LOCATION
+                    )
+                ) {
+                    append("&askLocation=1")
+                }
+                if (!PoplurWebCameraRoll.hasPermission(this@PostLoginWebActivity) &&
+                    !PoplurPermissionPrimer.wasHandled(
+                        this@PostLoginWebActivity,
+                        PoplurPermissionPrimer.PHOTOS
+                    )
+                ) {
+                    append("&askPhotos=1")
+                }
+            }
+        }
+        homeWebView.loadUrl(
+            "$origin/claymap/index.html?view=home&tabs=1" +
+                "&mapMode=${if (use3DMap) "3d" else "2d"}" +
+                "&fallback2d=${if (!use3DMap && lowTier) "1" else "0"}" +
+                permissionQuery
+        )
         // User rule: the approved globe Loading only after explicit sign-in/up;
         // an already-signed-in launch loops the splash (its clay bar refills)
         // while the home warms up behind it.
@@ -106,13 +170,11 @@ class PostLoginWebActivity : ComponentActivity() {
         // (and is being kept for the watch/wear build).
         loadingWebView.loadUrl("$origin/prelogin/splash.html")
 
-        // Current-location start: the map falls back to Toronto unless native
-        // pushes a fix. Request the OS permission on first entry; push once
-        // granted (also re-pushed whenever the web asks via requestLocation).
+        // Push an existing fix without prompting. Missing permissions are
+        // surfaced by Home's custom clay primer; only its Allow action posts
+        // requestLocation/requestCameraRoll back through the bridge below.
         if (PoplurWebLocation.hasPermission(this)) {
             PoplurWebLocation.pushLastKnown(homeWebView)
-        } else {
-            PoplurWebLocation.requestPermission(this)
         }
 
         // Match the approved iOS loading minimum. A bounded fallback avoids trapping a user
@@ -136,6 +198,10 @@ class PostLoginWebActivity : ComponentActivity() {
         backgroundColor: Int,
         receivesNativeEvents: Boolean
     ): WebView = WebView(this).apply {
+        // Debug builds only: without this there is no devtools socket on the
+        // device, so the web home can only be profiled blind through gfxinfo —
+        // frame times with nothing to attribute them to. Never on in release.
+        if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.allowFileAccess = false
@@ -172,6 +238,16 @@ class PostLoginWebActivity : ComponentActivity() {
         val url = request.url
         if (url.host != "appassets.androidplatform.net") return null
         val path = url.encodedPath ?: return null
+        if (path.startsWith("/assets/captures/")) {
+            val key = path.substringAfterLast('/')
+            val capture = webCaptures[key] ?: return null
+            val stream = try {
+                contentResolver.openInputStream(capture.uri)
+            } catch (_: Exception) {
+                null
+            } ?: return null
+            return WebResourceResponse(capture.mimeType, null, stream)
+        }
         if (path.startsWith("/assets/")) return assetLoader.shouldInterceptRequest(url)
 
         val relativePath = path.removePrefix("/")
@@ -188,6 +264,123 @@ class PostLoginWebActivity : ComponentActivity() {
             else -> "/assets/claymap/$relativePath"
         }
         return assetLoader.shouldInterceptRequest(url.buildUpon().encodedPath(mappedPath).build())
+    }
+
+    private fun launchWebPhotoCapture() {
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "Poplur-${System.currentTimeMillis()}.jpg")
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Poplur")
+            }
+        }
+        pendingPhotoUri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+        pendingPhotoUri?.let(takeWebPhoto::launch)
+    }
+
+    private fun launchWebVideoCapture() {
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "Poplur-${System.currentTimeMillis()}.mp4")
+            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "Movies/Poplur")
+            }
+        }
+        pendingVideoUri = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+        pendingVideoUri?.let(takeWebVideo::launch)
+    }
+
+    private fun deliverCapture(uri: Uri, kind: String, mimeType: String) {
+        val key = UUID.randomUUID().toString()
+        webCaptures[key] = WebCapture(uri, mimeType)
+        val detail = JSONObject().apply {
+            put("kind", kind)
+            put("src", "$origin/captures/$key")
+        }
+        homeWebView.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('poplur-native-capture', { detail: $detail })); true;", null
+        )
+    }
+
+    private fun sendUploadResult(requestId: String, success: Boolean, error: String? = null) {
+        val result = JSONObject().apply {
+            put("requestId", requestId)
+            put("ok", success)
+            if (!success && !error.isNullOrBlank()) put("error", error)
+        }
+        homeWebView.post {
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-upload-result', { detail: $result })); true;", null
+            )
+        }
+    }
+
+    private fun uploadClayPost(body: JSONObject) {
+        val requestId = body.optString("requestId")
+        if (requestId.isBlank()) return
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            sendUploadResult(requestId, false, "You must be signed in before posting.")
+            return
+        }
+        val data = body.optString("data")
+        val kind = if (body.optString("kind") == "video") "video" else "photo"
+        if (data.isBlank()) {
+            sendUploadResult(requestId, false, "That post has no media to upload.")
+            return
+        }
+
+        val storageRef = FirebaseStorage.getInstance().reference
+            .child("posts/${user.uid}/${System.currentTimeMillis()}.${if (kind == "video") "mp4" else "jpg"}")
+        val captureKey = Uri.parse(data).lastPathSegment
+        val storedCapture = captureKey?.let(webCaptures::get)
+        val upload = when {
+            storedCapture != null -> storageRef.putFile(storedCapture.uri)
+            data.startsWith("data:") -> {
+                val encoded = data.substringAfter(',', "")
+                if (encoded.isBlank()) {
+                    sendUploadResult(requestId, false, "That media could not be prepared.")
+                    return
+                }
+                storageRef.putBytes(android.util.Base64.decode(encoded, android.util.Base64.DEFAULT))
+            }
+            else -> {
+                sendUploadResult(requestId, false, "That media is no longer available on this device.")
+                return
+            }
+        }
+
+        upload.addOnFailureListener { error ->
+            sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be uploaded.")
+        }.addOnSuccessListener {
+            storageRef.downloadUrl.addOnFailureListener { error ->
+                sendUploadResult(requestId, false, error.localizedMessage ?: "Your uploaded media could not be read.")
+            }.addOnSuccessListener { mediaUrl ->
+                val post = hashMapOf<String, Any>(
+                    "userID" to user.uid,
+                    "username" to (user.displayName ?: user.email ?: "Poplur user"),
+                    "mediaURL" to mediaUrl.toString(),
+                    "mediaType" to kind,
+                    "viewCount" to 0,
+                    "radius" to (body.optDouble("radiusKm", 5.0) * 1000).toInt(),
+                    "createdAt" to FieldValue.serverTimestamp()
+                )
+                if (body.has("latitude") && body.has("longitude")) {
+                    post["latitude"] = body.optDouble("latitude")
+                    post["longitude"] = body.optDouble("longitude")
+                }
+                body.optString("caption").takeIf { it.isNotBlank() }?.let { post["caption"] = it }
+                body.optString("channelId").takeIf { it.isNotBlank() }?.let { post["channelId"] = it }
+                body.optString("filterId").takeIf { it.isNotBlank() }?.let { post["filterId"] = it }
+                if (body.optBoolean("usedAI")) post["usedAI"] = true
+
+                FirebaseFirestore.getInstance().collection("posts").add(post)
+                    .addOnSuccessListener { sendUploadResult(requestId, true) }
+                    .addOnFailureListener { error ->
+                        sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be saved.")
+                    }
+            }
+        }
     }
 
     private fun revealIfReady() {
@@ -238,7 +431,8 @@ class PostLoginWebActivity : ComponentActivity() {
     inner class Bridge {
         @JavascriptInterface
         fun onEvent(json: String) {
-            val type = runCatching { JSONObject(json).optString("type") }.getOrNull()
+            val body = runCatching { JSONObject(json) }.getOrNull() ?: return
+            val type = body.optString("type")
             if (type == "homeReady" || type == "mapReady") {
                 runOnUiThread {
                     homeReady.value = true
@@ -246,6 +440,10 @@ class PostLoginWebActivity : ComponentActivity() {
                 }
             }
             if (type == "requestCameraRoll") {
+                PoplurPermissionPrimer.markHandled(
+                    this@PostLoginWebActivity,
+                    PoplurPermissionPrimer.PHOTOS
+                )
                 runOnUiThread {
                     if (PoplurWebCameraRoll.hasPermission(this@PostLoginWebActivity)) {
                         PoplurWebCameraRoll.push(homeWebView)
@@ -255,6 +453,10 @@ class PostLoginWebActivity : ComponentActivity() {
                 }
             }
             if (type == "requestLocation") {
+                PoplurPermissionPrimer.markHandled(
+                    this@PostLoginWebActivity,
+                    PoplurPermissionPrimer.LOCATION
+                )
                 runOnUiThread {
                     if (PoplurWebLocation.hasPermission(this@PostLoginWebActivity)) {
                         PoplurWebLocation.pushLastKnown(homeWebView)
@@ -263,6 +465,38 @@ class PostLoginWebActivity : ComponentActivity() {
                     }
                 }
             }
+            if (type == "permissionHandled") {
+                when (body.optString("permission")) {
+                    "location" -> PoplurPermissionPrimer.markHandled(
+                        this@PostLoginWebActivity,
+                        PoplurPermissionPrimer.LOCATION
+                    )
+                    "photos", "camera" -> PoplurPermissionPrimer.markHandled(
+                        this@PostLoginWebActivity,
+                        PoplurPermissionPrimer.PHOTOS
+                    )
+                }
+            }
+            if (type == "requestCameraPermission") {
+                runOnUiThread {
+                    if (ContextCompat.checkSelfPermission(
+                            this@PostLoginWebActivity,
+                            Manifest.permission.CAMERA
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        ActivityCompat.requestPermissions(
+                            this@PostLoginWebActivity,
+                            arrayOf(Manifest.permission.CAMERA),
+                            CAMERA_REQUEST_CODE
+                        )
+                    }
+                }
+            }
+            if (type == "cameraShutter") runOnUiThread { launchWebPhotoCapture() }
+            if (type == "cameraControl" && body.optString("control") == "record") {
+                runOnUiThread { launchWebVideoCapture() }
+            }
+            if (type == "publishPost") runOnUiThread { uploadClayPost(body) }
         }
     }
 
@@ -301,6 +535,7 @@ class PostLoginWebActivity : ComponentActivity() {
         const val HOME_READY_TIMEOUT_MS = 12000L
         const val REVEAL_DURATION_MS = 450L
         const val VOLUME_HIDE_MS = 1500L
+        const val CAMERA_REQUEST_CODE = 7403
     }
 }
 

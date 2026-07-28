@@ -27,15 +27,22 @@ object PoplurWebCameraRoll {
     private const val ITEM_LIMIT = 24
     private const val THUMB_SIDE = 240
 
-    private val permission =
-        if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES
-        else Manifest.permission.READ_EXTERNAL_STORAGE
+    private fun permissions(): Array<String> = when {
+        Build.VERSION.SDK_INT >= 34 -> arrayOf(
+            Manifest.permission.READ_MEDIA_IMAGES,
+            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED
+        )
+        Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+        else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
 
     fun hasPermission(context: Context): Boolean =
-        ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        permissions().any {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
 
     fun requestPermission(activity: Activity) {
-        ActivityCompat.requestPermissions(activity, arrayOf(permission), REQUEST_CODE)
+        ActivityCompat.requestPermissions(activity, permissions(), REQUEST_CODE)
     }
 
     fun deliverDenied(webView: WebView) {
