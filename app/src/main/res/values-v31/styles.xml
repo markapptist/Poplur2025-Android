@@ -1,8 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Poplur.Starting" parent="Theme.Poplur">
-        <item name="android:windowSplashScreenBackground">@android:color/white</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/poplur_splash_logo</item>
-        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/white</item>
+        <!-- Keep Android 12+'s system handoff on the same dark, logo-free surface
+             as the approved prototype splash. The old white P-logo here was the
+             placeholder/play-button-looking screen seen on physical devices. -->
+        <item name="android:windowSplashScreenBackground">#0A0709</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_transparent_icon</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#0A0709</item>
+    </style>
+
+    <!-- MainActivity uses Theme.Poplur.SplashScreen. Keep the native Android 12
+         attributes explicit too; otherwise the platform can fall back to the
+         old application icon before AndroidX's splash handoff runs. -->
+    <style name="Theme.Poplur.SplashScreen">
+        <item name="android:windowSplashScreenBackground">#0A0709</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_transparent_icon</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#0A0709</item>
     </style>
 </resources>
