@@ -291,6 +291,7 @@ fun PoplurRoot(
     var isFeedTvGuideVisible by remember { mutableStateOf(false) }
     var isCubeSurfaceReady by remember { mutableStateOf(false) }
     var isCubeFirstFrameReady by remember { mutableStateOf(false) }
+    var welcomeCubeRecoveryKey by remember { mutableIntStateOf(0) }
     var authCubeLabel by remember { mutableStateOf("poplur") }
     var welcomePermissionsGranted by rememberSaveable { mutableStateOf(false) }
     var authBackAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -1149,6 +1150,22 @@ fun PoplurRoot(
         }
     }
 
+    // Match the shared UI-recovery watchdog: if the dormant native Welcome
+    // route ever becomes active and its real login cube misses two one-second
+    // frame checks, remount that renderer. Never substitute the generic clay
+    // cube on a lower-tier phone.
+    LaunchedEffect(isSignedIn, authCubeLabel, isCubeFirstFrameReady, welcomeCubeRecoveryKey) {
+        if (isSignedIn != false || authCubeLabel != "poplur" || isCubeFirstFrameReady) {
+            return@LaunchedEffect
+        }
+        repeat(2) {
+            delay(1_000)
+            if (isCubeFirstFrameReady) return@LaunchedEffect
+        }
+        android.util.Log.w("PoplurRoot", "Welcome login cube missed first frame; rebuilding renderer")
+        welcomeCubeRecoveryKey += 1
+    }
+
     // --- Side Effects ---
     LaunchedEffect(Unit) {
         rootLogoBitmap = withContext(Dispatchers.IO) {
@@ -1359,49 +1376,47 @@ fun PoplurRoot(
 
         if (isCubeSurfaceReady) {
             val isWelcomeAuthScreen = isSignedIn == false && authCubeLabel == "poplur"
-            // Welcome is the approved GCL pre-login prototype and uses the
-            // shared claymap cube. Keep the legacy equal-faces cube only for
-            // the other signed-out routes that still use the login treatment.
-            val loginCubeAssetPath = when {
-                isWelcomeAuthScreen -> "claymap/poplur_clay_cube.glb"
-                isSignedIn != true -> LOGIN_CUBE_ASSET_PATH
-                else -> null
-            }
+            // Every signed-out route uses the actual six-face login cube.
+            // Device capability may lower renderer quality, but it must never
+            // select the generic clay-map fallback model.
+            val loginCubeAssetPath = if (isSignedIn != true) LOGIN_CUBE_ASSET_PATH else null
             val displayTabIndex = when {
                 isWelcomeAuthScreen -> 0 // LOGIN_CUBE face 0 is the canonical FORWARD artwork.
                 isSignedIn == false -> 3 // Login/Sign Up retain their existing BACK cube face.
                 else -> tab.cubeTabIndex()
             }
-            PersistentCubeOverlay(
-                modifier = Modifier
-                    .zIndex(200f)
-                    .graphicsLayer { alpha = cubeAlpha.value },
-                selectedTabIndex = displayTabIndex,
-                mapCubeFaceTitle = mapCubeFaceTitle,
-                cameraCubeFaceTitle = cameraCubeFaceTitle,
-                feedCubeFaceTitle = feedCubeFaceTitle,
-                profileCubeIconTitle = profileCubeIconTitle,
-                cubeSkin = selectedCubeSkin,
-                // Interactive == rendered on top of Compose (translationZ). Signed-out-and-past-
-                // the-loading-cover means the Welcome screen: show the rotating login cube on top
-                // (pinned bottom-center, below Sign Up), matching iOS. During the loading cover it
-                // stays behind so the logo shows instead.
-                isInteractive = (isSignedIn == true && !showAppInitializationCover && !showFeedCommentComposer) ||
-                    (isSignedIn == false && !showAppInitializationCover),
-                onVerticalSwipe = cubeSwipeLambda,
-                onLongPress = cubeLongPressLambda,
-                onLongPressMove = cubeLongPressMoveLambda,
-                onLongPressEnd = cubeLongPressEndLambda,
-                onTap = cubeTapLambda,
-                onTabSelected = cubeTapSelectedLambda,
-                onFirstFrameRendered = cubeFirstFrameLambda,
-                channelObjectId = channelObjectId,
-                channelObjectPopToken = channelObjectPopToken,
-                modelAssetPathOverride = loginCubeAssetPath,
-                autoRotate = isWelcomeAuthScreen,
-                centerFromTopFraction = if (isWelcomeAuthScreen) WELCOME_CUBE_CENTER_FROM_TOP_FRACTION else null,
-                verticalLiftDp = if (isWelcomeAuthScreen && welcomePermissionsGranted) 24f else 0f
-            )
+            key(if (isWelcomeAuthScreen) welcomeCubeRecoveryKey else 0) {
+                PersistentCubeOverlay(
+                    modifier = Modifier
+                        .zIndex(200f)
+                        .graphicsLayer { alpha = cubeAlpha.value },
+                    selectedTabIndex = displayTabIndex,
+                    mapCubeFaceTitle = mapCubeFaceTitle,
+                    cameraCubeFaceTitle = cameraCubeFaceTitle,
+                    feedCubeFaceTitle = feedCubeFaceTitle,
+                    profileCubeIconTitle = profileCubeIconTitle,
+                    cubeSkin = selectedCubeSkin,
+                    // Interactive == rendered on top of Compose (translationZ). Signed-out-and-past-
+                    // the-loading-cover means the Welcome screen: show the rotating login cube on top
+                    // (pinned bottom-center, below Sign Up), matching iOS. During the loading cover it
+                    // stays behind so the logo shows instead.
+                    isInteractive = (isSignedIn == true && !showAppInitializationCover && !showFeedCommentComposer) ||
+                        (isSignedIn == false && !showAppInitializationCover),
+                    onVerticalSwipe = cubeSwipeLambda,
+                    onLongPress = cubeLongPressLambda,
+                    onLongPressMove = cubeLongPressMoveLambda,
+                    onLongPressEnd = cubeLongPressEndLambda,
+                    onTap = cubeTapLambda,
+                    onTabSelected = cubeTapSelectedLambda,
+                    onFirstFrameRendered = cubeFirstFrameLambda,
+                    channelObjectId = channelObjectId,
+                    channelObjectPopToken = channelObjectPopToken,
+                    modelAssetPathOverride = loginCubeAssetPath,
+                    autoRotate = isWelcomeAuthScreen,
+                    centerFromTopFraction = if (isWelcomeAuthScreen) WELCOME_CUBE_CENTER_FROM_TOP_FRACTION else null,
+                    verticalLiftDp = if (isWelcomeAuthScreen && welcomePermissionsGranted) 24f else 0f
+                )
+            }
         }
 
         PoplurAIAssistantOverlay(
