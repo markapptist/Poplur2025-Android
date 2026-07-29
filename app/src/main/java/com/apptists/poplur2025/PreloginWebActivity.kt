@@ -238,24 +238,10 @@ class PreloginWebActivity : ComponentActivity() {
                         Log.i(TAG, "requestPermission permission=$permission declined in-app — OS prompt not shown")
                         return
                     }
-                    runOnUiThread {
-                        when (permission) {
-                            "location" -> {
-                                if (!PoplurWebLocation.hasPermission(this@PreloginWebActivity)) {
-                                    PoplurWebLocation.requestPermission(this@PreloginWebActivity)
-                                }
-                            }
-                            // The approved pre-login card says camera roll. Its
-                            // historical payload name is "camera", but the OS
-                            // capability it grants is photo-library access.
-                            "camera", "photos" -> {
-                                if (!PoplurWebCameraRoll.hasPermission(this@PreloginWebActivity)) {
-                                    PoplurWebCameraRoll.requestPermission(this@PreloginWebActivity)
-                                }
-                            }
-                            else -> Log.i(TAG, "unhandled permission=$permission")
-                        }
-                    }
+                    // The custom clay card is the only startup permission UI.
+                    // A real Android sheet is deferred until the feature that
+                    // needs the capability is opened.
+                    Log.i(TAG, "requestPermission permission=$permission accepted in-app; OS prompt deferred")
                 }
                 "complete" -> {
                     val signedIn = authViewModel.isSignedIn.value == true

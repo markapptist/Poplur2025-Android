@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.JavascriptInterface
@@ -50,6 +51,8 @@ import java.util.UUID
  * GCL prototype on both platforms.
  */
 class PostLoginWebActivity : ComponentActivity() {
+
+    private val TAG = "PostLoginWebActivity"
 
     private lateinit var homeWebView: WebView
     private lateinit var loadingWebView: WebView
@@ -448,7 +451,10 @@ class PostLoginWebActivity : ComponentActivity() {
                     if (PoplurWebCameraRoll.hasPermission(this@PostLoginWebActivity)) {
                         PoplurWebCameraRoll.push(homeWebView)
                     } else {
-                        PoplurWebCameraRoll.requestPermission(this@PostLoginWebActivity)
+                        // The custom clay primer is the only startup prompt.
+                        // Defer the Android system sheet until the user actually
+                        // opens Camera Roll.
+                        PoplurWebCameraRoll.deliverDenied(homeWebView)
                     }
                 }
             }
@@ -461,7 +467,7 @@ class PostLoginWebActivity : ComponentActivity() {
                     if (PoplurWebLocation.hasPermission(this@PostLoginWebActivity)) {
                         PoplurWebLocation.pushLastKnown(homeWebView)
                     } else {
-                        PoplurWebLocation.requestPermission(this@PostLoginWebActivity)
+                        Log.i(TAG, "location primer accepted in-app; system prompt deferred")
                     }
                 }
             }
