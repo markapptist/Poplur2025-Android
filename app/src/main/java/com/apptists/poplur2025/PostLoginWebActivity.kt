@@ -8,6 +8,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
 import android.view.KeyEvent
@@ -41,6 +42,7 @@ import com.apptists.poplur2025.ui.components.PoplurVolumeBars
 import com.apptists.poplur2025.data.AppTab
 import com.apptists.poplur2025.ui.PoplurAICommand
 import com.apptists.poplur2025.ui.PoplurAIAssistantOverlay
+import com.apptists.poplur2025.ui.PoplurAIParser
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -567,6 +569,10 @@ class PostLoginWebActivity : ComponentActivity() {
 
     private fun deliverNativeVoiceCommand(command: PoplurAICommand) {
         val detail = JSONObject()
+        // Native TTS is outside the WebView audio graph. Include the exact
+        // spoken line so the shared Home can hold its Voice owner for the
+        // utterance and prevent Feed/Map from continuing underneath it.
+        detail.put("feedback", PoplurAIParser.feedback(command))
         when (command) {
             is PoplurAICommand.OpenTab -> when (command.tab) {
                 AppTab.Map -> detail.put("tab", "map")
@@ -587,7 +593,6 @@ class PostLoginWebActivity : ComponentActivity() {
             PoplurAICommand.Logout,
             is PoplurAICommand.Unknown -> Unit
         }
-        if (detail.length() == 0) return
         val json = detail.toString()
         if (!homeReady.value) {
             pendingNativeVoiceCommand = json
@@ -603,12 +608,13 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     private fun dispatchNativeVoiceCommand(json: String) {
-        homeWebView.post {
+        val deliver = {
             homeWebView.evaluateJavascript(
                 "window.dispatchEvent(new CustomEvent('poplur-native-voice-command', { detail: $json })); true;",
                 null
             )
         }
+        if (Looper.myLooper() == Looper.getMainLooper()) deliver() else homeWebView.post(deliver)
     }
 
     override fun onRequestPermissionsResult(

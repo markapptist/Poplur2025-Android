@@ -183,8 +183,10 @@ fun PoplurAIAssistantOverlay(
         isWaitingForCommand = false
         val feedback = PoplurAIParser.feedback(command)
         statusText = feedback
-        speakFeedback(feedback)
+        // The host forwards feedback to the WebView first so it can silence
+        // Feed/Map before native TTS enters the device audio session.
         currentOnCommand(command)
+        speakFeedback(feedback)
         scope.launch {
             delay(2_400)
             if (wakeToken == token) {
