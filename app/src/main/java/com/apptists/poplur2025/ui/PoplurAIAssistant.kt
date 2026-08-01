@@ -89,6 +89,7 @@ fun PoplurAIAssistantOverlay(
     accent: Color,
     modifier: Modifier = Modifier,
     tutorialPulseToken: Int = 0,
+    explicitRequestToken: Int = 0,
     onCommand: (PoplurAICommand) -> Unit
 ) {
     val context = LocalContext.current
@@ -100,12 +101,7 @@ fun PoplurAIAssistantOverlay(
                 PackageManager.PERMISSION_GRANTED
         )
     }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        hasAudioPermission = granted
-    }
-
+    var pendingExplicitStart by remember { mutableStateOf(false) }
     var isIlluminated by remember { mutableStateOf(false) }
     var isWaitingForCommand by remember { mutableStateOf(false) }
     var statusText by remember { mutableStateOf("Say Hey Poplur") }
@@ -114,6 +110,15 @@ fun PoplurAIAssistantOverlay(
     var lastHandledAt by remember { mutableStateOf(0L) }
     var ttsReady by remember { mutableStateOf(false) }
     val ttsState = remember { mutableStateOf<TextToSpeech?>(null) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasAudioPermission = granted
+        if (!granted) {
+            pendingExplicitStart = false
+            statusText = "Enable microphone access"
+        }
+    }
 
     val wakeChime = remember { runCatching { ToneGenerator(AudioManager.STREAM_RING, 45) }.getOrNull() }
     DisposableEffect(Unit) { onDispose { runCatching { wakeChime?.release() } } }
@@ -219,13 +224,38 @@ fun PoplurAIAssistantOverlay(
 
     LaunchedEffect(tutorialPulseToken) {
         if (tutorialPulseToken > 0) {
-            activateWake()
+            // The profile tutorial may glow, but it must never trigger an OS
+            // sheet. Recognition starts only if access already exists.
+            if (hasAudioPermission) activateWake()
         }
     }
 
     LaunchedEffect(enabled) {
-        if (enabled && !hasAudioPermission) {
-            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        if (enabled) {
+            // Re-check in case access was granted in Settings. Do not request
+            // here: Home launch is never an OS permission-prompt trigger.
+            hasAudioPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    LaunchedEffect(explicitRequestToken) {
+        if (explicitRequestToken > 0) {
+            if (hasAudioPermission) {
+                activateWake()
+            } else {
+                pendingExplicitStart = true
+                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+
+    LaunchedEffect(hasAudioPermission, pendingExplicitStart) {
+        if (hasAudioPermission && pendingExplicitStart) {
+            pendingExplicitStart = false
+            activateWake()
         }
     }
 

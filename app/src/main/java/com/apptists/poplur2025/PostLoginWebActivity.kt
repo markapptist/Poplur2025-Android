@@ -13,9 +13,11 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.JavascriptInterface
+import android.webkit.PermissionRequest
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import android.webkit.WebChromeClient
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -24,9 +26,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -34,6 +38,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.webkit.WebViewAssetLoader
 import com.apptists.poplur2025.ui.components.PoplurVolumeBars
+import com.apptists.poplur2025.data.AppTab
+import com.apptists.poplur2025.ui.PoplurAICommand
+import com.apptists.poplur2025.ui.PoplurAIAssistantOverlay
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -62,6 +69,9 @@ class PostLoginWebActivity : ComponentActivity() {
     private val minimumElapsed = mutableStateOf(false)
     private val volumeVisible = mutableStateOf(false)
     private val volumeFraction = mutableStateOf(0f)
+    private val voiceForeground = mutableStateOf(false)
+    private val voiceRequestToken = mutableIntStateOf(0)
+    private var pendingNativeVoiceCommand: String? = null
     private var hideVolumeRunnable: Runnable? = null
     private var revealRunnable: Runnable? = null
 
@@ -113,13 +123,24 @@ class PostLoginWebActivity : ComponentActivity() {
             setContent {
                 val visible by volumeVisible
                 val fraction by volumeFraction
-                if (visible) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+                val voiceEnabled by voiceForeground
+                val explicitVoiceRequest by voiceRequestToken
+                Box(Modifier.fillMaxSize()) {
+                    if (visible) {
                         PoplurVolumeBars(
-                            modifier = Modifier.padding(end = 28.dp),
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 28.dp),
                             volumeFraction = fraction
                         )
                     }
+                    PoplurAIAssistantOverlay(
+                        enabled = voiceEnabled,
+                        accent = Color(0xFFFF4FA3),
+                        explicitRequestToken = explicitVoiceRequest,
+                        modifier = Modifier.fillMaxSize(),
+                        onCommand = ::deliverNativeVoiceCommand
+                    )
                 }
             }
         }
@@ -190,9 +211,20 @@ class PostLoginWebActivity : ComponentActivity() {
         loadingWebView.postDelayed({
             if (!isFinishing && !homeReady.value) {
                 homeReady.value = true
+                flushPendingNativeVoiceCommand()
                 revealIfReady()
             }
         }, HOME_READY_TIMEOUT_MS)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        voiceForeground.value = true
+    }
+
+    override fun onPause() {
+        voiceForeground.value = false
+        super.onPause()
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -213,6 +245,26 @@ class PostLoginWebActivity : ComponentActivity() {
         overScrollMode = WebView.OVER_SCROLL_NEVER
         setBackgroundColor(backgroundColor)
         if (receivesNativeEvents) addJavascriptInterface(Bridge(), "PoplurNative")
+        if (receivesNativeEvents) {
+            webChromeClient = object : WebChromeClient() {
+                override fun onPermissionRequest(request: PermissionRequest) {
+                    runOnUiThread {
+                        val wantsVideo = request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                        val cameraGranted = ContextCompat.checkSelfPermission(
+                            this@PostLoginWebActivity,
+                            Manifest.permission.CAMERA
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (wantsVideo && cameraGranted) {
+                            // The shared camera deliberately asks for video only.
+                            // Never grant microphone access as a side effect.
+                            request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
+                        } else {
+                            request.deny()
+                        }
+                    }
+                }
+            }
+        }
         webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(
                 view: WebView,
@@ -439,8 +491,15 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "homeReady" || type == "mapReady") {
                 runOnUiThread {
                     homeReady.value = true
+                    flushPendingNativeVoiceCommand()
                     revealIfReady()
                 }
+            }
+            if (type == "requestVoiceAssistant") {
+                // The shared HEY POPLUR tile is an explicit user action, and
+                // therefore the only Home event allowed to launch Android's
+                // RECORD_AUDIO permission sheet.
+                runOnUiThread { voiceRequestToken.intValue += 1 }
             }
             if (type == "requestCameraRoll") {
                 PoplurPermissionPrimer.markHandled(
@@ -506,6 +565,52 @@ class PostLoginWebActivity : ComponentActivity() {
         }
     }
 
+    private fun deliverNativeVoiceCommand(command: PoplurAICommand) {
+        val detail = JSONObject()
+        when (command) {
+            is PoplurAICommand.OpenTab -> when (command.tab) {
+                AppTab.Map -> detail.put("tab", "map")
+                AppTab.Camera, AppTab.CreateEntry, AppTab.CapturedOutput -> detail.put("tab", "post")
+                AppTab.Feed -> detail.put("tab", "feed")
+                AppTab.Profile -> detail.put("tab", "profile")
+                else -> Unit
+            }
+            is PoplurAICommand.Camera -> detail.put("tab", "post")
+            is PoplurAICommand.GoToChannel -> {
+                detail.put("tab", "feed")
+                detail.put("channel", command.query)
+            }
+            is PoplurAICommand.PostToLocation -> detail.put("tab", "post")
+            is PoplurAICommand.SortPosts, PoplurAICommand.ShowAnalytics -> detail.put("tab", "profile")
+            is PoplurAICommand.OpenPage,
+            is PoplurAICommand.SetTourActive,
+            PoplurAICommand.Logout,
+            is PoplurAICommand.Unknown -> Unit
+        }
+        if (detail.length() == 0) return
+        val json = detail.toString()
+        if (!homeReady.value) {
+            pendingNativeVoiceCommand = json
+            return
+        }
+        dispatchNativeVoiceCommand(json)
+    }
+
+    private fun flushPendingNativeVoiceCommand() {
+        val json = pendingNativeVoiceCommand ?: return
+        pendingNativeVoiceCommand = null
+        dispatchNativeVoiceCommand(json)
+    }
+
+    private fun dispatchNativeVoiceCommand(json: String) {
+        homeWebView.post {
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-native-voice-command', { detail: $json })); true;",
+                null
+            )
+        }
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -523,6 +628,14 @@ class PostLoginWebActivity : ComponentActivity() {
             } else {
                 PoplurWebCameraRoll.deliverDenied(homeWebView)
             }
+        }
+        if (requestCode == CAMERA_REQUEST_CODE &&
+            grantResults.any { it == PackageManager.PERMISSION_GRANTED }
+        ) {
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new Event('poplur-camera-permission-granted')); true;",
+                null
+            )
         }
     }
 
