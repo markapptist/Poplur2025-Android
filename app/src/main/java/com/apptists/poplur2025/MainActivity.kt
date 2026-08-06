@@ -86,8 +86,14 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                 .withEndAction(provider::remove)
                 .start()
         }
-        UITestFlags.authBypass = intent?.getBooleanExtra("uiTestAuthBypass", false) ?: false
-        UITestFlags.hooksEnabled = intent?.getBooleanExtra("uiTestHooks", false) ?: false
+        intent?.let {
+            if (it.hasExtra("uiTestAuthBypass")) {
+                UITestFlags.authBypass = it.getBooleanExtra("uiTestAuthBypass", false)
+            }
+            if (it.hasExtra("uiTestHooks")) {
+                UITestFlags.hooksEnabled = it.getBooleanExtra("uiTestHooks", false)
+            }
+        }
         enableEdgeToEdge()
         volumeControlStream = AudioManager.STREAM_MUSIC
 

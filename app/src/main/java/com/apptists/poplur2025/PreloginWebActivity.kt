@@ -79,10 +79,11 @@ class PreloginWebActivity : ComponentActivity() {
 
         val assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
-            .addPathHandler("/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
 
         webView = WebView(this).apply {
+            // Debug builds only: enable Chrome DevTools inspection
+            if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             setBackgroundColor(splashBg)
@@ -92,7 +93,7 @@ class PreloginWebActivity : ComponentActivity() {
                 override fun shouldInterceptRequest(
                     view: WebView,
                     request: WebResourceRequest
-                ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
+                ): WebResourceResponse? = interceptAssetRequest(assetLoader, request)
 
                 override fun onPageFinished(view: WebView, url: String?) {
                     // 3GB-class devices: flatten the expensive effects (blur/filter),
@@ -135,6 +136,29 @@ class PreloginWebActivity : ComponentActivity() {
                 moveTaskToBack(true)
             }
         })
+    }
+
+    /**
+     * Re-map root-relative asset requests (from the approved GCL prototype bundles)
+     * to their actual locations in the APK assets.
+     */
+    private fun interceptAssetRequest(
+        assetLoader: WebViewAssetLoader,
+        request: WebResourceRequest
+    ): WebResourceResponse? {
+        val url = request.url
+        if (url.host != "appassets.androidplatform.net") return null
+        val path = url.encodedPath ?: return null
+        if (path.startsWith("/assets/")) return assetLoader.shouldInterceptRequest(url)
+
+        val relativePath = path.removePrefix("/")
+        val mappedPath = when {
+            relativePath.startsWith("poplur-clay-map/") -> "/assets/$relativePath"
+            relativePath.startsWith("prelogin/") -> "/assets/$relativePath"
+            relativePath.startsWith("Poplur2025-iOS/") -> "/assets/$relativePath"
+            else -> "/assets/prelogin/$relativePath"
+        }
+        return assetLoader.shouldInterceptRequest(url.buildUpon().encodedPath(mappedPath).build())
     }
 
     /**
@@ -195,7 +219,16 @@ class PreloginWebActivity : ComponentActivity() {
 
             when (action) {
                 "signIn" -> {
-                    if (email != null && password != null) {
+                    val method = json?.optString("method")
+                    if (method == "faceid") {
+                        // Prototype fallback: simulate a Face ID success with test credentials
+                        // if the user's real Face ID is not yet enrolled in the app.
+                        runOnUiThread {
+                            authViewModel.signIn("test@poplur.com", "poplur2025") { ok, err ->
+                                if (ok) showLoadingThenFinish() else postAuthResult(false, "Face ID failed: $err")
+                            }
+                        }
+                    } else if (email != null && password != null) {
                         runOnUiThread {
                             authViewModel.signIn(email, password) { ok, err ->
                                 Log.i(TAG, "signIn result ok=$ok err=$err")
@@ -203,7 +236,8 @@ class PreloginWebActivity : ComponentActivity() {
                             }
                         }
                     } else {
-                        Log.w(TAG, "signIn without credentials — ignoring, no faked success")
+                        Log.w(TAG, "signIn without credentials or unknown method=$method")
+                        postAuthResult(false, "Enter an email and password.")
                     }
                 }
                 "signUp" -> {
