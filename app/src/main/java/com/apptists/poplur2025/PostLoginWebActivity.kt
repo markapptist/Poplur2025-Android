@@ -23,6 +23,9 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import com.apptists.poplur2025.ads.AdManager
+import com.apptists.poplur2025.data.FeedAdPlacementKind
+import com.apptists.poplur2025.data.FeedAdProbability
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -557,6 +560,19 @@ class PostLoginWebActivity : ComponentActivity() {
                             CAMERA_REQUEST_CODE
                         )
                     }
+                }
+            }
+            if (type == "feedChannelChanged") {
+                // The web feed reports channel changes; the shell owns the
+                // AdMob gate and presentation — same contract as iOS, same
+                // FeedAdProbability the native feed used.
+                val channel = body.optString("channelId", "unknown")
+                val index = body.optInt("index", 0)
+                val config = FeedAdProbability.currentConfig(this@PostLoginWebActivity)
+                if (FeedAdProbability.placement(index, "web_$channel", config) ==
+                    FeedAdPlacementKind.GoogleMobileAd
+                ) {
+                    runOnUiThread { AdManager.presentInterstitial(this@PostLoginWebActivity) }
                 }
             }
             if (type == "cameraShutter") runOnUiThread { launchWebPhotoCapture() }
