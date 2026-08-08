@@ -100,6 +100,7 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.7")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.core:core-splashscreen:1.0.1")
+    implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.webkit:webkit:1.12.1")
 
     implementation(platform("com.google.firebase:firebase-bom:33.9.0"))

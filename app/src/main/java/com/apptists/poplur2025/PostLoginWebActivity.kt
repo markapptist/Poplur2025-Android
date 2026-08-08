@@ -23,6 +23,8 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.customtabs.CustomTabColorSchemeParams
+import androidx.browser.customtabs.CustomTabsIntent
 import com.apptists.poplur2025.ads.AdManager
 import com.apptists.poplur2025.data.FeedAdPlacementKind
 import com.apptists.poplur2025.data.FeedAdProbability
@@ -575,11 +577,39 @@ class PostLoginWebActivity : ComponentActivity() {
                     runOnUiThread { AdManager.presentInterstitial(this@PostLoginWebActivity) }
                 }
             }
+            if (type == "openInAppBrowser") {
+                openInAppBrowser(body.optString("url"))
+            }
             if (type == "cameraShutter") runOnUiThread { launchWebPhotoCapture() }
             if (type == "cameraControl" && body.optString("control") == "record") {
                 runOnUiThread { launchWebVideoCapture() }
             }
             if (type == "publishPost") runOnUiThread { uploadClayPost(body) }
+        }
+    }
+
+    private fun openInAppBrowser(rawUrl: String) {
+        val uri = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull()
+        if (uri == null || !uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank()) {
+            Log.w(TAG, "Ignoring invalid in-app browser URL")
+            return
+        }
+
+        runOnUiThread {
+            runCatching {
+                val colors = CustomTabColorSchemeParams.Builder()
+                    .setToolbarColor(0xFF1A0C17.toInt())
+                    .setNavigationBarColor(darkHome)
+                    .build()
+                CustomTabsIntent.Builder()
+                    .setShowTitle(true)
+                    .setUrlBarHidingEnabled(false)
+                    .setDefaultColorSchemeParams(colors)
+                    .build()
+                    .launchUrl(this@PostLoginWebActivity, uri)
+            }.onFailure { error ->
+                Log.e(TAG, "Unable to open the in-app browser", error)
+            }
         }
     }
 
