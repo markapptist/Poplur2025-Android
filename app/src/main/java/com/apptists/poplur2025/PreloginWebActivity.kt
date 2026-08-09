@@ -329,6 +329,32 @@ class PreloginWebActivity : ComponentActivity() {
         finish()
     }
 
+    /**
+     * Minimizing the app must silence the pre-login radio bed, and it did not.
+     *
+     * Post-login is quiet for a reason that does not apply here: the clay map web
+     * app pauses ITSELF on `visibilitychange`/`pagehide`. `PostLoginWebActivity`
+     * only flips a voice flag in `onPause` — the web does the real work. The
+     * pre-login pages carry no visibility handler, and they are GENERATED from the
+     * protected Good Copy sources by `scripts/build-prelogin-ios.mjs`, so the pause
+     * is owned by the host here instead of being patched into the bundle.
+     *
+     * `onStop`/`onStart` rather than `onPause`/`onResume` deliberately:
+     * `WebView.onPause()` halts rendering as well as media, and `onPause` also
+     * fires for a permission dialog drawn OVER this flow — which would freeze the
+     * clay artwork behind the dialog. `onStop` fires only once the activity is
+     * genuinely hidden, which is exactly "the app was minimized".
+     */
+    override fun onStart() {
+        super.onStart()
+        if (::webView.isInitialized) webView.onResume()
+    }
+
+    override fun onStop() {
+        if (::webView.isInitialized) webView.onPause()
+        super.onStop()
+    }
+
     override fun onDestroy() {
         hideVolumeRunnable?.let { webView.removeCallbacks(it) }
         welcomeHandoffRunnable?.let { webView.removeCallbacks(it) }
