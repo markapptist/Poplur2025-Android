@@ -59,12 +59,18 @@ class PreloginWebActivity : ComponentActivity() {
 
     private val origin = "https://appassets.androidplatform.net/assets/prelogin"
 
-    private val splashBg = 0xFF000000.toInt()
+    // The splash page's own backdrop (#0a0709), not pure black — the window,
+    // the WebView and the page then share one tone instead of stepping through
+    // two near-blacks while the page paints.
+    private val splashBg = 0xFF0A0709.toInt()
     private val welcomeBg = 0xFFFF2D96.toInt()
 
     private val volumeVisible = mutableStateOf(false)
     private val volumeFraction = mutableStateOf(0f)
     private var hideVolumeRunnable: Runnable? = null
+    /** Splash → Welcome handoff; cancelled in onDestroy so it can never fire
+     *  into a destroyed WebView. */
+    private var welcomeHandoffRunnable: Runnable? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,9 +111,28 @@ class PreloginWebActivity : ComponentActivity() {
                     }
                 }
             }
-            // Launch splash dropped by request: straight to Welcome on black.
-            loadUrl("$origin/welcome.html")
+            // Launch shows the SPLASH, always.
+            //
+            // This used to load Welcome directly. welcome.html is ~284KB plus
+            // its hero cube and account icons, so "straight to Welcome" meant
+            // an empty black WebView for the whole of that parse — the black
+            // screen on launch. splash.html is ~9KB and self-contained: it
+            // paints almost at once and then covers the Welcome load with the
+            // clay world rather than with nothing.
+            //
+            // The handoff is a fixed timer, not a signal from the page, so a
+            // splash that fails to render still hands off on schedule and can
+            // never strand anyone on the intro. Mirrors the iOS
+            // PreloginWebView.scheduleWelcomeHandoff().
+            loadUrl("$origin/splash.html")
         }
+        welcomeHandoffRunnable = Runnable {
+            if (!isFinishing && !isDestroyed) {
+                webView.setBackgroundColor(welcomeBg)
+                webView.loadUrl("$origin/welcome.html")
+            }
+        }
+        webView.postDelayed(welcomeHandoffRunnable!!, SPLASH_DELAY_MS)
 
         // WebView + a Compose overlay hosting the app's custom volume bars, so a hardware volume
         // press shows PoplurVolumeBars over the web content (the system HUD is suppressed below).
@@ -306,6 +331,7 @@ class PreloginWebActivity : ComponentActivity() {
 
     override fun onDestroy() {
         hideVolumeRunnable?.let { webView.removeCallbacks(it) }
+        welcomeHandoffRunnable?.let { webView.removeCallbacks(it) }
         webView.destroy()
         super.onDestroy()
     }
