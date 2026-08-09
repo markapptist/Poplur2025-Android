@@ -20,12 +20,18 @@ val localProperties = Properties().apply {
     }
 }
 val mapillaryAccessToken: String = localProperties.getProperty("MAPILLARY_ACCESS_TOKEN") ?: ""
+val admobInterstitialUnitId: String = localProperties.getProperty("ADMOB_INTERSTITIAL_UNIT_ID")
+    ?: "ca-app-pub-2086359936541081/6696033455"
+val admobFeedNativeUnitId: String = localProperties.getProperty("ADMOB_FEED_NATIVE_UNIT_ID")
+    ?: "ca-app-pub-2086359936541081/6696033455"
 
 android { namespace = "com.apptists.poplur2025"
     compileSdk = 35;
     defaultConfig {
         applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 2; versionName = "1.0.1"
         buildConfigField("String", "MAPILLARY_ACCESS_TOKEN", "\"$mapillaryAccessToken\"")
+        buildConfigField("String", "ADMOB_INTERSTITIAL_UNIT_ID", "\"$admobInterstitialUnitId\"")
+        buildConfigField("String", "ADMOB_FEED_NATIVE_UNIT_ID", "\"$admobFeedNativeUnitId\"")
     }
 
     buildFeatures {

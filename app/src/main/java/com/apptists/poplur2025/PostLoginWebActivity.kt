@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.Manifest
 import android.content.ContentValues
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -11,6 +12,7 @@ import android.os.Bundle
 import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
+import android.util.Base64
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.JavascriptInterface
@@ -52,6 +54,10 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetectorOptions
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -93,6 +99,16 @@ class PostLoginWebActivity : ComponentActivity() {
     private val webCaptures = ConcurrentHashMap<String, WebCapture>()
     private var pendingPhotoUri: Uri? = null
     private var pendingVideoUri: Uri? = null
+    @Volatile private var faceFrameBusy = false
+    private val cameraFaceDetector by lazy {
+        FaceDetection.getClient(
+            FaceDetectorOptions.Builder()
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                .setMinFaceSize(0.12f)
+                .enableTracking()
+                .build()
+        )
+    }
 
     private val takeWebPhoto = registerForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
         val uri = pendingPhotoUri
@@ -573,6 +589,12 @@ class PostLoginWebActivity : ComponentActivity() {
                     }
                 }
             }
+            if (type == "detectCameraFrame") {
+                detectCameraFrame(
+                    body.optString("dataUrl"),
+                    body.optBoolean("mirrored", false)
+                )
+            }
             if (type == "feedChannelChanged") {
                 // The web feed reports channel changes; the shell owns the
                 // AdMob gate and presentation — same contract as iOS, same
@@ -584,6 +606,15 @@ class PostLoginWebActivity : ComponentActivity() {
                     FeedAdPlacementKind.GoogleMobileAd
                 ) {
                     runOnUiThread { AdManager.presentInterstitial(this@PostLoginWebActivity) }
+                }
+            }
+            if (type == "radioScope") {
+                val scope = body.optString("scope")
+                if (scope == "screen" || scope == "app" || scope == "outside") {
+                    getSharedPreferences("poplur_audio", MODE_PRIVATE)
+                        .edit()
+                        .putString("radio_scope", scope)
+                        .apply()
                 }
             }
             if (type == "openInAppBrowser") {
@@ -720,7 +751,51 @@ class PostLoginWebActivity : ComponentActivity() {
         // The loading WebView is destroyed at reveal time; only destroy here if
         // the activity dies before the reveal (destroy() twice throws).
         if (loadingWebView.parent != null) loadingWebView.destroy()
+        cameraFaceDetector.close()
         super.onDestroy()
+    }
+
+    private fun detectCameraFrame(dataUrl: String, mirrored: Boolean) {
+        if (faceFrameBusy || !dataUrl.startsWith("data:image/")) return
+        faceFrameBusy = true
+        val bitmap = runCatching {
+            val bytes = Base64.decode(dataUrl.substringAfter(','), Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }.getOrNull()
+        if (bitmap == null) {
+            faceFrameBusy = false
+            return
+        }
+
+        cameraFaceDetector.process(InputImage.fromBitmap(bitmap, 0))
+            .addOnSuccessListener { faces ->
+                val width = bitmap.width.toDouble().coerceAtLeast(1.0)
+                val height = bitmap.height.toDouble().coerceAtLeast(1.0)
+                val payload = JSONArray()
+                faces.forEachIndexed { index, face ->
+                    val box = face.boundingBox
+                    val normalizedX = if (mirrored) 1.0 - (box.right / width) else box.left / width
+                    payload.put(JSONObject().apply {
+                        put("id", "face-${face.trackingId ?: index}")
+                        put("x", normalizedX.coerceIn(0.0, 1.0))
+                        put("y", (box.top / height).coerceIn(0.0, 1.0))
+                        put("w", (box.width() / width).coerceIn(0.0, 1.0))
+                        put("h", (box.height() / height).coerceIn(0.0, 1.0))
+                        put("label", "person")
+                        put("confidence", 0.95)
+                    })
+                }
+                homeWebView.post {
+                    homeWebView.evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('poplur-native-detections',{detail:$payload}));true;",
+                        null
+                    )
+                }
+            }
+            .addOnCompleteListener {
+                bitmap.recycle()
+                faceFrameBusy = false
+            }
     }
 
     private companion object {

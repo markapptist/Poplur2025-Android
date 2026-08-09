@@ -20,6 +20,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.apptists.poplur2025.ui.PopularObjectCatalog
+import com.apptists.poplur2025.BuildConfig
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -2478,7 +2479,7 @@ private fun GuidePipVideoPane(
 }
 
 private const val AD_FREQUENCY = 6
-private const val FEED_NATIVE_AD_UNIT_ID = "ca-app-pub-3940256099942544/2247696110"
+private val FEED_NATIVE_AD_UNIT_ID = BuildConfig.ADMOB_FEED_NATIVE_UNIT_ID
 private const val ENABLE_FEED_VIDEO_AUTOPLAY = true
 private const val FEED_VIDEO_FIRST_FRAME_TIMEOUT_MS = 6_500L
 private const val FEED_IMAGE_CREDITS_DELAY_MS = 6_300L
