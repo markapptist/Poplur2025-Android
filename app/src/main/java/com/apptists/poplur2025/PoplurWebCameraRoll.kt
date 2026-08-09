@@ -13,6 +13,8 @@ import android.util.Size
 import android.webkit.WebView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import kotlin.concurrent.thread
 
@@ -51,12 +53,20 @@ object PoplurWebCameraRoll {
         )
     }
 
-    fun push(webView: WebView) {
+    fun push(
+        webView: WebView,
+        registerFullResolutionSource: (uri: android.net.Uri, mimeType: String) -> String
+    ) {
         val context = webView.context.applicationContext
         thread(name = "PoplurWebCameraRoll") {
-            val uris = mutableListOf<String>()
+            val items = JSONArray()
             try {
-                val projection = arrayOf(MediaStore.Images.Media._ID)
+                val projection = arrayOf(
+                    MediaStore.Images.Media._ID,
+                    MediaStore.Images.Media.MIME_TYPE,
+                    MediaStore.Images.Media.WIDTH,
+                    MediaStore.Images.Media.HEIGHT
+                )
                 context.contentResolver.query(
                     MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                     projection,
@@ -65,30 +75,43 @@ object PoplurWebCameraRoll {
                     "${MediaStore.Images.Media.DATE_ADDED} DESC"
                 )?.use { cursor ->
                     val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                    while (cursor.moveToNext() && uris.size < ITEM_LIMIT) {
+                    val mimeColumn = cursor.getColumnIndex(MediaStore.Images.Media.MIME_TYPE)
+                    val widthColumn = cursor.getColumnIndex(MediaStore.Images.Media.WIDTH)
+                    val heightColumn = cursor.getColumnIndex(MediaStore.Images.Media.HEIGHT)
+                    while (cursor.moveToNext() && items.length() < ITEM_LIMIT) {
                         val uri = ContentUris.withAppendedId(
                             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                             cursor.getLong(idColumn)
                         )
+                        val mimeType = mimeColumn.takeIf { it >= 0 }
+                            ?.let(cursor::getString)
+                            ?.takeIf { it.startsWith("image/") }
+                            ?: "image/jpeg"
                         val bitmap: Bitmap = try {
                             context.contentResolver.loadThumbnail(uri, Size(THUMB_SIDE, THUMB_SIDE), null)
                         } catch (_: Exception) { continue }
                         val out = ByteArrayOutputStream()
                         bitmap.compress(Bitmap.CompressFormat.JPEG, 70, out)
-                        uris.add(
-                            "data:image/jpeg;base64," +
-                                Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-                        )
+                        val thumbnail = "data:image/jpeg;base64," +
+                            Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                        items.put(JSONObject().apply {
+                            put("kind", "photo")
+                            // Keep the grid cheap and backwards-compatible.
+                            // The shared composer consumes fullSrc only after a
+                            // tile is selected, so the original asset (4K when
+                            // available) is never replaced by this thumbnail.
+                            put("src", thumbnail)
+                            put("fullSrc", registerFullResolutionSource(uri, mimeType))
+                            if (widthColumn >= 0) put("width", cursor.getInt(widthColumn))
+                            if (heightColumn >= 0) put("height", cursor.getInt(heightColumn))
+                        })
                     }
                 }
             } catch (_: Exception) { /* deliver whatever decoded */ }
 
-            val json = uris.joinToString(prefix = "[", postfix = "]") {
-                """{"kind":"photo","src":"$it"}"""
-            }
             webView.post {
                 webView.evaluateJavascript(
-                    "window.poplurCameraRoll && window.poplurCameraRoll($json)", null
+                    "window.poplurCameraRoll && window.poplurCameraRoll($items)", null
                 )
             }
         }

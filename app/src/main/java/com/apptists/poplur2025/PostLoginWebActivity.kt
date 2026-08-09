@@ -54,6 +54,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import org.json.JSONObject
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Post-login host for the approved web flow.
@@ -79,6 +80,7 @@ class PostLoginWebActivity : ComponentActivity() {
     private val voiceForeground = mutableStateOf(false)
     private val voiceRequestToken = mutableIntStateOf(0)
     private var pendingNativeVoiceCommand: String? = null
+    @Volatile private var cameraLiveVisible = false
     private var hideVolumeRunnable: Runnable? = null
     private var revealRunnable: Runnable? = null
 
@@ -86,7 +88,9 @@ class PostLoginWebActivity : ComponentActivity() {
     private val darkLoading = 0xFF0A0709.toInt()
     private val origin = "https://appassets.androidplatform.net/assets"
     private data class WebCapture(val uri: Uri, val mimeType: String)
-    private val webCaptures = mutableMapOf<String, WebCapture>()
+    // Asset requests run on WebView worker threads while camera/picker results
+    // arrive on the activity thread.
+    private val webCaptures = ConcurrentHashMap<String, WebCapture>()
     private var pendingPhotoUri: Uri? = null
     private var pendingVideoUri: Uri? = null
 
@@ -353,15 +357,20 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     private fun deliverCapture(uri: Uri, kind: String, mimeType: String) {
-        val key = UUID.randomUUID().toString()
-        webCaptures[key] = WebCapture(uri, mimeType)
+        val src = registerWebCapture(uri, mimeType)
         val detail = JSONObject().apply {
             put("kind", kind)
-            put("src", "$origin/captures/$key")
+            put("src", src)
         }
         homeWebView.evaluateJavascript(
             "window.dispatchEvent(new CustomEvent('poplur-native-capture', { detail: $detail })); true;", null
         )
+    }
+
+    private fun registerWebCapture(uri: Uri, mimeType: String): String {
+        val key = UUID.randomUUID().toString()
+        webCaptures[key] = WebCapture(uri, mimeType)
+        return "$origin/captures/$key"
     }
 
     private fun sendUploadResult(requestId: String, success: Boolean, error: String? = null) {
@@ -515,7 +524,7 @@ class PostLoginWebActivity : ComponentActivity() {
                 )
                 runOnUiThread {
                     if (PoplurWebCameraRoll.hasPermission(this@PostLoginWebActivity)) {
-                        PoplurWebCameraRoll.push(homeWebView)
+                        PoplurWebCameraRoll.push(homeWebView, ::registerWebCapture)
                     } else {
                         // The custom clay primer is the only startup prompt.
                         // Defer the Android system sheet until the user actually
@@ -580,9 +589,22 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "openInAppBrowser") {
                 openInAppBrowser(body.optString("url"))
             }
-            if (type == "cameraShutter") runOnUiThread { launchWebPhotoCapture() }
+            if (type == "cameraLiveVisibilityChanged") {
+                cameraLiveVisible = body.optBoolean("visible", false)
+            }
+            if (type == "cameraShutter") {
+                if (cameraLiveVisible) {
+                    runOnUiThread { launchWebPhotoCapture() }
+                } else {
+                    Log.w(TAG, "Ignoring camera shutter outside the live camera")
+                }
+            }
             if (type == "cameraControl" && body.optString("control") == "record") {
-                runOnUiThread { launchWebVideoCapture() }
+                if (cameraLiveVisible) {
+                    runOnUiThread { launchWebVideoCapture() }
+                } else {
+                    Log.w(TAG, "Ignoring video capture outside the live camera")
+                }
             }
             if (type == "publishPost") runOnUiThread { uploadClayPost(body) }
         }
@@ -676,7 +698,7 @@ class PostLoginWebActivity : ComponentActivity() {
         }
         if (requestCode == PoplurWebCameraRoll.REQUEST_CODE) {
             if (grantResults.any { it == android.content.pm.PackageManager.PERMISSION_GRANTED }) {
-                PoplurWebCameraRoll.push(homeWebView)
+                PoplurWebCameraRoll.push(homeWebView, ::registerWebCapture)
             } else {
                 PoplurWebCameraRoll.deliverDenied(homeWebView)
             }
