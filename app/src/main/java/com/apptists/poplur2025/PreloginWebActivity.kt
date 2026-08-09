@@ -351,7 +351,15 @@ class PreloginWebActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        if (::webView.isInitialized) webView.onPause()
+        if (::webView.isInitialized) {
+            // The AI host speaks through the Web Speech API, not an <audio> tag, so
+            // it is cancelled explicitly rather than trusted to `onPause()`.
+            webView.evaluateJavascript(
+                "window.speechSynthesis && window.speechSynthesis.cancel()",
+                null
+            )
+            webView.onPause()
+        }
         super.onStop()
     }
 
