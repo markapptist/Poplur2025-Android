@@ -617,6 +617,9 @@ class PostLoginWebActivity : ComponentActivity() {
                         .apply()
                 }
             }
+            if (type == "fetchProductImage") {
+                PoplurProductImage.handle(body.optString("url"), homeWebView)
+            }
             if (type == "openInAppBrowser") {
                 openInAppBrowser(body.optString("url"))
             }
