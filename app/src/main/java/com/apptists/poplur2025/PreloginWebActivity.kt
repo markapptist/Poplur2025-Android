@@ -2,6 +2,8 @@ package com.apptists.poplur2025
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.media.AudioManager
 import android.os.Bundle
 import android.util.Log
@@ -23,13 +25,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.webkit.WebViewAssetLoader
 import com.apptists.poplur2025.auth.AuthViewModel
 import com.apptists.poplur2025.ui.components.PoplurVolumeBars
+import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONStringer
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Pre-login web-embed host (Phase 1/2).
@@ -302,6 +308,9 @@ class PreloginWebActivity : ComponentActivity() {
                     // needs the capability is opened.
                     Log.i(TAG, "requestPermission permission=$permission accepted in-app; OS prompt deferred")
                 }
+                "radioStations" -> {
+                    fetchRadioStations(json?.optString("callbackId").orEmpty())
+                }
                 "complete" -> {
                     val signedIn = authViewModel.isSignedIn.value == true
                     if (signedIn) {
@@ -315,6 +324,67 @@ class PreloginWebActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Live radio, the way the map already tunes it. The page's own station lookup is a raw
+     * fetch that the offline bundle strips out, so the call is made here and the list handed
+     * back through window.__poplurStationsResult.
+     *
+     * No permission is requested. Pre-login deliberately defers every OS prompt until the
+     * feature that needs it is used, and a radio bed is not worth a location dialog on a
+     * launch screen — so this reads a location the person has ALREADY granted, and otherwise
+     * falls back to the coordinates the approved source hardcodes.
+     */
+    private fun fetchRadioStations(callbackId: String) {
+        Thread {
+            val (lat, lon) = lastKnownCoordinates()
+            val url = "https://de1.api.radio-browser.info/json/stations/search" +
+                "?geo_lat=$lat&geo_long=$lon&geo_distance=90000" +
+                "&hidebroken=true&order=clickcount&reverse=true&limit=16"
+            val body = runCatching {
+                (URL(url).openConnection() as HttpURLConnection).run {
+                    // A launch screen must never wait on a third party. The web side gives up
+                    // after 6s; this gives up sooner so an empty list is a decision rather
+                    // than two timeouts racing each other.
+                    connectTimeout = 4000
+                    readTimeout = 4000
+                    requestMethod = "GET"
+                    try { inputStream.bufferedReader().use { it.readText() } } finally { disconnect() }
+                }
+            }.getOrNull()
+            // Only well-formed JSON is handed to evaluateJavascript: this is third-party text
+            // landing in an expression position, and parsing it first is what keeps it a value
+            // rather than a script.
+            val safe = body?.takeIf { runCatching { JSONArray(it) }.isSuccess } ?: "[]"
+            // The id is generated web-side as 'st' + digits + base36, so stripping it to
+            // alphanumerics cannot change a legitimate value or let a crafted one close the quote.
+            val safeId = callbackId.filter { it.isLetterOrDigit() }
+            runOnUiThread {
+                if (::webView.isInitialized) {
+                    webView.evaluateJavascript(
+                        "window.__poplurStationsResult && window.__poplurStationsResult('$safeId', $safe)",
+                        null
+                    )
+                }
+            }
+        }.start()
+    }
+
+    /** Last known coarse location if it is already granted, otherwise the approved default. */
+    private fun lastKnownCoordinates(): Pair<Double, Double> {
+        val granted = ContextCompat.checkSelfPermission(
+            this, android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) return FALLBACK_LAT to FALLBACK_LON
+        val manager = getSystemService(LOCATION_SERVICE) as? LocationManager
+            ?: return FALLBACK_LAT to FALLBACK_LON
+        val fix = runCatching {
+            manager.getProviders(true).asSequence()
+                .mapNotNull { manager.getLastKnownLocation(it) }
+                .maxByOrNull { it.time }
+        }.getOrNull() ?: return FALLBACK_LAT to FALLBACK_LON
+        return fix.latitude to fix.longitude
     }
 
     /**
@@ -374,5 +444,8 @@ class PreloginWebActivity : ComponentActivity() {
         const val TAG = "PreloginWeb"
         const val SPLASH_DELAY_MS = 3200L
         const val VOLUME_HIDE_MS = 1500L
+        // The same coordinates the approved Welcome source hardcodes.
+        const val FALLBACK_LAT = 43.6532
+        const val FALLBACK_LON = -79.3832
     }
 }
