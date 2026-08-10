@@ -3214,7 +3214,9 @@ private fun GoogleMobileAdContent(slot: FeedSlot.GoogleMobileAdSlot) {
 
 
 
-private fun createFullScreenNativeAdView(context: Context): NativeAdView {
+// internal, not private: the web feed's shell (PostLoginWebActivity) reuses this
+// exact card so a Google slot reads as a feed post rather than an interstitial.
+internal fun createFullScreenNativeAdView(context: Context): NativeAdView {
     val adView = NativeAdView(context)
     // The native ad's internal video surface can be promoted to its own hardware layer, which
     // composites outside the normal view-draw order and can paint above sibling Compose overlays
@@ -3345,7 +3347,7 @@ private fun createFullScreenNativeAdView(context: Context): NativeAdView {
     return adView
 }
 
-private fun bindFullScreenNativeAd(adView: NativeAdView, nativeAd: NativeAd) {
+internal fun bindFullScreenNativeAd(adView: NativeAdView, nativeAd: NativeAd) {
     val media = adView.findNativeAsset<MediaView>(NativeAdAsset.Media)
     val icon = adView.findNativeAsset<ImageView>(NativeAdAsset.Icon)
     val headlineText = adView.findNativeAsset<TextView>(NativeAdAsset.Headline)

@@ -30,6 +30,9 @@ import androidx.browser.customtabs.CustomTabsIntent
 import com.apptists.poplur2025.ads.AdManager
 import com.apptists.poplur2025.data.FeedAdPlacementKind
 import com.apptists.poplur2025.data.FeedAdProbability
+import com.apptists.poplur2025.ui.screens.bindFullScreenNativeAd
+import com.apptists.poplur2025.ui.screens.createFullScreenNativeAdView
+import com.google.android.gms.ads.nativead.NativeAd
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -76,6 +79,14 @@ class PostLoginWebActivity : ComponentActivity() {
     private val TAG = "PostLoginWebActivity"
 
     private lateinit var homeWebView: WebView
+    private lateinit var rootLayout: FrameLayout
+
+    // The Google slot is a FEED POST, not an interstitial. It uses the same
+    // full-screen native card the retired Compose feed used, laid over the web
+    // feed while the web hides its own chrome — so nothing of the home is buried
+    // under it and it reads as the next post rather than an interruption.
+    private var feedAdContainer: FrameLayout? = null
+    private var feedAd: NativeAd? = null
     private lateinit var loadingWebView: WebView
     private lateinit var audioManager: AudioManager
 
@@ -142,6 +153,7 @@ class PostLoginWebActivity : ComponentActivity() {
         loadingWebView = createWebView(assetLoader, darkLoading, receivesNativeEvents = false)
 
         val root = FrameLayout(this)
+        rootLayout = root
         root.addView(homeWebView, matchParentParams())
         root.addView(loadingWebView, matchParentParams())
 
@@ -383,6 +395,70 @@ class PostLoginWebActivity : ComponentActivity() {
         )
     }
 
+    /**
+     * The Google placement, rendered as a feed post.
+     *
+     * It deliberately does NOT go behind the web layer: the home WebView paints
+     * every post-login screen opaquely, and making it transparent to show a view
+     * underneath would put the whole app's background at risk for one ad slot.
+     * Instead the card sits over the feed and the WEB takes its own chrome away
+     * for the duration, so the cube and HUD are never buried under an ad.
+     */
+    private fun showFeedNativeAd() {
+        if (feedAdContainer != null) return // one slot at a time
+        AdManager.loadNativeAd(
+            context = this,
+            adUnitId = BuildConfig.ADMOB_FEED_NATIVE_UNIT_ID,
+            onLoaded = { ad ->
+                runOnUiThread {
+                    // A slot that arrives after the screen is gone, or after another
+                    // already opened, is dropped rather than leaked.
+                    if (isFinishing || isDestroyed || feedAdContainer != null) {
+                        ad.destroy()
+                        return@runOnUiThread
+                    }
+                    presentFeedNativeAd(ad)
+                }
+            },
+            onFailed = { /* No fill: the feed simply carries on, with no gap. */ },
+        )
+    }
+
+    private fun presentFeedNativeAd(ad: NativeAd) {
+        val adView = createFullScreenNativeAdView(this)
+        bindFullScreenNativeAd(adView, ad)
+        val container = FrameLayout(this).apply {
+            addView(adView, matchParentParams())
+            isClickable = true
+            // You leave a feed post by moving on, so the whole card takes the tap.
+            setOnClickListener { dismissFeedNativeAd() }
+        }
+        feedAd = ad
+        feedAdContainer = container
+        rootLayout.addView(container, matchParentParams())
+        setWebFeedAdSlotOpen(true)
+    }
+
+    private fun dismissFeedNativeAd() {
+        val container = feedAdContainer ?: return
+        feedAdContainer = null
+        rootLayout.removeView(container)
+        // The native ad's MediaView runs on its own clock, outside Poplur's feed
+        // audio tracking — without this it keeps talking over the next post.
+        runCatching { feedAd?.mediaContent?.videoController?.stop() }
+        feedAd?.destroy()
+        feedAd = null
+        setWebFeedAdSlotOpen(false)
+    }
+
+    private fun setWebFeedAdSlotOpen(open: Boolean) {
+        homeWebView.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('poplur-native-feed-ad', " +
+                "{ detail: { open: $open } })); true;",
+            null,
+        )
+    }
+
     private fun registerWebCapture(uri: Uri, mimeType: String): String {
         val key = UUID.randomUUID().toString()
         webCaptures[key] = WebCapture(uri, mimeType)
@@ -605,7 +681,7 @@ class PostLoginWebActivity : ComponentActivity() {
                 if (FeedAdProbability.placement(index, "web_$channel", config) ==
                     FeedAdPlacementKind.GoogleMobileAd
                 ) {
-                    runOnUiThread { AdManager.presentInterstitial(this@PostLoginWebActivity) }
+                    runOnUiThread { showFeedNativeAd() }
                 }
             }
             if (type == "radioScope") {
@@ -750,6 +826,14 @@ class PostLoginWebActivity : ComponentActivity() {
     override fun onDestroy() {
         revealRunnable?.let { loadingWebView.removeCallbacks(it) }
         hideVolumeRunnable?.let { homeWebView.removeCallbacks(it) }
+        // An ad outliving its screen keeps a MediaView (and its audio) alive.
+        // Drop the view first: the web is going away, so telling it to restore
+        // its chrome would evaluate against a dying WebView.
+        feedAdContainer?.let { rootLayout.removeView(it) }
+        feedAdContainer = null
+        runCatching { feedAd?.mediaContent?.videoController?.stop() }
+        feedAd?.destroy()
+        feedAd = null
         homeWebView.destroy()
         // The loading WebView is destroyed at reveal time; only destroy here if
         // the activity dies before the reveal (destroy() twice throws).
