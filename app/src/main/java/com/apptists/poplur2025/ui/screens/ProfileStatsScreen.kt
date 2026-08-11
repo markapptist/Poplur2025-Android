@@ -1,12 +1,6 @@
 package com.apptists.poplur2025.ui.screens
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.StartOffset
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -22,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.res.painterResource
 import com.apptists.poplur2025.R
+import com.apptists.poplur2025.performance.rememberPoplurRendererState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -651,26 +646,21 @@ private fun TrophyRoomSection(trophies: List<ProfileTrophy>) {
 @Composable
 private fun TrophyRoomCanvas(trophies: List<ProfileTrophy>, modifier: Modifier = Modifier) {
     var sparkleTime by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(Unit) {
+    val performance = rememberPoplurRendererState(
+        name = "PoplurTrophyParticles",
+        heavy = false,
+    )
+    LaunchedEffect(
+        performance.active,
+        performance.snapshot.targetFps,
+        performance.snapshot.decorativeRenderingAllowed,
+    ) {
+        if (!performance.active || !performance.snapshot.decorativeRenderingAllowed) return@LaunchedEffect
         val t0 = System.currentTimeMillis()
         while (true) {
             sparkleTime = (System.currentTimeMillis() - t0) / 1000f
-            kotlinx.coroutines.delay(16L)
+            kotlinx.coroutines.delay(performance.snapshot.frameIntervalMillis)
         }
-    }
-
-    val infiniteTransition = rememberInfiniteTransition(label = "trophy-float")
-    val floatValues = List(trophies.size) { i ->
-        infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 5f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1500 + i * 80, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse,
-                initialStartOffset = StartOffset(i * 250)
-            ),
-            label = "float-$i"
-        ).value
     }
 
     Canvas(modifier = modifier) {
@@ -716,7 +706,11 @@ private fun TrophyRoomCanvas(trophies: List<ProfileTrophy>, modifier: Modifier =
             if (row >= rowSpriteKitYs.size) return@forEachIndexed
             val cx = (col + 0.5f) * 97.5f * sX
             val basePt = H - rowSpriteKitYs[row] * sY
-            val floatOff = if (trophy.isUnlocked) floatValues.getOrElse(i) { 0f } * sY else 0f
+            val floatOff = if (trophy.isUnlocked) {
+                (2.5f + kotlin.math.sin(sparkleTime * (4.1f - i * 0.08f) + i * 0.7f) * 2.5f) * sY
+            } else {
+                0f
+            }
             drawTrophy(cx, basePt - floatOff, sX, sY, trophy, sparkleTime)
         }
     }

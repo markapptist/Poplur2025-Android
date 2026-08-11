@@ -88,6 +88,7 @@ class PostLoginWebActivity : ComponentActivity() {
     private var feedAdContainer: FrameLayout? = null
     private var feedAd: NativeAd? = null
     private lateinit var loadingWebView: WebView
+    private lateinit var performanceController: com.apptists.poplur2025.performance.PoplurWebViewPerformanceController
     private lateinit var audioManager: AudioManager
 
     private val homeReady = mutableStateOf(false)
@@ -151,6 +152,11 @@ class PostLoginWebActivity : ComponentActivity() {
 
         homeWebView = createWebView(assetLoader, darkHome, receivesNativeEvents = true)
         loadingWebView = createWebView(assetLoader, darkLoading, receivesNativeEvents = false)
+        performanceController = com.apptists.poplur2025.performance.PoplurWebViewPerformanceController(
+            this,
+            "PoplurPostLoginWeb",
+        )
+        performanceController.attach(homeWebView, loadingWebView)
 
         val root = FrameLayout(this)
         rootLayout = root
@@ -259,6 +265,16 @@ class PostLoginWebActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         voiceForeground.value = true
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (::performanceController.isInitialized) performanceController.setVisible(true)
+    }
+
+    override fun onStop() {
+        if (::performanceController.isInitialized) performanceController.setVisible(false)
+        super.onStop()
     }
 
     override fun onPause() {
@@ -559,6 +575,7 @@ class PostLoginWebActivity : ComponentActivity() {
                 // memory on a 3GB device that is already swapping — freeing it
                 // gives the home WebView room to run smoothly.
                 (loadingWebView.parent as? android.view.ViewGroup)?.removeView(loadingWebView)
+                performanceController.detach(loadingWebView)
                 loadingWebView.destroy()
             }
             .start()
@@ -824,6 +841,7 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (::performanceController.isInitialized) performanceController.close()
         revealRunnable?.let { loadingWebView.removeCallbacks(it) }
         hideVolumeRunnable?.let { homeWebView.removeCallbacks(it) }
         // An ad outliving its screen keeps a MediaView (and its audio) alive.

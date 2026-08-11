@@ -8,6 +8,7 @@ import android.graphics.Color as AndroidColor
 import android.graphics.drawable.ColorDrawable
 import android.os.BatteryManager
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.View
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,7 +31,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -48,8 +48,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentContainerView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.badlogic.gdx.backends.android.AndroidFragmentApplication
 import com.apptists.poplur2025.wear.gdx.GlobeGdxFragment
+import com.apptists.poplur.performance.PoplurPerformanceManager
+import com.apptists.poplur.performance.PoplurPerformanceSnapshot
 import com.google.android.gms.wearable.DataClient
 import com.google.android.gms.wearable.DataEvent
 import com.google.android.gms.wearable.DataEventBuffer
@@ -73,6 +76,7 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PoplurPerformanceManager.getInstance(this)
         window.setBackgroundDrawable(ColorDrawable(AndroidColor.BLACK))
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = (
@@ -86,11 +90,13 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks {
         setContent {
             val context = LocalContext.current
             val store = remember { WatchRadiusStore(context.applicationContext) }
+            val performanceManager = remember { PoplurPerformanceManager.getInstance(context) }
+            val performance by performanceManager.state.collectAsStateWithLifecycle()
             DisposableEffect(store) {
                 store.start()
                 onDispose { store.stop() }
             }
-            RadiusWatchScreen(store = store, radioHost = radioHost)
+            RadiusWatchScreen(store = store, radioHost = radioHost, performance = performance)
         }
     }
 
@@ -127,6 +133,16 @@ private fun GlobeFragmentHost(modifier: Modifier = Modifier) {
             }
         }
     )
+    DisposableEffect(activity, containerId) {
+        onDispose {
+            val fragment = activity.supportFragmentManager.findFragmentById(containerId)
+            if (fragment != null) {
+                activity.supportFragmentManager.beginTransaction()
+                    .remove(fragment)
+                    .commitAllowingStateLoss()
+            }
+        }
+    }
 }
 
 private enum class RadiusTrend { Up, Down, Stable }
@@ -284,10 +300,15 @@ private val ClayPink = listOf(
 // ── Clay watch face ────────────────────────────────────────────────────────────
 
 @Composable
-private fun RadiusWatchScreen(store: WatchRadiusStore, radioHost: WearRadioHost) {
+private fun RadiusWatchScreen(
+    store: WatchRadiusStore,
+    radioHost: WearRadioHost,
+    performance: PoplurPerformanceSnapshot,
+) {
     var showKm by remember { mutableStateOf(true) }
     var showStatic by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(performance.appInteractive) {
+        if (!performance.appInteractive) return@LaunchedEffect
         while (true) {
             delay(4_000)
             showKm = !showKm
@@ -315,15 +336,31 @@ private fun RadiusWatchScreen(store: WatchRadiusStore, radioHost: WearRadioHost)
                 )
             }
     ) {
-        ClayBackground(modifier = Modifier.fillMaxSize())
-        ConfettiLayer(modifier = Modifier.fillMaxSize())
+        ClayBackground(
+            performance = performance,
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (performance.particlesAllowed && performance.appInteractive && !showStatic) {
+            ConfettiLayer(
+                performance = performance,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         Column(modifier = Modifier.fillMaxSize()) {
-            GlobeFragmentHost(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(0.62f)
-            )
+            if (!showStatic) {
+                GlobeFragmentHost(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(0.62f)
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(0.62f)
+                )
+            }
             ClayReadout(
                 store = store,
                 showKm = showKm,
@@ -333,17 +370,26 @@ private fun RadiusWatchScreen(store: WatchRadiusStore, radioHost: WearRadioHost)
             )
         }
 
-        if (showStatic) StaticOverlay(modifier = Modifier.fillMaxSize())
+        if (showStatic) {
+            StaticOverlay(performance = performance, modifier = Modifier.fillMaxSize())
+        }
     }
 }
 
 // ── TV static overlay (press-and-hold easter egg) ─────────────────────────────
 
 @Composable
-private fun StaticOverlay(modifier: Modifier = Modifier) {
+private fun StaticOverlay(
+    performance: PoplurPerformanceSnapshot,
+    modifier: Modifier = Modifier,
+) {
     var frame by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        while (true) { frame++; delay(40) }   // ~25fps noise, easy on the battery
+    LaunchedEffect(performance.targetFps, performance.appInteractive) {
+        if (!performance.appInteractive) return@LaunchedEffect
+        while (true) {
+            frame++
+            delay(performance.frameIntervalMillis)
+        }
     }
     Canvas(modifier = modifier) {
         val block = 5.dp.toPx()
@@ -367,11 +413,25 @@ private fun StaticOverlay(modifier: Modifier = Modifier) {
 // ── Blue clay-slab dot background ──────────────────────────────────────────────
 
 @Composable
-private fun ClayBackground(modifier: Modifier = Modifier) {
+private fun ClayBackground(
+    performance: PoplurPerformanceSnapshot,
+    modifier: Modifier = Modifier,
+) {
     var timeMs by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) {
-        val start = withFrameMillis { it }
-        while (true) { withFrameMillis { now -> timeMs = now - start } }
+    LaunchedEffect(
+        performance.targetFps,
+        performance.appInteractive,
+        performance.decorativeRenderingAllowed,
+    ) {
+        if (!performance.appInteractive || !performance.decorativeRenderingAllowed) {
+            timeMs = 0L
+            return@LaunchedEffect
+        }
+        val start = SystemClock.uptimeMillis()
+        while (true) {
+            timeMs = SystemClock.uptimeMillis() - start
+            delay(performance.frameIntervalMillis)
+        }
     }
     Canvas(modifier = modifier) {
         val w = size.width
@@ -415,7 +475,10 @@ private class ConfettiChip(
 )
 
 @Composable
-private fun ConfettiLayer(modifier: Modifier = Modifier) {
+private fun ConfettiLayer(
+    performance: PoplurPerformanceSnapshot,
+    modifier: Modifier = Modifier,
+) {
     val chips = remember {
         var seed = 0x9E3779B97F4A7C15uL
         fun rnd(): Float {
@@ -436,17 +499,23 @@ private fun ConfettiLayer(modifier: Modifier = Modifier) {
         }
     }
     var timeMs by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) {
-        val start = withFrameMillis { it }
+    LaunchedEffect(performance.targetFps, performance.appInteractive) {
+        if (!performance.appInteractive) return@LaunchedEffect
+        val start = SystemClock.uptimeMillis()
         while (true) {
-            withFrameMillis { now -> timeMs = now - start }
+            timeMs = SystemClock.uptimeMillis() - start
+            delay(performance.frameIntervalMillis)
         }
     }
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
         val t = timeMs / 1000f
-        for (c in chips) {
+        val activeChipCount = (chips.size * performance.particleDensityMultiplier)
+            .toInt()
+            .coerceIn(0, chips.size)
+        for (index in 0 until activeChipCount) {
+            val c = chips[index]
             val phase = ((t + c.delay) % c.dur) / c.dur
             val y = phase * (h + 30f) - 15f
             val x = c.x0 * w + sin(phase * 2f * Math.PI.toFloat()) * c.drift * w

@@ -5,6 +5,7 @@ import coil.Coil
 import coil.ImageLoader
 import com.apptists.poplur2025.ads.AdManager
 import com.apptists.poplur2025.wear.WearRadiusSync
+import com.apptists.poplur.performance.PoplurPerformanceManager
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
@@ -15,6 +16,7 @@ import okhttp3.OkHttpClient
 class PoplurApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        PoplurPerformanceManager.getInstance(this)
         FirebaseApp.initializeApp(this)
         FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
             if (BuildConfig.DEBUG) {

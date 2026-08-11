@@ -94,6 +94,7 @@ play {
 }
 
 dependencies {
+    implementation(project(":performance"))
     implementation(platform("androidx.compose:compose-bom:2026.05.01"))
     implementation("androidx.activity:activity-compose")
     implementation("androidx.compose.ui:ui")

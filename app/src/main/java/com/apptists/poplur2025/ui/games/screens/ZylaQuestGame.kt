@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.apptists.poplur2025.ui.games.PoplurCharacter
 import com.apptists.poplur2025.ui.games.PoplurGameConfig
+import com.apptists.poplur2025.performance.rememberPoplurRendererState
 import kotlinx.coroutines.delay
 
 private val ROOMS = listOf(
@@ -82,6 +83,7 @@ private data class EnemyPos(var col: Int, var row: Int)
 
 @Composable
 fun ZylaQuestGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
+    val performance = rememberPoplurRendererState("PoplurZylaQuest", heavy = true)
     val character = remember { PoplurCharacter.fromId(config.character) }
     val accentColor = remember {
         try { Color(android.graphics.Color.parseColor(config.accentColor)) } catch (e: Exception) { Color(0xFF2ECC71) }
@@ -124,7 +126,8 @@ fun ZylaQuestGame(config: PoplurGameConfig, onDismiss: () -> Unit) {
     }
 
     // Enemy move timer
-    LaunchedEffect(currentRoom, isGameOver) {
+    LaunchedEffect(currentRoom, isGameOver, performance.active) {
+        if (!performance.active) return@LaunchedEffect
         while (!isGameOver && !isVictory) {
             delay(1000L)
             // Each enemy steps toward player

@@ -1,5 +1,6 @@
 package com.apptists.poplur2025.gdx.weather
 
+import com.apptists.poplur.performance.PoplurPerformanceManager
 import com.apptists.poplur2025.data.weather.WeatherBadge
 import com.badlogic.gdx.ApplicationAdapter
 import com.badlogic.gdx.Gdx
@@ -20,8 +21,10 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
     private val random = Random()
     private val particles = List(100) { Particle() }
     private var lightningAlpha = 0f
+    private var performanceManager: PoplurPerformanceManager? = null
 
     override fun create() {
+        performanceManager = PoplurPerformanceManager.getInitializedInstance()
         shapes = ShapeRenderer()
         Gdx.gl.glEnable(GL20.GL_BLEND)
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA)
@@ -74,7 +77,7 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
 
     private fun renderRain(w: Float, h: Float) {
         shapes.color = Color(0.6f, 0.7f, 1.0f, 0.6f)
-        for (p in particles) {
+        for (p in activeParticles()) {
             p.update(h, 600f + random.nextFloat() * 400f)
             shapes.rect(p.x * w, p.y * h, 2f, 20f)
         }
@@ -82,7 +85,7 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
 
     private fun renderSnow(w: Float, h: Float) {
         shapes.color = Color(1f, 1f, 1f, 0.8f)
-        for (p in particles) {
+        for (p in activeParticles()) {
             p.update(h, 100f + random.nextFloat() * 50f)
             val oscillation = sin(time * 2f + p.x * 10f) * 10f
             shapes.circle(p.x * w + oscillation, p.y * h, 4f)
@@ -103,7 +106,8 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
         shapes.rect(0f, 0f, w, h)
 
         // Many large, extremely transparent horizontally-stretched ovals for a "layered haze" look
-        val count = 45
+        val density = performanceManager?.state?.value?.particleDensityMultiplier ?: 1f
+        val count = (45 * density).toInt().coerceAtLeast(1)
         for (i in 0 until count) {
             val offset = i.toFloat() / count
             
@@ -130,6 +134,13 @@ class WeatherOverlayAdapter : ApplicationAdapter() {
         shapes.color = Color(1f, 1f, 1f, lightningAlpha)
         shapes.rect(0f, 0f, w, h)
         shapes.end()
+    }
+
+    private fun activeParticles(): List<Particle> {
+        val snapshot = performanceManager?.state?.value
+        if (snapshot?.particlesAllowed == false) return emptyList()
+        val density = snapshot?.particleDensityMultiplier ?: 1f
+        return particles.take((particles.size * density).toInt().coerceIn(0, particles.size))
     }
 
     override fun dispose() {

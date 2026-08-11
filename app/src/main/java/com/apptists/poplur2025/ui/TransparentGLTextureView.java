@@ -4,8 +4,12 @@ import android.content.Context;
 import android.graphics.SurfaceTexture;
 import android.opengl.GLSurfaceView;
 import android.view.Surface;
-import android.view.Display;
 import android.view.TextureView;
+import android.view.View;
+
+import com.apptists.poplur.performance.PoplurManagedRenderer;
+import com.apptists.poplur.performance.PoplurPerformanceManager;
+import com.apptists.poplur.performance.PoplurPerformanceSnapshot;
 
 import javax.microedition.khronos.opengles.GL10;
 import javax.microedition.khronos.egl.EGL10;
@@ -19,19 +23,33 @@ import javax.microedition.khronos.egl.EGLSurface;
  * TextureView composes in the normal Android view hierarchy, unlike SurfaceView, so it can sit
  * over Compose without exposing a black compositor plane.
  */
-public class TransparentGLTextureView extends TextureView implements TextureView.SurfaceTextureListener {
+public class TransparentGLTextureView extends TextureView implements TextureView.SurfaceTextureListener, PoplurManagedRenderer {
     private GLSurfaceView.Renderer renderer;
     private volatile GLThread glThread;
     private int renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY;
-    private final long targetFrameNanos;
+    private volatile long targetFrameNanos;
     private int glesVersion = 2;
+    private String performanceRendererName = "LibGDXTextureView";
+    private boolean performanceHeavy = true;
+    private volatile boolean performanceActive = false;
+    private PoplurPerformanceManager.RendererRegistration performanceRegistration;
 
     public TransparentGLTextureView(Context context) {
         super(context);
-        android.util.Log.d("TransparentGLTextureView", "Constructor called");
-        targetFrameNanos = frameIntervalNanos(context);
+        targetFrameNanos = PoplurPerformanceManager.getInstance(context)
+                .currentSnapshot().getFrameIntervalNanos();
         setOpaque(false);
         setSurfaceTextureListener(this);
+    }
+
+    public void setPerformanceRenderer(String name, boolean heavy) {
+        performanceRendererName = (name == null || name.trim().isEmpty())
+                ? "LibGDXTextureView" : name;
+        if (performanceHeavy != heavy) {
+            performanceHeavy = heavy;
+            closePerformanceRegistration();
+            ensurePerformanceRegistration();
+        }
     }
 
     public void setRenderer(GLSurfaceView.Renderer renderer, int glesVersion) {
@@ -56,11 +74,19 @@ public class TransparentGLTextureView extends TextureView implements TextureView
     }
 
     public void onResume() {
+        if (!performanceActive) return;
+        if (glThread == null && isAvailable() && getSurfaceTexture() != null && renderer != null) {
+            startGlThread(getSurfaceTexture(), Math.max(1, getWidth()), Math.max(1, getHeight()));
+        }
         GLThread thread = glThread;
         if (thread != null) thread.onResume();
     }
 
     public void onDestroy() {
+        shutdownGlThread();
+    }
+
+    private void shutdownGlThread() {
         GLThread thread = glThread;
         glThread = null;
         if (thread != null) {
@@ -73,26 +99,18 @@ public class TransparentGLTextureView extends TextureView implements TextureView
     @Override
     public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
         if (renderer == null) return;
-        // Ensure previous thread is stopped before starting a new one
+        if (!performanceActive) return;
+        startGlThread(surface, width, height);
+    }
+
+    private void startGlThread(SurfaceTexture surface, int width, int height) {
+        // Ensure a stale EGL owner cannot survive surface recreation.
         GLThread previous = glThread;
         if (previous != null) {
             previous.shutdown();
         }
         glThread = new GLThread(surface, width, height, renderer, renderMode, targetFrameNanos, glesVersion);
         glThread.start();
-    }
-
-    private static long frameIntervalNanos(Context context) {
-        float refreshRate = 60f;
-        Display display = null;
-        if (context instanceof android.app.Activity) {
-            display = ((android.app.Activity) context).getWindowManager().getDefaultDisplay();
-        }
-        if (display != null && display.getRefreshRate() > 0f) {
-            refreshRate = display.getRefreshRate();
-        }
-        float targetFps = Math.max(60f, Math.min(refreshRate, 120f));
-        return (long) (1_000_000_000L / targetFps);
     }
 
     @Override
@@ -111,6 +129,73 @@ public class TransparentGLTextureView extends TextureView implements TextureView
     public void onSurfaceTextureUpdated(SurfaceTexture surface) {
     }
 
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        ensurePerformanceRegistration();
+        syncPerformanceVisibility();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        closePerformanceRegistration();
+        shutdownGlThread();
+        super.onDetachedFromWindow();
+    }
+
+    @Override
+    protected void onVisibilityChanged(View changedView, int visibility) {
+        super.onVisibilityChanged(changedView, visibility);
+        syncPerformanceVisibility();
+    }
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        syncPerformanceVisibility();
+    }
+
+    private void ensurePerformanceRegistration() {
+        if (!isAttachedToWindow() || performanceRegistration != null) return;
+        performanceRegistration = PoplurPerformanceManager.getInstance(getContext())
+                .registerRenderer(this, performanceHeavy);
+    }
+
+    private void syncPerformanceVisibility() {
+        ensurePerformanceRegistration();
+        PoplurPerformanceManager.RendererRegistration registration = performanceRegistration;
+        if (registration != null) {
+            registration.setVisible(isAttachedToWindow() && isShown() && getWindowVisibility() == View.VISIBLE);
+        }
+    }
+
+    private void closePerformanceRegistration() {
+        PoplurPerformanceManager.RendererRegistration registration = performanceRegistration;
+        performanceRegistration = null;
+        if (registration != null) registration.close();
+        performanceActive = false;
+    }
+
+    @Override
+    public String getPerformanceRendererName() {
+        return performanceRendererName;
+    }
+
+    @Override
+    public void onPoplurPerformanceChanged(PoplurPerformanceSnapshot snapshot, boolean isActive) {
+        targetFrameNanos = snapshot.getFrameIntervalNanos();
+        GLThread thread = glThread;
+        if (thread != null) thread.setTargetFrameNanos(targetFrameNanos);
+        boolean effectiveActive = isActive && (performanceHeavy || snapshot.getDecorativeRenderingAllowed());
+        performanceActive = effectiveActive;
+        if (effectiveActive) onResume(); else onPause();
+    }
+
+    @Override
+    public void releaseInactiveResources() {
+        if (!performanceActive) shutdownGlThread();
+    }
+
     private static final class GLThread extends Thread {
         private final SurfaceTexture surfaceTexture;
         private final GLSurfaceView.Renderer renderer;
@@ -119,7 +204,7 @@ public class TransparentGLTextureView extends TextureView implements TextureView
         private boolean paused = false;
         private boolean renderRequested = true;
         private boolean sizeChanged = false;
-        private final long targetFrameNanos;
+        private volatile long targetFrameNanos;
         private int width;
         private int height;
         private int renderMode;
@@ -223,6 +308,10 @@ public class TransparentGLTextureView extends TextureView implements TextureView
                 renderRequested = true;
                 lock.notifyAll();
             }
+        }
+
+        void setTargetFrameNanos(long targetFrameNanos) {
+            this.targetFrameNanos = Math.max(1L, targetFrameNanos);
         }
 
         void onPause() {

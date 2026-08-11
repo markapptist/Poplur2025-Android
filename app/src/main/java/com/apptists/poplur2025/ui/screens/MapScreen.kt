@@ -104,6 +104,7 @@ import com.apptists.poplur2025.data.PoplurAIBackendClient
 import com.apptists.poplur2025.data.weather.WeatherBadge
 import com.apptists.poplur2025.location.LocationProvider
 import com.apptists.poplur2025.map.PoplurMapThemeManager
+import com.apptists.poplur2025.performance.rememberPoplurRendererState
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.ThemedSkinPlate
 import com.apptists.poplur2025.util.PoplurEQSync
@@ -230,6 +231,12 @@ fun MapScreenContent(
 ) {
     val context = LocalContext.current
     val isPreview = LocalInspectionMode.current
+    val rendererState = rememberPoplurRendererState(
+        name = "PoplurMapbox",
+        visible = isVisible && !isPreview,
+        heavy = true,
+    )
+    val mapRenderingActive = isPreview || (isVisible && rendererState.active)
     val prefs = remember { context.getSharedPreferences("poplur_settings", Context.MODE_PRIVATE) }
     var customMapTheme by remember { mutableStateOf(prefs.getBoolean("poplur_customMapTheme", false)) }
     // Avoid checking permissions in preview to prevent render exceptions
@@ -329,6 +336,7 @@ fun MapScreenContent(
         onDispose {
             mapReady = false
             regionChangeDebouncer.cancel()
+            PoplurMapThemeManager.onMapDestroyed()
             runCatching {
                 mapView?.onDestroy()
             }.onFailure { error ->
@@ -336,7 +344,7 @@ fun MapScreenContent(
             }
         }
     }
-    DisposableEffect(mapView, lifecycleOwner) {
+    DisposableEffect(mapView, lifecycleOwner, mapRenderingActive) {
         val currentMapView = mapView
         if (currentMapView == null) {
             onDispose {}
@@ -344,12 +352,8 @@ fun MapScreenContent(
             val observer = LifecycleEventObserver { _, event ->
                 runCatching {
                     when (event) {
-                        Lifecycle.Event.ON_START -> currentMapView.onStart()
+                        Lifecycle.Event.ON_START -> if (mapRenderingActive) currentMapView.onStart()
                         Lifecycle.Event.ON_STOP -> currentMapView.onStop()
-                        Lifecycle.Event.ON_DESTROY -> {
-                            mapReady = false
-                            currentMapView.onDestroy()
-                        }
                         else -> Unit
                     }
                 }.onFailure { error ->
@@ -357,11 +361,18 @@ fun MapScreenContent(
                 }
             }
             lifecycleOwner.lifecycle.addObserver(observer)
+            if (mapRenderingActive && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                runCatching { currentMapView.onStart() }
+            }
             onDispose {
                 lifecycleOwner.lifecycle.removeObserver(observer)
                 runCatching { currentMapView.onStop() }
             }
         }
+    }
+    DisposableEffect(mapRenderingActive) {
+        PoplurMapThemeManager.setRenderingActive(mapRenderingActive)
+        onDispose { PoplurMapThemeManager.setRenderingActive(false) }
     }
     var hasZoomedToLocation by rememberSaveable { mutableStateOf(false) }
     var lastZoomedLat by rememberSaveable { mutableDoubleStateOf(Double.NaN) }
@@ -514,7 +525,7 @@ fun MapScreenContent(
 
     var mapRadioLive by remember { mutableStateOf(false) }
     val eqLanes by PoplurEQSync.activeLanes.collectAsState()
-    val isMapMediaActive = isVisible && !isSelectingPostLocation && !isPostSearchMode && !isTourCameraTransitioning
+    val isMapMediaActive = mapRenderingActive && !isSelectingPostLocation && !isPostSearchMode && !isTourCameraTransitioning
     val mapMusicVolumeTarget = if (mapRadioLive) 0.10f else PoplurEQSync.cityMusicMultiplier(eqLanes)
     val animatedMusicVolume by animateFloatAsState(
         targetValue = mapMusicVolumeTarget,
@@ -936,8 +947,8 @@ fun MapScreenContent(
         }
     }
 
-    LaunchedEffect(mapReady, activeMusicStop) {
-        if (!mapReady || activeMusicStop == null) return@LaunchedEffect
+    LaunchedEffect(mapReady, activeMusicStop, mapRenderingActive) {
+        if (!mapRenderingActive || !mapReady || activeMusicStop == null) return@LaunchedEffect
         var frame = 0
         while (true) {
             mapView?.mapboxMap?.getStyle { style ->
@@ -1148,7 +1159,7 @@ fun MapScreenContent(
             .onSizeChanged { mapViewportSize = it }
     ) {
         val activeMapView = mapView
-        if (!isPreview && activeMapView != null) {
+        if (!isPreview && activeMapView != null && mapRenderingActive) {
             AndroidView(
                 factory = {
                     MapWeatherTouchContainer(context, activeMapView).apply {

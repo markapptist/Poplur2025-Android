@@ -6,7 +6,6 @@ import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.graphics.Color
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.PerspectiveCamera
-import com.badlogic.gdx.graphics.Texture
 import com.badlogic.gdx.graphics.VertexAttributes.Usage
 import com.badlogic.gdx.graphics.g3d.Material
 import com.badlogic.gdx.graphics.g3d.Model
@@ -36,7 +35,6 @@ class MarkHeadAdapter : ApplicationAdapter() {
     private var modelScale = 1f
     private var modelYOffset = 0f
     private var elapsed = 0f
-    private val fallbackTextures = mutableListOf<Texture>()
 
     override fun create() {
         try {
@@ -111,19 +109,9 @@ class MarkHeadAdapter : ApplicationAdapter() {
     }
 
     private fun buildFallbackHead(): Scene {
-        listOf(
-            "mark_head/MarkHead_texture_0001.jpg",
-            "mark_head/MarkHead_texture_0002.jpg",
-            "mark_head/MarkHead_texture_0003.jpg"
-        ).forEach { path ->
-            if (Gdx.files.internal(path).exists()) {
-                runCatching {
-                    fallbackTextures.add(Texture(Gdx.files.internal(path)).apply {
-                        setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear)
-                    })
-                }
-            }
-        }
+        // The procedural fallback uses solid-color materials. The old implementation decoded
+        // three unused JPEGs here (~144 MiB as ARGB_8888 bitmaps) and retained them for the entire
+        // scene lifetime even though no material referenced them.
         val attr = (Usage.Position or Usage.Normal or Usage.TextureCoordinates).toLong()
 
         val skin = Material(ColorAttribute.createDiffuse(Color(1f, 0.68f, 0.46f, 1f)))
@@ -272,8 +260,6 @@ class MarkHeadAdapter : ApplicationAdapter() {
         sceneManager?.dispose()
         sceneAsset?.dispose()
         fallbackModel?.dispose()
-        fallbackTextures.forEach { it.dispose() }
-        fallbackTextures.clear()
         scene = null
         sceneManager = null
         sceneAsset = null

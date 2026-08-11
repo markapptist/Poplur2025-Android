@@ -7,7 +7,8 @@ import android.view.ViewGroup
 import com.badlogic.gdx.backends.android.AndroidApplicationConfiguration
 import com.badlogic.gdx.backends.android.AndroidFragmentApplication
 
-class ShowtimeDashFragment : AndroidFragmentApplication() {
+class ShowtimeDashFragment : PerformanceManagedGdxFragment() {
+    override val performanceRendererName: String = "PoplurShowtimeDash"
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val config = AndroidApplicationConfiguration().apply {
             useAccelerometer = false

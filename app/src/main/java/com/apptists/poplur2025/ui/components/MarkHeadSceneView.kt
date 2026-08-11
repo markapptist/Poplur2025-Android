@@ -5,7 +5,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import com.google.android.filament.IndirectLight
 import com.google.android.filament.Skybox
@@ -32,14 +31,12 @@ fun MarkHeadSceneView(
     // this colour (the profile background) so it blends instead of showing a black box.
     headBackground: Color = Color(0xFFF6E7EF),
 ) {
-    val lifecycleOwner = LocalLifecycleOwner.current
     val speaking = rememberUpdatedState(isSpeaking)
 
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
-            SceneView(ctx).apply {
-                lifecycle = lifecycleOwner.lifecycle
+            PerformanceSceneView(ctx).apply {
                 try {
                     // Filament's ClearOptions alpha is ignored at the SurfaceView surface
                     // level (surface itself is opaque black). A Skybox renders ON the Filament
@@ -70,10 +67,11 @@ fun MarkHeadSceneView(
                     cameraNode.position = Float3(0f, 0f, 3.5f)
                     cameraNode.lookAt(head)
 
-                    var t = 0f
+                    var firstFrameNanos = Long.MIN_VALUE
                     val basePos = head.position
-                    onFrame = {
-                        t += 1f / 60f
+                    onFrame = { frameTimeNanos ->
+                        if (firstFrameNanos == Long.MIN_VALUE) firstFrameNanos = frameTimeNanos
+                        val t = (frameTimeNanos - firstFrameNanos) / 1_000_000_000f
                         val amp = if (speaking.value) 1f else 0.3f
                         // Idle sway + subtle bob; livelier while speaking.
                         head.rotation = Float3(0f, sin(t * 0.7f) * 14f * amp, 0f)

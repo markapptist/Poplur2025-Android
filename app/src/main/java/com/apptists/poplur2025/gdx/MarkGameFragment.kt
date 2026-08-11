@@ -8,7 +8,8 @@ import com.badlogic.gdx.backends.android.AndroidApplicationConfiguration
 import com.badlogic.gdx.backends.android.AndroidFragmentApplication
 import com.markgame.app.MarkGame
 
-class MarkGameFragment : AndroidFragmentApplication() {
+class MarkGameFragment : PerformanceManagedGdxFragment() {
+    override val performanceRendererName: String = "PoplurMarkGame"
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val config = AndroidApplicationConfiguration().apply {
             useAccelerometer = true

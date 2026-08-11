@@ -97,6 +97,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.apptists.poplur2025.performance.ManagePoplurPlayerPerformance
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.apptists.poplur2025.data.DemoPostStore
@@ -194,6 +195,13 @@ fun FeedScreen(
     var deliveryPost by remember { mutableStateOf<Post?>(null) }
     val eqLanes by PoplurEQSync.activeLanes.collectAsState()
     val feedVideoVolumeMultiplier = PoplurEQSync.feedVideoVolumeMultiplier(eqLanes)
+    activeFeedPlayer?.let { player ->
+        ManagePoplurPlayerPerformance(
+            player = player,
+            name = "PoplurFeedVideo",
+            visible = isVisible,
+        )
+    }
     val showingTimelineSide = showTimelineView
     val currentChannelForObject by rememberUpdatedState(
         when (val slot = currentSlot) {

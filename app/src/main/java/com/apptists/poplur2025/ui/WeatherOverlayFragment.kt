@@ -71,6 +71,7 @@ class WeatherOverlayFragment : AndroidFragmentApplication() {
         this.graphics = graphics
         
         val transparentView = TransparentGLTextureView(requireContext()).apply {
+            setPerformanceRenderer("PoplurWeatherParticles", false)
             setRenderer(graphics as GLSurfaceView.Renderer, if (config.useGL30) 3 else 2)
             setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY)
             isFocusable = false

@@ -26,6 +26,7 @@ configurations {
 }
 
 dependencies {
+    implementation(project(":performance"))
     implementation(platform("androidx.compose:compose-bom:2026.05.01"))
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.compose.foundation:foundation")

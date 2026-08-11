@@ -66,6 +66,7 @@ object PoplurMapThemeManager {
 
     fun initialize(context: Context) {
         repository = ThemeRepository(context.applicationContext)
+        animationController.initialize(context.applicationContext)
         _currentTheme.value = repository.load()
     }
 
@@ -91,6 +92,11 @@ object PoplurMapThemeManager {
     fun onMapIdle()    { animationController.pause() }
     /** Notify the animation controller that the user is interacting with the map. */
     fun onMapMoving()  { animationController.resume() }
+
+    /** Stops all theme coroutine wakeups when the MapView is hidden or pre-empted. */
+    fun setRenderingActive(active: Boolean) {
+        animationController.setRenderingActive(active)
+    }
 
     // ── Theme switching ──────────────────────────────────────────────────────
 

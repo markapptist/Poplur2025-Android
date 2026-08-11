@@ -1,5 +1,7 @@
 package com.apptists.poplur2025.ui
 
+import com.apptists.poplur.performance.PoplurAssetCache
+import com.apptists.poplur.performance.PoplurPerformanceManager
 import com.badlogic.gdx.ApplicationAdapter
 import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.InputAdapter
@@ -380,7 +382,18 @@ class CombinedGdxAdapter(
         if (!file.exists()) {
             error("Required cube model asset is missing: $modelPath")
         }
-        return stripNormalTexturesFromGlb(file.readBytes())
+        val cache = PoplurPerformanceManager.getInitializedInstance()?.assetCache
+            ?: return stripNormalTexturesFromGlb(file.readBytes())
+        val cacheKey = "android:glb:sanitized:$modelPath"
+        cache.get<ByteArray>(cacheKey)?.let { return it }
+        val bytes = stripNormalTexturesFromGlb(file.readBytes())
+        cache.put(
+            key = cacheKey,
+            type = PoplurAssetCache.AssetType.MODEL,
+            value = bytes,
+            estimatedByteCost = bytes.size.toLong(),
+        )
+        return bytes
     }
 
     private fun stripNormalTexturesFromGlb(glbBytes: ByteArray): ByteArray {
@@ -499,7 +512,7 @@ class CombinedGdxAdapter(
                 Log.e("CombinedGdxAdapter", "Popular object GLB missing: $assetPath")
                 return
             }
-            val loadedAsset = GLBLoader().load(stripNormalTexturesFromGlb(file.readBytes())) ?: return
+            val loadedAsset = GLBLoader().load(requiredCubeGlbBytes(assetPath)) ?: return
             val loadedScene = Scene(loadedAsset.scene)
             channelObjectSceneAsset = loadedAsset
             channelObjectScene = loadedScene

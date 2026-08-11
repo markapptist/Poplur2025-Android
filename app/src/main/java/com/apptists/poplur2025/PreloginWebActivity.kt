@@ -30,6 +30,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.webkit.WebViewAssetLoader
 import com.apptists.poplur2025.auth.AuthViewModel
+import com.apptists.poplur2025.performance.PoplurWebViewPerformanceController
 import com.apptists.poplur2025.ui.components.PoplurVolumeBars
 import org.json.JSONArray
 import org.json.JSONObject
@@ -60,6 +61,7 @@ import java.net.URL
 class PreloginWebActivity : ComponentActivity() {
 
     private lateinit var webView: WebView
+    private lateinit var performanceController: PoplurWebViewPerformanceController
     private lateinit var authViewModel: AuthViewModel
     private lateinit var audioManager: AudioManager
 
@@ -132,6 +134,8 @@ class PreloginWebActivity : ComponentActivity() {
             // PreloginWebView.scheduleWelcomeHandoff().
             loadUrl("$origin/splash.html")
         }
+        performanceController = PoplurWebViewPerformanceController(this, "PoplurPreloginWeb")
+        performanceController.attach(webView)
         welcomeHandoffRunnable = Runnable {
             if (!isFinishing && !isDestroyed) {
                 webView.setBackgroundColor(welcomeBg)
@@ -420,10 +424,11 @@ class PreloginWebActivity : ComponentActivity() {
      */
     override fun onStart() {
         super.onStart()
-        if (::webView.isInitialized) webView.onResume()
+        if (::performanceController.isInitialized) performanceController.setVisible(true)
     }
 
     override fun onStop() {
+        if (::performanceController.isInitialized) performanceController.setVisible(false)
         if (::webView.isInitialized) {
             // The AI host speaks through the Web Speech API, not an <audio> tag, so
             // it is cancelled explicitly rather than trusted to `onPause()`.
@@ -437,6 +442,7 @@ class PreloginWebActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (::performanceController.isInitialized) performanceController.close()
         hideVolumeRunnable?.let { webView.removeCallbacks(it) }
         welcomeHandoffRunnable?.let { webView.removeCallbacks(it) }
         webView.destroy()

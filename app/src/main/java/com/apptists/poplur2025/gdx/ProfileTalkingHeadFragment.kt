@@ -67,6 +67,7 @@ class ProfileTalkingHeadFragment : AndroidFragmentApplication() {
         this.graphics = graphics
         
         val transparentView = TransparentGLTextureView(requireContext()).apply {
+            setPerformanceRenderer("PoplurTalkingHead2D", false)
             setRenderer(graphics as GLSurfaceView.Renderer, if (config.useGL30) 3 else 2)
             setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY)
             isFocusable = false

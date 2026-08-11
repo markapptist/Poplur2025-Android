@@ -1,5 +1,6 @@
 package com.apptists.poplur2025.wear.gdx
 
+import android.content.Context
 import com.badlogic.gdx.ApplicationAdapter
 import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.graphics.Color
@@ -17,13 +18,16 @@ import net.mgsx.gltf.scene3d.scene.Scene
 import net.mgsx.gltf.scene3d.scene.SceneAsset
 import net.mgsx.gltf.scene3d.scene.SceneManager
 import net.mgsx.gltf.scene3d.utils.IBLBuilder
+import com.apptists.poplur.performance.PoplurPerformanceManager
+import com.apptists.poplur.performance.PoplurPerformanceMode
 
 /**
  * Renders the real Poplur clay globe (poplur_clay_globe.glb) with gdx-gltf's PBR
  * pipeline over a transparent framebuffer, so the Compose blue clay-dot background
  * shows through. Matches the phone loading-screen clay aesthetic.
  */
-class GlobeGdxAdapter : ApplicationAdapter() {
+class GlobeGdxAdapter(context: Context) : ApplicationAdapter() {
+    private val performanceManager = PoplurPerformanceManager.getInstance(context)
     private var camera: PerspectiveCamera? = null
     private var sceneManager: SceneManager? = null
     private var sceneAsset: SceneAsset? = null
@@ -57,8 +61,14 @@ class GlobeGdxAdapter : ApplicationAdapter() {
 
         // Image-based lighting so the clay PBR materials read correctly.
         val iblBuilder = IBLBuilder.createOutdoor(light)
-        envCubemap = iblBuilder.buildEnvMap(512)
-        diffuseCubemap = iblBuilder.buildIrradianceMap(128)
+        val iblSize = when (performanceManager.state.value.mode) {
+            PoplurPerformanceMode.FULL -> 256
+            PoplurPerformanceMode.REDUCED -> 128
+            PoplurPerformanceMode.LOW_POWER -> 64
+            PoplurPerformanceMode.EMERGENCY -> 32
+        }
+        envCubemap = iblBuilder.buildEnvMap(iblSize)
+        diffuseCubemap = iblBuilder.buildIrradianceMap((iblSize / 4).coerceAtLeast(16))
         specularCubemap = iblBuilder.buildRadianceMap(8)
         iblBuilder.dispose()
 
@@ -101,7 +111,10 @@ class GlobeGdxAdapter : ApplicationAdapter() {
 
     override fun render() {
         val delta = Gdx.graphics.deltaTime
-        yRotation += 30f * delta // 12-second full rotation, matching the phone
+        val performance = performanceManager.state.value
+        if (performance.decorativeRenderingAllowed) {
+            yRotation += 30f * delta // 12-second full rotation, matching the phone
+        }
 
         scene?.modelInstance?.transform?.apply {
             idt()

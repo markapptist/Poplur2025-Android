@@ -110,6 +110,8 @@ import com.apptists.poplur2025.data.VideoAdGenerationService
 import com.apptists.poplur2025.data.TVStyleMetadata
 import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.CubeSkin
+import com.apptists.poplur2025.performance.rememberPoplurRendererState
+import com.apptists.poplur.performance.PoplurPerformanceMode
 import com.apptists.poplur2025.ui.components.RadiusDisplay
 import com.apptists.poplur2025.ui.components.MusicSearchSheet
 import com.apptists.poplur2025.ui.components.PoplurCounterLayout
@@ -127,6 +129,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.apptists.poplur2025.performance.ManagePoplurPlayerPerformance
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -153,6 +156,14 @@ fun CameraScreen(
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val isPreview = LocalInspectionMode.current
+    val rendererState = rememberPoplurRendererState(
+        name = "PoplurCamera",
+        visible = !isPreview,
+        heavy = true,
+    )
+    val cameraPerformanceActive = isPreview || rendererState.active
+    val optionalAnalysisAllowed = cameraPerformanceActive &&
+        rendererState.snapshot.mode <= PoplurPerformanceMode.REDUCED
     var hasCameraPermission by remember {
         mutableStateOf(if (isPreview) true else ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
     }
@@ -437,8 +448,8 @@ fun CameraScreen(
         }
     }
 
-    LaunchedEffect(isLiveVideoActive) {
-        while (isLiveVideoActive) {
+    LaunchedEffect(isLiveVideoActive, cameraPerformanceActive) {
+        while (isLiveVideoActive && cameraPerformanceActive) {
             delay(1_000)
             liveVideoSeconds += 1
             liveViewerCount = 128 + ((liveVideoSeconds * 7) % 43)
@@ -460,6 +471,15 @@ fun CameraScreen(
     val currentImageAnalysisUseCase by rememberUpdatedState(imageAnalysisUseCase)
     val currentCameraProvider by rememberUpdatedState(cameraProvider)
     val currentFaceDetector by rememberUpdatedState(faceDetector)
+    val currentCameraPerformanceActive by rememberUpdatedState(cameraPerformanceActive)
+
+    LaunchedEffect(cameraPerformanceActive) {
+        if (!cameraPerformanceActive) {
+            currentActiveRecording?.close()
+            stopLiveVideo()
+            releaseCameraUseCases()
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -548,8 +568,8 @@ fun CameraScreen(
                     ) {
                         PoplurText("Camera Preview Placeholder", color = Color.White, fontWeight = FontWeight.Bold)
                     }
-                } else {
-                    key(useFrontCamera) {
+                } else if (cameraPerformanceActive) {
+                    key(useFrontCamera, optionalAnalysisAllowed) {
                         AndroidView(
                             modifier = Modifier.fillMaxSize(),
                             factory = { ctx ->
@@ -562,6 +582,10 @@ fun CameraScreen(
                                 val providerFuture = ProcessCameraProvider.getInstance(context)
                                 providerFuture.addListener({
                                     val provider = providerFuture.get()
+                                    if (!currentCameraPerformanceActive) {
+                                        provider.unbindAll()
+                                        return@addListener
+                                    }
                                     cameraProvider = provider
                                     val preview = Preview.Builder().build().also { it.setSurfaceProvider(view.surfaceProvider) }
                                     val photo = ImageCapture.Builder()
@@ -576,10 +600,11 @@ fun CameraScreen(
                                         )
                                         .build()
                                     val video = VideoCapture.withOutput(recorder)
-                                    val analysis = ImageAnalysis.Builder()
-                                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                        .build()
-                                        .also { imageAnalysis ->
+                                    val analysis = if (optionalAnalysisAllowed) {
+                                        ImageAnalysis.Builder()
+                                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                            .build()
+                                            .also { imageAnalysis ->
                                             imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
                                                 @androidx.camera.core.ExperimentalGetImage
                                                 val mediaImage = imageProxy.image
@@ -638,12 +663,19 @@ fun CameraScreen(
                                                     }
                                                     ?.addOnCompleteListener { doClose() }
                                             }
-                                        }
+                                            }
+                                    } else {
+                                        null
+                                    }
                                     val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
                                     try {
                                         imageAnalysisUseCase?.clearAnalyzer()
                                         provider.unbindAll()
-                                        boundCamera = provider.bindToLifecycle(owner, selector, preview, photo, video, analysis)
+                                        boundCamera = if (analysis != null) {
+                                            provider.bindToLifecycle(owner, selector, preview, photo, video, analysis)
+                                        } else {
+                                            provider.bindToLifecycle(owner, selector, preview, photo, video)
+                                        }
                                         imageCapture = photo
                                         imageAnalysisUseCase = analysis
                                         videoCapture = video
@@ -667,6 +699,8 @@ fun CameraScreen(
                             }
                         )
                     }
+                } else {
+                    Box(Modifier.fillMaxSize().background(Color.Black))
                 }
             } else {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1607,6 +1641,10 @@ private fun CapturedMediaPreview(uri: Uri, isVideo: Boolean, filterId: String = 
             }
             LaunchedEffect(player) { player.play() }
             DisposableEffect(player) { onDispose { player.pause(); player.release() } }
+            ManagePoplurPlayerPerformance(
+                player = player,
+                name = "PoplurCapturedVideoPreview",
+            )
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -2105,6 +2143,10 @@ fun AdPreviewScreen(
     } else null
     if (exoPlayer != null) {
         DisposableEffect(exoPlayer) { onDispose { exoPlayer.release() } }
+        ManagePoplurPlayerPerformance(
+            player = exoPlayer,
+            name = "PoplurGeneratedAdVideo",
+        )
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {

@@ -86,7 +86,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.apptists.poplur.performance.PoplurPerformanceMode
 import com.apptists.poplur2025.call.CallSessionManager
+import com.apptists.poplur2025.performance.rememberPoplurRendererState
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face as MLFace
 import com.google.mlkit.vision.face.FaceDetection
@@ -447,6 +449,13 @@ private fun VideoCallCameraTile(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val rendererState = rememberPoplurRendererState(
+        name = "PoplurVideoCallCamera",
+        visible = true,
+        heavy = true,
+    )
+    val cameraActive = rendererState.active
+    val analysisAllowed = rendererState.snapshot.mode <= PoplurPerformanceMode.REDUCED
     val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
     val analyzingFrame = remember { AtomicBoolean(false) }
@@ -471,6 +480,16 @@ private fun VideoCallCameraTile(
     val currentProvider by rememberUpdatedState(provider)
     val currentAnalysis by rememberUpdatedState(analysisUseCase)
     val currentFaceDetector by rememberUpdatedState(faceDetector)
+    val currentCameraActive by rememberUpdatedState(cameraActive)
+
+    LaunchedEffect(cameraActive) {
+        if (!cameraActive) {
+            currentAnalysis?.clearAnalyzer()
+            currentProvider?.unbindAll()
+            boundFrontCamera = null
+            detectedFaces = emptyList()
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -482,7 +501,7 @@ private fun VideoCallCameraTile(
     }
 
     Box(modifier = modifier.background(Color.Black)) {
-        AndroidView(
+        if (cameraActive) AndroidView(
             factory = { ctx ->
                 PreviewView(ctx).apply {
                     scaleType = PreviewView.ScaleType.FILL_CENTER
@@ -495,13 +514,18 @@ private fun VideoCallCameraTile(
                 val future = ProcessCameraProvider.getInstance(context)
                 future.addListener({
                     val cameraProvider = future.get()
+                    if (!currentCameraActive) {
+                        cameraProvider.unbindAll()
+                        return@addListener
+                    }
                     val preview = Preview.Builder().build().also {
                         it.setSurfaceProvider(previewView.surfaceProvider)
                     }
-                    val analysis = ImageAnalysis.Builder()
-                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                        .build()
-                        .also { imageAnalysis ->
+                    val analysis = if (analysisAllowed) {
+                        ImageAnalysis.Builder()
+                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                            .build()
+                            .also { imageAnalysis ->
                             imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
                                 val mediaImage = imageProxy.image
                                 if (mediaImage == null || !analyzingFrame.compareAndSet(false, true)) {
@@ -528,7 +552,10 @@ private fun VideoCallCameraTile(
                                         imageProxy.close()
                                     }
                             }
-                        }
+                            }
+                    } else {
+                        null
+                    }
                     val selector = if (useFrontCamera) {
                         CameraSelector.DEFAULT_FRONT_CAMERA
                     } else {
@@ -538,7 +565,11 @@ private fun VideoCallCameraTile(
                     runCatching {
                         analysisUseCase?.clearAnalyzer()
                         cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(lifecycleOwner, selector, preview, analysis)
+                        if (analysis != null) {
+                            cameraProvider.bindToLifecycle(lifecycleOwner, selector, preview, analysis)
+                        } else {
+                            cameraProvider.bindToLifecycle(lifecycleOwner, selector, preview)
+                        }
                         provider = cameraProvider
                         analysisUseCase = analysis
                         boundFrontCamera = useFrontCamera

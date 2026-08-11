@@ -1,5 +1,6 @@
 package com.apptists.poplur2025.ui
 
+import com.apptists.poplur.performance.PoplurPerformanceManager
 import com.badlogic.gdx.ApplicationAdapter
 import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.audio.Sound
@@ -31,11 +32,13 @@ class ConfettiAnimationAdapter : ApplicationAdapter() {
     private var fireworkTimer = 0f
     private var spawnTimer = 0f
     private var crackleSound: Sound? = null
+    private var performanceManager: PoplurPerformanceManager? = null
     
     @Volatile
     var isMuted: Boolean = false
 
     override fun create() {
+        performanceManager = PoplurPerformanceManager.getInitializedInstance()
         Gdx.graphics.setContinuousRendering(true)
         modelBatch = ModelBatch()
         
@@ -77,7 +80,8 @@ class ConfettiAnimationAdapter : ApplicationAdapter() {
         // x lifetime 4.2) across logical points; this GL surface renders in physical pixels (~3.5x the
         // area on the A03s), so parity needs a proportionally higher count. The old lag came from
         // per-frame ModelInstance allocation (now cached below), so a higher count is safe.
-        repeat(520) {
+        val density = performanceManager?.state?.value?.particleDensityMultiplier ?: 1f
+        repeat((520 * density).toInt().coerceAtLeast(0)) {
             pieces += ConfettiPiece().apply {
                 reset(fullScreen = true)
             }
@@ -100,6 +104,12 @@ class ConfettiAnimationAdapter : ApplicationAdapter() {
     }
 
     override fun render() {
+        val policy = performanceManager?.state?.value
+        val density = policy?.particleDensityMultiplier ?: 1f
+        if (policy?.particlesAllowed == false) {
+            pieces.clear()
+            fireworks.clear()
+        }
         val delta = Gdx.graphics.deltaTime.coerceAtMost(1f / 30f)
         val w = lastWidth.toFloat()
         val h = lastHeight.toFloat()
@@ -109,9 +119,12 @@ class ConfettiAnimationAdapter : ApplicationAdapter() {
         // Light continuous sprinkle — was 1000/sec up to a cap of 2500, which (combined with
         // per-frame ModelInstance allocation) is what made this screen lag.
         spawnTimer += delta
-        val spawnInterval = 1f / 180f // ~180 particles/sec — dense continuous sprinkle matching the prototype
+        val particleCap = (700 * density).toInt().coerceAtLeast(0)
+        while (pieces.size > particleCap) pieces.removeAt(pieces.lastIndex)
+        val spawnRate = 180f * density
+        val spawnInterval = if (spawnRate > 0f) 1f / spawnRate else Float.MAX_VALUE
         while (spawnTimer > spawnInterval) {
-            if (pieces.size < 700) { // cached ModelInstances make this cheap
+            if (pieces.size < particleCap) { // cached ModelInstances make this cheap
                 pieces += ConfettiPiece().apply { reset(fullScreen = false) }
             }
             spawnTimer -= spawnInterval
@@ -119,7 +132,7 @@ class ConfettiAnimationAdapter : ApplicationAdapter() {
 
         // Occasional firework rather than a constant barrage.
         fireworkTimer += delta
-        if (fireworkTimer > 3.5f) {
+        if (density >= 0.45f && fireworkTimer > 3.5f / density.coerceAtLeast(0.1f)) {
             fireworks += Firework()
             fireworkTimer = 0f
         }

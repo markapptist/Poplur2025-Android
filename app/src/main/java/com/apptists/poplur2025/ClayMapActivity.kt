@@ -10,6 +10,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.webkit.WebViewAssetLoader
+import com.apptists.poplur2025.performance.PoplurWebViewPerformanceController
 import org.json.JSONObject
 
 /**
@@ -31,6 +32,7 @@ import org.json.JSONObject
 class ClayMapActivity : ComponentActivity() {
 
     private lateinit var webView: WebView
+    private lateinit var performanceController: PoplurWebViewPerformanceController
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,7 +66,19 @@ class ClayMapActivity : ComponentActivity() {
                     "&fallback2d=${if (!use3D && lowTier) "1" else "0"}"
             )
         }
+        performanceController = PoplurWebViewPerformanceController(this, "PoplurClayMapWeb")
+        performanceController.attach(webView)
         setContentView(webView)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        performanceController.setVisible(true)
+    }
+
+    override fun onStop() {
+        performanceController.setVisible(false)
+        super.onStop()
     }
 
     inner class BridgeInterface {
@@ -81,6 +95,7 @@ class ClayMapActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        performanceController.close()
         webView.destroy()
         super.onDestroy()
     }

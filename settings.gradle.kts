@@ -23,6 +23,7 @@ dependencyResolutionManagement {
 rootProject.name = "Poplur2025Android"
 include(":app")
 include(":wear")
+include(":performance")
 
 // Use the default build directory. Avoid using /private/tmp for build outputs on macOS
 // as it can have limited space or be purged by the system, leading to build errors.

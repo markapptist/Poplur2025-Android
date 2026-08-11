@@ -60,7 +60,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -112,7 +111,8 @@ import com.apptists.poplur2025.ui.components.MarkHeadSceneView
 import com.google.android.filament.IndirectLight
 import com.google.android.filament.Skybox
 import dev.romainguy.kotlin.math.Float3
-import io.github.sceneview.SceneView
+import com.apptists.poplur2025.ui.components.PerformanceSceneView
+import com.apptists.poplur2025.performance.ManagePoplurPlayerPerformance
 import io.github.sceneview.node.ModelNode
 
 /**
@@ -1333,12 +1333,10 @@ private fun SignupModelScene(
     rotationY: Float,
     rotationX: Float = -14f
 ) {
-    val lifecycleOwner = LocalLifecycleOwner.current
     AndroidView(
         modifier = modifier.clip(RoundedCornerShape(12.dp)),
         factory = { ctx ->
-            SceneView(ctx).apply {
-                lifecycle = lifecycleOwner.lifecycle
+            PerformanceSceneView(ctx).apply {
                 scene.skybox = Skybox.Builder().color(background.red, background.green, background.blue, 1f).build(engine)
                 indirectLight = IndirectLight.Builder().irradiance(1, floatArrayOf(1f, 1f, 1.05f)).intensity(55_000f).build(engine)
                 val instance = modelLoader.createModelInstance(modelPath)
@@ -2213,6 +2211,11 @@ internal fun StripeTransitionOverlay(
             player.release()
         }
     }
+    ManagePoplurPlayerPerformance(
+        player = player,
+        name = "PoplurAuthTransitionVideo",
+        essential = true,
+    )
 
     AndroidView(
         factory = { ctx ->

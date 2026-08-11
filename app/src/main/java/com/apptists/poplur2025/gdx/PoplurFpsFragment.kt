@@ -13,7 +13,8 @@ import com.badlogic.gdx.backends.android.AndroidFragmentApplication
  * ShowtimeDashFragment). Runs as an AndroidFragmentApplication so it coexists
  * with the persistent cube overlay's libGDX lifecycle managed by MainActivity.
  */
-class PoplurFpsFragment : AndroidFragmentApplication() {
+class PoplurFpsFragment : PerformanceManagedGdxFragment() {
+    override val performanceRendererName: String = "PoplurFPS"
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val config = AndroidApplicationConfiguration().apply {
             useAccelerometer = false

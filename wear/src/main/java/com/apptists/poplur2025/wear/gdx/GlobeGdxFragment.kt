@@ -38,7 +38,7 @@ class GlobeGdxFragment : AndroidFragmentApplication() {
             r = 8; g = 8; b = 8; a = 8
         }
 
-        val adapter = GlobeGdxAdapter()
+        val adapter = GlobeGdxAdapter(requireContext().applicationContext)
         val gdxView = initializeTransparentForView(adapter, config)
 
         return FrameLayout(requireContext()).apply {
@@ -65,7 +65,8 @@ class GlobeGdxFragment : AndroidFragmentApplication() {
             config.resolutionStrategy ?: FillResolutionStrategy()
         )
         val transparentView = TransparentGLTextureView(requireContext()).apply {
-            setRenderer(graphics as GLSurfaceView.Renderer)
+            setPerformanceRenderer("PoplurWearGlobe", true)
+            setRenderer(graphics as GLSurfaceView.Renderer, if (config.useGL30) 3 else 2)
             setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY)
         }
         textureView = transparentView
