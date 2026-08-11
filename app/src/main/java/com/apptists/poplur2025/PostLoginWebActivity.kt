@@ -62,8 +62,10 @@ import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.LinkedHashMap
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.max
 
 /**
  * Post-login host for the approved web flow.
@@ -108,10 +110,11 @@ class PostLoginWebActivity : ComponentActivity() {
     private data class WebCapture(val uri: Uri, val mimeType: String)
     // Asset requests run on WebView worker threads while camera/picker results
     // arrive on the activity thread.
-    private val webCaptures = ConcurrentHashMap<String, WebCapture>()
+    private val webCapturesLock = Any()
+    private val webCaptures = LinkedHashMap<String, WebCapture>(MAX_WEB_CAPTURE_ROUTES, 0.75f, true)
     private var pendingPhotoUri: Uri? = null
     private var pendingVideoUri: Uri? = null
-    @Volatile private var faceFrameBusy = false
+    private val faceFrameBusy = AtomicBoolean(false)
     private val cameraFaceDetector by lazy {
         FaceDetection.getClient(
             FaceDetectorOptions.Builder()
@@ -350,7 +353,7 @@ class PostLoginWebActivity : ComponentActivity() {
         val path = url.encodedPath ?: return null
         if (path.startsWith("/assets/captures/")) {
             val key = path.substringAfterLast('/')
-            val capture = webCaptures[key] ?: return null
+            val capture = synchronized(webCapturesLock) { webCaptures[key] } ?: return null
             val stream = try {
                 contentResolver.openInputStream(capture.uri)
             } catch (_: Exception) {
@@ -477,7 +480,16 @@ class PostLoginWebActivity : ComponentActivity() {
 
     private fun registerWebCapture(uri: Uri, mimeType: String): String {
         val key = UUID.randomUUID().toString()
-        webCaptures[key] = WebCapture(uri, mimeType)
+        synchronized(webCapturesLock) {
+            webCaptures[key] = WebCapture(uri, mimeType)
+            while (webCaptures.size > MAX_WEB_CAPTURE_ROUTES) {
+                val eldest = webCaptures.entries.iterator()
+                if (eldest.hasNext()) {
+                    eldest.next()
+                    eldest.remove()
+                }
+            }
+        }
         return "$origin/captures/$key"
     }
 
@@ -512,7 +524,9 @@ class PostLoginWebActivity : ComponentActivity() {
         val storageRef = FirebaseStorage.getInstance().reference
             .child("posts/${user.uid}/${System.currentTimeMillis()}.${if (kind == "video") "mp4" else "jpg"}")
         val captureKey = Uri.parse(data).lastPathSegment
-        val storedCapture = captureKey?.let(webCaptures::get)
+        val storedCapture = captureKey?.let { key ->
+            synchronized(webCapturesLock) { webCaptures[key] }
+        }
         val upload = when {
             storedCapture != null -> storageRef.putFile(storedCapture.uri)
             data.startsWith("data:") -> {
@@ -852,6 +866,7 @@ class PostLoginWebActivity : ComponentActivity() {
         runCatching { feedAd?.mediaContent?.videoController?.stop() }
         feedAd?.destroy()
         feedAd = null
+        synchronized(webCapturesLock) { webCaptures.clear() }
         homeWebView.destroy()
         // The loading WebView is destroyed at reveal time; only destroy here if
         // the activity dies before the reveal (destroy() twice throws).
@@ -861,46 +876,68 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     private fun detectCameraFrame(dataUrl: String, mirrored: Boolean) {
-        if (faceFrameBusy || !dataUrl.startsWith("data:image/")) return
-        faceFrameBusy = true
+        if (!dataUrl.startsWith("data:image/") || dataUrl.length > MAX_CAMERA_FRAME_DATA_URL_CHARS) return
+        if (!faceFrameBusy.compareAndSet(false, true)) return
         val bitmap = runCatching {
             val bytes = Base64.decode(dataUrl.substringAfter(','), Base64.DEFAULT)
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            if (bytes.size > MAX_CAMERA_FRAME_BYTES) return@runCatching null
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            val sourceWidth = bounds.outWidth.takeIf { it > 0 } ?: return@runCatching null
+            val sourceHeight = bounds.outHeight.takeIf { it > 0 } ?: return@runCatching null
+            var sampleSize = 1
+            while (max(sourceWidth, sourceHeight) / sampleSize > MAX_CAMERA_FRAME_EDGE * 2) {
+                sampleSize *= 2
+            }
+            BitmapFactory.decodeByteArray(
+                bytes,
+                0,
+                bytes.size,
+                BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+                },
+            )
         }.getOrNull()
         if (bitmap == null) {
-            faceFrameBusy = false
+            faceFrameBusy.set(false)
             return
         }
 
-        cameraFaceDetector.process(InputImage.fromBitmap(bitmap, 0))
-            .addOnSuccessListener { faces ->
-                val width = bitmap.width.toDouble().coerceAtLeast(1.0)
-                val height = bitmap.height.toDouble().coerceAtLeast(1.0)
-                val payload = JSONArray()
-                faces.forEachIndexed { index, face ->
-                    val box = face.boundingBox
-                    val normalizedX = if (mirrored) 1.0 - (box.right / width) else box.left / width
-                    payload.put(JSONObject().apply {
-                        put("id", "face-${face.trackingId ?: index}")
-                        put("x", normalizedX.coerceIn(0.0, 1.0))
-                        put("y", (box.top / height).coerceIn(0.0, 1.0))
-                        put("w", (box.width() / width).coerceIn(0.0, 1.0))
-                        put("h", (box.height() / height).coerceIn(0.0, 1.0))
-                        put("label", "person")
-                        put("confidence", 0.95)
-                    })
+        runCatching {
+            cameraFaceDetector.process(InputImage.fromBitmap(bitmap, 0))
+                .addOnSuccessListener { faces ->
+                    val width = bitmap.width.toDouble().coerceAtLeast(1.0)
+                    val height = bitmap.height.toDouble().coerceAtLeast(1.0)
+                    val payload = JSONArray()
+                    faces.forEachIndexed { index, face ->
+                        val box = face.boundingBox
+                        val normalizedX = if (mirrored) 1.0 - (box.right / width) else box.left / width
+                        payload.put(JSONObject().apply {
+                            put("id", "face-${face.trackingId ?: index}")
+                            put("x", normalizedX.coerceIn(0.0, 1.0))
+                            put("y", (box.top / height).coerceIn(0.0, 1.0))
+                            put("w", (box.width() / width).coerceIn(0.0, 1.0))
+                            put("h", (box.height() / height).coerceIn(0.0, 1.0))
+                            put("label", "person")
+                            put("confidence", 0.95)
+                        })
+                    }
+                    homeWebView.post {
+                        homeWebView.evaluateJavascript(
+                            "window.dispatchEvent(new CustomEvent('poplur-native-detections',{detail:$payload}));true;",
+                            null
+                        )
+                    }
                 }
-                homeWebView.post {
-                    homeWebView.evaluateJavascript(
-                        "window.dispatchEvent(new CustomEvent('poplur-native-detections',{detail:$payload}));true;",
-                        null
-                    )
+                .addOnCompleteListener {
+                    bitmap.recycle()
+                    faceFrameBusy.set(false)
                 }
-            }
-            .addOnCompleteListener {
-                bitmap.recycle()
-                faceFrameBusy = false
-            }
+        }.onFailure {
+            bitmap.recycle()
+            faceFrameBusy.set(false)
+        }
     }
 
     private companion object {
@@ -909,6 +946,10 @@ class PostLoginWebActivity : ComponentActivity() {
         const val REVEAL_DURATION_MS = 450L
         const val VOLUME_HIDE_MS = 1500L
         const val CAMERA_REQUEST_CODE = 7403
+        const val MAX_WEB_CAPTURE_ROUTES = 16
+        const val MAX_CAMERA_FRAME_DATA_URL_CHARS = 4_000_000
+        const val MAX_CAMERA_FRAME_BYTES = 3_000_000
+        const val MAX_CAMERA_FRAME_EDGE = 960
     }
 }
 

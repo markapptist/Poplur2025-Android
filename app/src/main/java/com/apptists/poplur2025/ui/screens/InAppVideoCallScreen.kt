@@ -473,6 +473,7 @@ private fun VideoCallCameraTile(
     var provider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var analysisUseCase by remember { mutableStateOf<ImageAnalysis?>(null) }
     var boundFrontCamera by remember { mutableStateOf<Boolean?>(null) }
+    var boundAnalysisAllowed by remember { mutableStateOf<Boolean?>(null) }
     var detectedFaces by remember { mutableStateOf<List<VideoCallDetectedFace>>(emptyList()) }
     var analysisSize by remember { mutableStateOf(IntSize.Zero) }
     var overlaySize by remember { mutableStateOf(IntSize.Zero) }
@@ -487,6 +488,7 @@ private fun VideoCallCameraTile(
             currentAnalysis?.clearAnalyzer()
             currentProvider?.unbindAll()
             boundFrontCamera = null
+            boundAnalysisAllowed = null
             detectedFaces = emptyList()
         }
     }
@@ -509,7 +511,11 @@ private fun VideoCallCameraTile(
                 }
             },
             update = { previewView ->
-                if (boundFrontCamera == useFrontCamera && provider != null) return@AndroidView
+                if (
+                    boundFrontCamera == useFrontCamera &&
+                    boundAnalysisAllowed == analysisAllowed &&
+                    provider != null
+                ) return@AndroidView
 
                 val future = ProcessCameraProvider.getInstance(context)
                 future.addListener({
@@ -573,6 +579,7 @@ private fun VideoCallCameraTile(
                         provider = cameraProvider
                         analysisUseCase = analysis
                         boundFrontCamera = useFrontCamera
+                        boundAnalysisAllowed = analysisAllowed
                     }.onFailure {
                         runCatching {
                             analysisUseCase?.clearAnalyzer()
@@ -581,6 +588,7 @@ private fun VideoCallCameraTile(
                             provider = cameraProvider
                             analysisUseCase = null
                             boundFrontCamera = useFrontCamera
+                            boundAnalysisAllowed = false
                             detectedFaces = emptyList()
                         }
                     }

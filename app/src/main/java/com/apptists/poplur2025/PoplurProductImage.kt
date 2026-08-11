@@ -4,15 +4,20 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
 import android.webkit.WebView
+import com.apptists.poplur.performance.PoplurAssetCache
+import com.apptists.poplur.performance.PoplurPerformanceManager
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.lang.ref.WeakReference
 import java.util.Locale
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -22,16 +27,31 @@ object PoplurProductImage {
     private const val MAX_HTML_BYTES = 400_000L
     private const val MAX_IMAGE_BYTES = 8_000_000L
     private const val MAX_EDGE = 720
+    private const val MAX_PENDING_REQUESTS = 16
+    private const val MAX_URL_CHARS = 4_096
+    private const val FALLBACK_CACHE_BYTES = 32L * 1024L * 1024L
+    private const val FALLBACK_CACHE_ENTRIES = 24
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
         .callTimeout(12, TimeUnit.SECONDS)
         .build()
-    private val executor = Executors.newFixedThreadPool(2)
-    private val cache = ConcurrentHashMap<String, String>()
-    private val failed = ConcurrentHashMap.newKeySet<String>()
+    private val executor = ThreadPoolExecutor(
+        2,
+        2,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(MAX_PENDING_REQUESTS - 2),
+        ThreadPoolExecutor.AbortPolicy(),
+    )
+    private val fallbackCache = PoplurAssetCache(
+        maximumBytes = FALLBACK_CACHE_BYTES,
+        maximumEntries = FALLBACK_CACHE_ENTRIES,
+    )
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
+    private val inFlightLock = Any()
+    private object FailedMarker
 
     private val metaTag = Regex("""<meta\b[^>]*>""", RegexOption.IGNORE_CASE)
     private val attribute = Regex(
@@ -40,26 +60,62 @@ object PoplurProductImage {
     private val preferredKeys = listOf("og:image:secure_url", "og:image", "twitter:image")
 
     fun handle(urlString: String, webView: WebView) {
+        if (urlString.length > MAX_URL_CHARS) return
         val page = urlString.toHttpUrlOrNull()?.takeIf(::permitted)
         if (page == null) {
             deliver(urlString, null, webView)
             return
         }
-        cache[urlString]?.let {
+        val cache = assetCache()
+        cache.get<String>(resolvedCacheKey(urlString))?.let {
             deliver(urlString, it, webView)
             return
         }
-        if (failed.contains(urlString)) {
+        if (cache.contains(failedCacheKey(urlString))) {
             deliver(urlString, null, webView)
             return
         }
-        if (!inFlight.add(urlString)) return
+        val accepted = synchronized(inFlightLock) {
+            when {
+                urlString in inFlight -> false
+                inFlight.size >= MAX_PENDING_REQUESTS -> false
+                else -> inFlight.add(urlString)
+            }
+        }
+        if (!accepted) {
+            // A duplicate already has a delivery in flight. A request beyond the hard queue cap
+            // receives the normal fallback immediately instead of growing retained work.
+            if (urlString !in inFlight) deliver(urlString, null, webView)
+            return
+        }
 
-        executor.execute {
-            val image = runCatching { resolve(page) }.getOrNull()
-            if (image == null) failed.add(urlString) else cache[urlString] = image
-            inFlight.remove(urlString)
-            deliver(urlString, image, webView)
+        try {
+            val webViewRef = WeakReference(webView)
+            executor.execute {
+                val image = runCatching { resolve(page) }.getOrNull()
+                if (image == null) {
+                    val failedKey = failedCacheKey(urlString)
+                    cache.put(
+                        key = failedKey,
+                        type = PoplurAssetCache.AssetType.TEMPORARY,
+                        value = FailedMarker,
+                        estimatedByteCost = retainedStringBytes(failedKey),
+                    )
+                } else {
+                    val resolvedKey = resolvedCacheKey(urlString)
+                    cache.put(
+                        key = resolvedKey,
+                        type = PoplurAssetCache.AssetType.DECODED_IMAGE,
+                        value = image,
+                        estimatedByteCost = retainedStringBytes(resolvedKey) + retainedStringBytes(image),
+                    )
+                }
+                synchronized(inFlightLock) { inFlight.remove(urlString) }
+                webViewRef.get()?.let { liveWebView -> deliver(urlString, image, liveWebView) }
+            }
+        } catch (_: RejectedExecutionException) {
+            synchronized(inFlightLock) { inFlight.remove(urlString) }
+            deliver(urlString, null, webView)
         }
     }
 
@@ -70,8 +126,25 @@ object PoplurProductImage {
         val html = request(page, MAX_HTML_BYTES, truncatable = true)
             ?.toString(Charsets.UTF_8) ?: return null
         val imageUrl = imageUrl(html, page) ?: return null
+        if (imageUrl.toString().length > MAX_URL_CHARS) return null
         val bytes = request(imageUrl, MAX_IMAGE_BYTES, truncatable = false) ?: return null
-        val source = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val sourceWidth = bounds.outWidth.takeIf { it > 0 } ?: return null
+        val sourceHeight = bounds.outHeight.takeIf { it > 0 } ?: return null
+        var sampleSize = 1
+        while (max(sourceWidth, sourceHeight) / sampleSize > MAX_EDGE * 2) {
+            sampleSize *= 2
+        }
+        val source = BitmapFactory.decodeByteArray(
+            bytes,
+            0,
+            bytes.size,
+            BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.RGB_565
+            },
+        ) ?: return null
         val scaled = downscaled(source)
         if (scaled !== source) source.recycle()
         return try {
@@ -156,4 +229,14 @@ object PoplurProductImage {
             )
         }
     }
+
+    private fun assetCache(): PoplurAssetCache =
+        PoplurPerformanceManager.getInitializedInstance()?.assetCache ?: fallbackCache
+
+    private fun resolvedCacheKey(url: String) = "android:product-image:resolved:$url"
+
+    private fun failedCacheKey(url: String) = "android:product-image:failed:$url"
+
+    private fun retainedStringBytes(value: String): Long =
+        (value.length.toLong() * 2L).coerceAtLeast(16L)
 }

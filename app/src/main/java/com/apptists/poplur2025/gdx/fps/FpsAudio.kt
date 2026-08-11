@@ -58,7 +58,8 @@ class FpsAudio {
     private fun put(key: String, samples: FloatArray) {
         val f = Gdx.files.local("poplur_fps_sfx/$key.wav")
         f.writeBytes(wavBytes(samples), false)
-        sounds[key] = Gdx.audio.newSound(f)
+        val replacement = Gdx.audio.newSound(f)
+        sounds.put(key, replacement)?.dispose()
     }
 
     // MARK: synthesis

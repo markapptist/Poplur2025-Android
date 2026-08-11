@@ -29,6 +29,7 @@ class PoplurWebViewPerformanceController(
 
     fun detach(view: WebView) {
         webViews.removeAll { it.get() == null || it.get() === view }
+        apply(manager.currentSnapshot(), active)
     }
 
     fun setVisible(visible: Boolean) {
@@ -53,13 +54,19 @@ class PoplurWebViewPerformanceController(
 
     private fun apply(snapshot: PoplurPerformanceSnapshot, isActive: Boolean) {
         val action = {
-            liveViews().forEach { view ->
+            val views = liveViews()
+            // Multiple WebViews in one Activity are still multiple compositor/decoder surfaces.
+            // The first attached view is the primary experience; any loading/decorative siblings
+            // stay paused so this controller cannot bypass the process-wide one-heavy rule.
+            val activeView = if (isActive) views.firstOrNull() else null
+            views.forEach { view ->
                 runCatching {
-                    if (isActive) view.onResume() else view.onPause()
+                    val viewActive = view === activeView
+                    if (viewActive) view.onResume() else view.onPause()
                     val detail = JSONObject().apply {
                         put("mode", snapshot.mode.name)
                         put("targetFps", snapshot.targetFps)
-                        put("active", isActive)
+                        put("active", viewActive)
                         put("particles", snapshot.particlesAllowed)
                         put("particleDensity", snapshot.particleDensityMultiplier.toDouble())
                         put("postProcessing", snapshot.postProcessingAllowed)
@@ -72,7 +79,7 @@ class PoplurWebViewPerformanceController(
                             "document.documentElement.dataset.poplurThermal=" +
                             JSONObject.quote(snapshot.thermalCondition.name.lowercase()) + ";" +
                             "window.dispatchEvent(new CustomEvent('poplur-performance',{detail:$detail}));" +
-                            if (!isActive || !snapshot.expensiveVideoTexturesAllowed) {
+                            if (!viewActive || !snapshot.expensiveVideoTexturesAllowed) {
                                 "document.querySelectorAll('video').forEach(function(v){v.pause();});" +
                                     "window.speechSynthesis&&window.speechSynthesis.cancel();"
                             } else {
