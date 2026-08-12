@@ -421,10 +421,17 @@ class PreloginWebActivity : ComponentActivity() {
      * fires for a permission dialog drawn OVER this flow — which would freeze the
      * clay artwork behind the dialog. `onStop` fires only once the activity is
      * genuinely hidden, which is exactly "the app was minimized".
+     *
+     * THESE TWO MUST STAY PAIRED. `WebView.onPause()` halts rendering, so an
+     * `onStop` that pauses without an `onStart` that resumes is a permanent black
+     * screen from the first time the app is backgrounded — it has already happened
+     * once, when the resume was dropped during a merge and the pause survived. If
+     * you touch either half, check the other.
      */
     override fun onStart() {
         super.onStart()
         if (::performanceController.isInitialized) performanceController.setVisible(true)
+        if (::webView.isInitialized) webView.onResume()
     }
 
     override fun onStop() {
