@@ -51,6 +51,10 @@ android { namespace = "com.apptists.poplur2025"
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // Preserve the source PNG bytes and skip AAPT2's redundant lossless
+            // recompression. Several large nodpi images otherwise exceed AAPT2's
+            // fixed two-minute per-file compile timeout on release builds.
+            isCrunchPngs = false
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
