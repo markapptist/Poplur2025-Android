@@ -640,6 +640,9 @@ class PostLoginWebActivity : ComponentActivity() {
                 // RECORD_AUDIO permission sheet.
                 runOnUiThread { voiceRequestToken.intValue += 1 }
             }
+            if (type == "requestProfile") {
+                deliverWebProfile()
+            }
             if (type == "requestCameraRoll") {
                 PoplurPermissionPrimer.markHandled(
                     this@PostLoginWebActivity,
@@ -749,6 +752,38 @@ class PostLoginWebActivity : ComponentActivity() {
             }
             if (type == "publishPost") runOnUiThread { uploadClayPost(body) }
         }
+    }
+
+    private fun deliverWebProfile() {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        val fallbackUsername = user.email
+            ?.substringBefore("@")
+            ?.takeIf { it.isNotBlank() }
+            ?: "mark"
+        FirebaseFirestore.getInstance().collection("users").document(user.uid).get()
+            .addOnCompleteListener { task ->
+                val document = if (task.isSuccessful) task.result else null
+                val accountType = document?.getString("accountType")
+                val business = accountType.equals("business", ignoreCase = true)
+                    || document?.getBoolean("isBusinessAccount") == true
+                val payload = JSONObject().apply {
+                    put("username", document?.getString("username")
+                        ?: document?.getString("handle")
+                        ?: fallbackUsername)
+                    put("business", business)
+                    val photo = document?.getString("avatarUrl")
+                        ?: document?.getString("photoURL")
+                        ?: user.photoUrl?.toString()
+                    if (!photo.isNullOrBlank()) put("photo", photo)
+                }.toString()
+                homeWebView.post {
+                    homeWebView.evaluateJavascript(
+                        "window.poplurProfile?.($payload);" +
+                            "window.dispatchEvent(new CustomEvent('poplur-native-profile',{detail:$payload}));true;",
+                        null
+                    )
+                }
+            }
     }
 
     private fun openInAppBrowser(rawUrl: String) {
