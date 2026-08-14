@@ -45,6 +45,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
@@ -424,7 +426,7 @@ private fun PoplurAIEdgeGlow(
         )
 
         Box(Modifier.fillMaxSize()) {
-            AssistantEdges(accent = accent, glow = glow)
+            AssistantEdges(glow = glow)
             Text(
                 text = statusText,
                 color = Color.White,
@@ -442,23 +444,45 @@ private fun PoplurAIEdgeGlow(
 }
 
 @Composable
-private fun BoxScope.AssistantEdges(accent: Color, glow: Float) {
+private fun BoxScope.AssistantEdges(glow: Float) {
     Canvas(Modifier.fillMaxSize()) {
-        val line = 12.dp.toPx() + glow * 10.dp.toPx()
-        val alpha = 0.58f + glow * 0.34f
-        val edgeColor = accent.copy(alpha = alpha)
-        val haloColor = accent.copy(alpha = alpha * 0.32f)
+        val inset = 5.dp.toPx()
+        val corner = 32.dp.toPx()
+        val width = (size.width - inset * 2).coerceAtLeast(0f)
+        val height = (size.height - inset * 2).coerceAtLeast(0f)
+        val rainbow = Brush.sweepGradient(
+            colors = listOf(
+                Color(0xFFFF2D95),
+                Color(0xFFFF8A3D),
+                Color(0xFFFFE23D),
+                Color(0xFF6CF05A),
+                Color(0xFF35D9CF),
+                Color(0xFF3D9DFF),
+                Color(0xFF8A6BFF),
+                Color(0xFFD762FF),
+                Color(0xFFFF4D9E),
+                Color(0xFFFF2D95)
+            ),
+            center = center
+        )
 
-        drawRect(edgeColor, topLeft = Offset.Zero, size = Size(size.width, line))
-        drawRect(edgeColor, topLeft = Offset(0f, size.height - line), size = Size(size.width, line))
-        drawRect(edgeColor, topLeft = Offset.Zero, size = Size(line, size.height))
-        drawRect(edgeColor, topLeft = Offset(size.width - line, 0f), size = Size(line, size.height))
-
-        drawRect(
-            haloColor,
-            topLeft = Offset(line / 2f, line / 2f),
-            size = Size(size.width - line, size.height - line),
-            style = Stroke(width = line * 1.8f)
+        // Match the live camera's 1px rainbow recognition perimeter. The
+        // second stroke is only a quiet shadow, not a thick colored edge.
+        drawRoundRect(
+            brush = rainbow,
+            topLeft = Offset(inset, inset),
+            size = Size(width, height),
+            cornerRadius = CornerRadius(corner, corner),
+            alpha = 0.62f + glow * 0.38f,
+            style = Stroke(width = 1.dp.toPx())
+        )
+        drawRoundRect(
+            brush = rainbow,
+            topLeft = Offset(inset, inset),
+            size = Size(width, height),
+            cornerRadius = CornerRadius(corner, corner),
+            alpha = 0.10f + glow * 0.08f,
+            style = Stroke(width = 5.dp.toPx())
         )
     }
 }

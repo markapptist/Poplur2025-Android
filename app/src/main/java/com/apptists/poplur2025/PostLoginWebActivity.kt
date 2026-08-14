@@ -635,7 +635,7 @@ class PostLoginWebActivity : ComponentActivity() {
                 }
             }
             if (type == "requestVoiceAssistant") {
-                // The shared HEY POPLUR tile is an explicit user action, and
+                // The shared HEY POPLUR profile button is an explicit action, and
                 // therefore the only Home event allowed to launch Android's
                 // RECORD_AUDIO permission sheet.
                 runOnUiThread { voiceRequestToken.intValue += 1 }
