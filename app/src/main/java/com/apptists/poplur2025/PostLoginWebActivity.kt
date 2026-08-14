@@ -705,16 +705,30 @@ class PostLoginWebActivity : ComponentActivity() {
                     body.optBoolean("mirrored", false)
                 )
             }
-            if (type == "feedChannelChanged") {
-                // The web feed reports channel changes; the shell owns the
-                // AdMob gate and presentation — same contract as iOS, same
-                // FeedAdProbability the native feed used.
+            if (type == "feedChannelChanged" || type == "feedContentAdvanced") {
+                // Real inventory follows a post change as well as a channel
+                // change. A completed clip used to be invisible to this bridge,
+                // which made long feed sessions miss every native-ad chance.
                 val channel = body.optString("channelId", "unknown")
                 val index = body.optInt("index", 0)
+                val isContentAdvance = type == "feedContentAdvanced"
+                val namespace = if (isContentAdvance) {
+                    "web_${channel}_content"
+                } else {
+                    "web_$channel"
+                }
                 val config = FeedAdProbability.currentConfig(this@PostLoginWebActivity)
-                if (FeedAdProbability.placement(index, "web_$channel", config) ==
-                    FeedAdPlacementKind.GoogleMobileAd
-                ) {
+                // A fixed three-post cadence mirrors the 30% network share
+                // while guaranteeing small channels do not hash into an
+                // all-Poplur session.
+                val shouldPresent = if (isContentAdvance) {
+                    val sequence = body.optInt("sequence", 0)
+                    sequence > 0 && sequence % 3 == 0
+                } else {
+                    FeedAdProbability.placement(index, namespace, config) ==
+                        FeedAdPlacementKind.GoogleMobileAd
+                }
+                if (shouldPresent) {
                     runOnUiThread { showFeedNativeAd() }
                 }
             }
