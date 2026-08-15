@@ -3,7 +3,13 @@ package com.apptists.poplur2025
 import android.annotation.SuppressLint
 import android.Manifest
 import android.content.ContentValues
+import android.content.Intent
+import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.graphics.BitmapFactory
 import android.media.AudioManager
 import android.net.Uri
@@ -265,9 +271,113 @@ class PostLoginWebActivity : ComponentActivity() {
         }, HOME_READY_TIMEOUT_MS)
     }
 
+    // ---- Live cube motion -------------------------------------------------
+    //
+    // CubeTab3D binds `deviceorientation` only when it is NOT in a native shell
+    // and otherwise waits for `poplur-native-motion` — a contract iOS honours
+    // (PostLoginHomeWebView.swift:834) and Android never did, so every cube sat
+    // dead still here. Web `deviceorientation` is not a fallback on this class
+    // of hardware: measured on the A03 (SM-S135DL) it fires ONCE with
+    // alpha/beta/gamma all null, because Chrome cannot fuse an orientation
+    // without a gyroscope or magnetometer and this phone has neither.
+    // `devicemotion` does stream at ~60Hz, so gravity from the accelerometer is
+    // the only real source — which is exactly what this reads.
+    private val sensorManager by lazy {
+        getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+    }
+    /// Low-passed gravity vector. An accelerometer alone cannot separate gravity
+    /// from movement, so without this a shake reads as a tilt.
+    private var gravityX = 0f
+    private var gravityY = 0f
+    private var gravityZ = 0f
+    private var hasGravity = false
+    private var lastMotionPostUptimeMs = 0L
+    private var lastPostedRoll = Float.NaN
+    private var lastPostedPitch = Float.NaN
+
+    private val motionListener = object : SensorEventListener {
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
+        override fun onSensorChanged(event: SensorEvent) {
+            if (event.sensor?.type != Sensor.TYPE_ACCELEROMETER) return
+            val alpha = 0.8f
+            if (hasGravity) {
+                gravityX = alpha * gravityX + (1 - alpha) * event.values[0]
+                gravityY = alpha * gravityY + (1 - alpha) * event.values[1]
+                gravityZ = alpha * gravityZ + (1 - alpha) * event.values[2]
+            } else {
+                gravityX = event.values[0]
+                gravityY = event.values[1]
+                gravityZ = event.values[2]
+                hasGravity = true
+            }
+
+            // Radians, matching Core Motion's attitude.roll/.pitch — the web
+            // divides by 0.72 rad (CubeTab3D onNativeMotion), so the unit must
+            // match or the cube barely moves. Android's accelerometer frame is
+            // x=right, y=top, z=out of screen; at rest face-up that is
+            // (0, 0, +9.81). Negating x/y matches Core Motion's sign, so a
+            // right-side-down tilt rolls the cube the same way on both phones.
+            val roll = kotlin.math.atan2(
+                -gravityX,
+                kotlin.math.sqrt(gravityY * gravityY + gravityZ * gravityZ)
+            )
+            val pitch = kotlin.math.atan2(
+                -gravityY,
+                kotlin.math.sqrt(gravityX * gravityX + gravityZ * gravityZ)
+            )
+
+            // Same discipline as iOS: cap at 30Hz and drop samples that have not
+            // meaningfully changed, so a phone lying still costs no bridge
+            // crossings at all. This runs on an attended foreground screen only.
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastMotionPostUptimeMs < 33L) return
+            // 0.025 rad (~1.4°), NOT iOS's 0.008. Core Motion is a gyro-fused
+            // attitude and is quiet at rest; this phone has no gyro, so roll and
+            // pitch are derived from raw accelerometer noise whose angular
+            // jitter is ~0.01 rad. Measured on the A03: at 0.008 a phone lying
+            // untouched still posted 9.7 events/sec — a bridge crossing per
+            // 100ms on every post-login screen, for no visible motion. A tilt
+            // gesture moves tens of degrees, so this stays well below anything
+            // the eye can follow.
+            if (!lastPostedRoll.isNaN()
+                && kotlin.math.abs(roll - lastPostedRoll) < 0.025f
+                && kotlin.math.abs(pitch - lastPostedPitch) < 0.025f
+            ) return
+            lastMotionPostUptimeMs = now
+            lastPostedRoll = roll
+            lastPostedPitch = pitch
+            if (!::homeWebView.isInitialized) return
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-native-motion'," +
+                    "{detail:{roll:$roll,pitch:$pitch}}));true;",
+                null
+            )
+        }
+    }
+
+    private fun startCubeMotion() {
+        val manager = sensorManager ?: return
+        val accelerometer = manager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) ?: return
+        // SENSOR_DELAY_GAME is ~50Hz; the 30Hz post cap above does the real
+        // rate limiting. Anything faster only burns battery on a budget phone.
+        manager.registerListener(motionListener, accelerometer, SensorManager.SENSOR_DELAY_GAME)
+    }
+
+    private fun stopCubeMotion() {
+        sensorManager?.unregisterListener(motionListener)
+        hasGravity = false
+        lastPostedRoll = Float.NaN
+        lastPostedPitch = Float.NaN
+    }
+
     override fun onResume() {
         super.onResume()
         voiceForeground.value = true
+        // Sensor delivery is foreground-only: an unregistered listener is the
+        // difference between a cube that moves and a background wake-up budget
+        // this app has already been burned by.
+        startCubeMotion()
     }
 
     override fun onStart() {
@@ -282,6 +392,7 @@ class PostLoginWebActivity : ComponentActivity() {
 
     override fun onPause() {
         voiceForeground.value = false
+        stopCubeMotion()
         super.onPause()
     }
 
@@ -747,6 +858,23 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "openInAppBrowser") {
                 openInAppBrowser(body.optString("url"))
             }
+            // SettingsScreen.tsx has posted this since sign-out was added, and
+            // Android silently dropped it — the SIGN OUT button did nothing here.
+            // With MainActivity routing straight past login whenever Firebase
+            // reports a user, a session that is restored from cache and then
+            // invalidated server-side left no route back to the login screen at
+            // all: signed in enough to skip login, signed out enough that
+            // deliverWebProfile finds no currentUser and the profile stays empty.
+            if (type == "signOut") {
+                runOnUiThread {
+                    FirebaseAuth.getInstance().signOut()
+                    startActivity(
+                        Intent(this@PostLoginWebActivity, PreloginWebActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    )
+                    finish()
+                }
+            }
             if (type == "cameraLiveVisibilityChanged") {
                 cameraLiveVisible = body.optBoolean("visible", false)
             }
@@ -769,13 +897,28 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     private fun deliverWebProfile() {
-        val user = FirebaseAuth.getInstance().currentUser ?: return
+        // Diagnostic: on the A03 no profile payload EVER reached the web — not even
+        // the username the pre-existing code sent — and every failure mode on this
+        // path is silent. Each branch is logged so "no profile set" can be told
+        // apart from "no signed-in user" and "Firestore never completed".
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            Log.w(TAG, "deliverWebProfile: no FirebaseAuth.currentUser — nothing sent")
+            return
+        }
+        Log.i(TAG, "deliverWebProfile: uid=${user.uid} requesting Firestore users doc")
         val fallbackUsername = user.email
             ?.substringBefore("@")
             ?.takeIf { it.isNotBlank() }
             ?: "mark"
         FirebaseFirestore.getInstance().collection("users").document(user.uid).get()
             .addOnCompleteListener { task ->
+                Log.i(
+                    TAG,
+                    "deliverWebProfile: Firestore complete success=${task.isSuccessful} " +
+                        "exists=${task.result?.exists()} err=${task.exception?.javaClass?.simpleName}: " +
+                        "${task.exception?.message}"
+                )
                 val document = if (task.isSuccessful) task.result else null
                 val accountType = document?.getString("accountType")
                 val business = accountType.equals("business", ignoreCase = true)
@@ -785,11 +928,24 @@ class PostLoginWebActivity : ComponentActivity() {
                         ?: document?.getString("handle")
                         ?: fallbackUsername)
                     put("business", business)
-                    val photo = document?.getString("avatarUrl")
+                    // `profilePictureURL` is what EditProfile actually writes (iOS
+                    // EditProfileView.swift:276 and the same document here), so it has to
+                    // lead. Reading only avatarUrl/photoURL is why a fresh sign-in on
+                    // another device showed no picture even though one was set.
+                    val photo = document?.getString("profilePictureURL")
+                        ?: document?.getString("avatarUrl")
                         ?: document?.getString("photoURL")
                         ?: user.photoUrl?.toString()
                     if (!photo.isNullOrBlank()) put("photo", photo)
+                    // The profile is a ten-second selfie VIDEO, not a still. Without this
+                    // the web falls back to its localStorage copy, which is per-device —
+                    // so signing in on a second device rendered "NO PROFILE PHOTO SET".
+                    // iOS delivers the same key from the same field
+                    // (PostLoginHomeWebView.swift:1276).
+                    val video = document?.getString("profileSelfieVideoURL")
+                    if (!video.isNullOrBlank()) put("video", video)
                 }.toString()
+                Log.i(TAG, "deliverWebProfile: dispatching payload=$payload")
                 homeWebView.post {
                     homeWebView.evaluateJavascript(
                         "window.poplurProfile?.($payload);" +
