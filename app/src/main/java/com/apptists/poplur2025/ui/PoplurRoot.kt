@@ -115,6 +115,7 @@ import com.apptists.poplur2025.ui.components.FeedLaunchCover
 import com.apptists.poplur2025.ui.components.PoplurVolumeBars
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.PoplurRadioPrewarm
+import com.apptists.poplur2025.ui.profile.ProfileThemeRepository
 import com.apptists.poplur2025.ui.games.screens.GameLaunchScreen
 import com.apptists.poplur2025.util.PoplurEQSync
 import com.google.firebase.auth.FirebaseAuth
@@ -191,6 +192,8 @@ fun PoplurRoot(
     val settingsPrefs = remember(appContext) {
         appContext.getSharedPreferences("poplur_settings", Context.MODE_PRIVATE)
     }
+    val profileThemeRepository = remember(appContext) { ProfileThemeRepository.getInstance(appContext) }
+    val selectedProfileTheme by profileThemeRepository.selectedTheme.collectAsState()
 
     // Background music + mute button for the whole pre-login area (Welcome/Login/SignUp).
     val preLoginMusic = remember(appContext) {
@@ -1263,6 +1266,8 @@ fun PoplurRoot(
                         profileAvatarIs3D = profileAvatarIs3D,
                         selectedCubeSkin = selectedCubeSkin,
                         onSelectedCubeSkinChange = { selectedCubeSkin = it },
+                        selectedProfileTheme = selectedProfileTheme,
+                        onSelectedProfileThemeChange = profileThemeRepository::select,
                         profileSortOrder = profileSortOrder,
                         profileSortToken = profileSortToken,
                         hasSeenProfileWakeTutorial = hasSeenProfileWakeTutorial,

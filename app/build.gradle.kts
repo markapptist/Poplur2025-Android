@@ -23,7 +23,7 @@ val mapillaryAccessToken: String = localProperties.getProperty("MAPILLARY_ACCESS
 val admobInterstitialUnitId: String = localProperties.getProperty("ADMOB_INTERSTITIAL_UNIT_ID")
     ?: "ca-app-pub-2086359936541081/6696033455"
 val admobFeedNativeUnitId: String = localProperties.getProperty("ADMOB_FEED_NATIVE_UNIT_ID")
-    ?: "ca-app-pub-2086359936541081/6696033455"
+    ?: ""
 
 android { namespace = "com.apptists.poplur2025"
     compileSdk = 35;
@@ -48,6 +48,13 @@ android { namespace = "com.apptists.poplur2025"
     }
 
     buildTypes {
+        debug {
+            // Google explicitly requires demo inventory during development.
+            // More importantly, a NativeAd loader cannot use the production
+            // interstitial unit ID: that format mismatch is rejected with 403.
+            buildConfigField("String", "ADMOB_INTERSTITIAL_UNIT_ID", "\"ca-app-pub-3940256099942544/1033173712\"")
+            buildConfigField("String", "ADMOB_FEED_NATIVE_UNIT_ID", "\"ca-app-pub-3940256099942544/2247696110\"")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -128,7 +135,7 @@ dependencies {
 
     implementation("com.mapbox.maps:android:11.19.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
-    implementation("com.google.android.gms:play-services-ads:23.6.0")
+    implementation("com.google.android.gms:play-services-ads:25.4.0")
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
 
     implementation("androidx.camera:camera-core:1.4.1")

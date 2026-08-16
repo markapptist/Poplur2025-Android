@@ -12,6 +12,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.graphics.BitmapFactory
 import android.media.AudioManager
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -31,6 +32,7 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
 import androidx.browser.customtabs.CustomTabColorSchemeParams
 import androidx.browser.customtabs.CustomTabsIntent
 import com.apptists.poplur2025.ads.AdManager
@@ -55,10 +57,18 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.webkit.WebViewAssetLoader
 import com.apptists.poplur2025.ui.components.PoplurVolumeBars
+import com.apptists.poplur2025.billing.PoplurBillingManager
+import com.apptists.poplur2025.billing.PoplurProducts
+import com.apptists.poplur2025.billing.PurchaseEvent
+import com.apptists.poplur2025.billing.PurchaseEventStatus
 import com.apptists.poplur2025.data.AppTab
 import com.apptists.poplur2025.ui.PoplurAICommand
 import com.apptists.poplur2025.ui.PoplurAIAssistantOverlay
 import com.apptists.poplur2025.ui.PoplurAIParser
+import com.apptists.poplur2025.ui.profile.ProfileStatusBarIcons
+import com.apptists.poplur2025.ui.profile.ProfileTheme
+import com.apptists.poplur2025.ui.profile.ProfileThemeRepository
+import androidx.compose.ui.graphics.toArgb
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -71,6 +81,11 @@ import org.json.JSONObject
 import java.util.LinkedHashMap
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.max
 
 /**
@@ -98,6 +113,22 @@ class PostLoginWebActivity : ComponentActivity() {
     private lateinit var loadingWebView: WebView
     private lateinit var performanceController: com.apptists.poplur2025.performance.PoplurWebViewPerformanceController
     private lateinit var audioManager: AudioManager
+    private var phoneBootPlayer: MediaPlayer? = null
+    private val billingManager by lazy { PoplurBillingManager.getInstance(this) }
+    private val profileThemeRepository by lazy { ProfileThemeRepository.getInstance(this) }
+
+    private data class StoreCheckoutSession(
+        val requestId: String,
+        val productQueue: List<String>,
+        var position: Int = 0,
+        val completed: MutableList<JSONObject> = mutableListOf(),
+        var pendingCompletion: Boolean = false
+    )
+
+    private var storeCheckoutSession: StoreCheckoutSession? = null
+    private val storeCheckoutPreferences by lazy {
+        getSharedPreferences("poplur_store_checkout", MODE_PRIVATE)
+    }
 
     private val homeReady = mutableStateOf(false)
     private val minimumElapsed = mutableStateOf(false)
@@ -200,6 +231,12 @@ class PostLoginWebActivity : ComponentActivity() {
         }
         root.addView(volumeOverlay, matchParentParams())
         setContentView(root)
+
+        storeCheckoutSession = restorePendingStoreCheckout()
+        billingManager.connect()
+        lifecycleScope.launch {
+            billingManager.purchaseEvents.collect(::handleStorePurchaseEvent)
+        }
 
         // Both URLs are the exact bundles used by the iOS post-login path.
         val mapPrefs = getSharedPreferences("poplur_settings", MODE_PRIVATE)
@@ -536,9 +573,20 @@ class PostLoginWebActivity : ComponentActivity() {
      */
     private fun showFeedNativeAd() {
         if (feedAdContainer != null) return // one slot at a time
+        val nativeUnitId = BuildConfig.ADMOB_FEED_NATIVE_UNIT_ID
+        if (nativeUnitId.isBlank()) {
+            // A production Native unit is intentionally separate from the
+            // interstitial unit. Until it is configured, show the already
+            // configured interstitial rather than submitting the wrong ad
+            // format (which Google rejects) or silently dropping the slot.
+            AdManager.presentInterstitial(this) { open ->
+                if (!isDestroyed) setWebFeedAdSlotOpen(open)
+            }
+            return
+        }
         AdManager.loadNativeAd(
             context = this,
-            adUnitId = BuildConfig.ADMOB_FEED_NATIVE_UNIT_ID,
+            adUnitId = nativeUnitId,
             onLoaded = { ad ->
                 runOnUiThread {
                     // A slot that arrives after the screen is gone, or after another
@@ -550,7 +598,9 @@ class PostLoginWebActivity : ComponentActivity() {
                     presentFeedNativeAd(ad)
                 }
             },
-            onFailed = { /* No fill: the feed simply carries on, with no gap. */ },
+            onFailed = { error ->
+                Log.w(TAG, "Feed Google ad failed: ${error.code} ${error.message}")
+            },
         )
     }
 
@@ -751,8 +801,39 @@ class PostLoginWebActivity : ComponentActivity() {
                 // RECORD_AUDIO permission sheet.
                 runOnUiThread { voiceRequestToken.intValue += 1 }
             }
+            if (type == "phoneBootEffects") {
+                runOnUiThread { playPhoneBootSound() }
+            }
+            if (type == "phoneThemeEffects") {
+                // The web surface owns the short Pop and blue LCD state. Stop a
+                // still-playing entry cue so it cannot mask that interaction.
+                runOnUiThread {
+                    phoneBootPlayer?.stop()
+                    phoneBootPlayer?.release()
+                    phoneBootPlayer = null
+                }
+            }
             if (type == "requestProfile") {
                 deliverWebProfile()
+            }
+            if (type == "requestProfilePosts") {
+                deliverWebProfilePosts()
+            }
+            if (type == "profileThemeChanged") {
+                val payload = body.optJSONObject("detail") ?: body
+                val themeId = payload.optString("themeId").ifBlank { payload.optString("id") }
+                runOnUiThread {
+                    val accepted = profileThemeRepository.selectById(themeId)
+                    val selectedTheme = profileThemeRepository.selectedTheme.value
+                    if (accepted) applyProfileThemeSystemBars(selectedTheme)
+                    deliverProfileTheme(selectedTheme, accepted, if (accepted) null else "Unknown profile theme ID.")
+                }
+            }
+            if (type == "requestProfileTheme") {
+                deliverProfileTheme(profileThemeRepository.selectedTheme.value, accepted = true)
+            }
+            if (type == "poplurStoreCheckoutRequested") {
+                runOnUiThread { requestStoreCheckout(body) }
             }
             if (type == "requestCameraRoll") {
                 PoplurPermissionPrimer.markHandled(
@@ -896,6 +977,314 @@ class PostLoginWebActivity : ComponentActivity() {
         }
     }
 
+    private fun requestStoreCheckout(body: JSONObject) {
+        val payload = body.optJSONObject("detail") ?: body
+        val requestId = payload.optString("requestId").ifBlank { UUID.randomUUID().toString() }
+        if (storeCheckoutSession != null) {
+            sendStoreCheckoutResult(
+                requestId = requestId,
+                success = false,
+                status = "busy",
+                message = "Another store checkout is already in progress."
+            )
+            return
+        }
+
+        val items = payload.optJSONArray("items")
+        if (items == null || items.length() == 0) {
+            sendStoreCheckoutResult(requestId, false, "error", "No card products were requested.")
+            return
+        }
+
+        val queue = mutableListOf<String>()
+        for (index in 0 until items.length()) {
+            val item = items.optJSONObject(index)
+            val requestedProductId = item?.optString("androidProductId")
+                ?.ifBlank { item.optString("cardId") }
+                ?.ifBlank { item.optString("productId") }
+                ?.ifBlank { item.optString("id") }
+                ?: items.optString(index)
+            val productId = PoplurProducts.resolveCardProductId(requestedProductId)
+            val quantity = item?.optInt("quantity", 1) ?: 1
+            if (productId == null) {
+                sendStoreCheckoutResult(
+                    requestId,
+                    false,
+                    "error",
+                    "Unsupported card product: ${requestedProductId.ifBlank { "missing product ID" }}."
+                )
+                return
+            }
+            if (quantity !in 1..10) {
+                sendStoreCheckoutResult(
+                    requestId,
+                    false,
+                    "error",
+                    "Each card quantity must be between 1 and 10."
+                )
+                return
+            }
+            repeat(quantity) { queue += productId }
+            if (queue.size > MAX_STORE_CHECKOUT_ITEMS) {
+                sendStoreCheckoutResult(
+                    requestId,
+                    false,
+                    "error",
+                    "A checkout can contain at most $MAX_STORE_CHECKOUT_ITEMS card items."
+                )
+                return
+            }
+        }
+
+        val session = StoreCheckoutSession(requestId = requestId, productQueue = queue)
+        storeCheckoutSession = session
+        lifecycleScope.launch {
+            val productsReady = withTimeoutOrNull(STORE_PRODUCT_WAIT_MS) {
+                billingManager.productDetails.first { details ->
+                    queue.all(details::containsKey)
+                }
+            } != null
+            if (storeCheckoutSession !== session) return@launch
+            if (!productsReady) {
+                storeCheckoutSession = null
+                val missing = queue.distinct().filterNot(billingManager.productDetails.value::containsKey)
+                sendStoreCheckoutResult(
+                    requestId,
+                    false,
+                    "unavailable",
+                    "These products are not available for this Google Play build: ${missing.joinToString()}."
+                )
+                return@launch
+            }
+            if (!launchCurrentStoreProduct(session)) {
+                storeCheckoutSession = null
+                sendStoreCheckoutResult(
+                    requestId,
+                    false,
+                    "unavailable",
+                    billingManager.message.value ?: "Google Play checkout could not be opened."
+                )
+            }
+        }
+    }
+
+    private fun launchCurrentStoreProduct(session: StoreCheckoutSession): Boolean {
+        val productId = session.productQueue.getOrNull(session.position) ?: return false
+        return billingManager.launchPurchase(this, productId)
+    }
+
+    private fun handleStorePurchaseEvent(event: PurchaseEvent) {
+        val session = storeCheckoutSession ?: return
+        val expectedProductId = session.productQueue.getOrNull(session.position) ?: return
+        if (event.productId != expectedProductId) return
+
+        when (event.status) {
+            PurchaseEventStatus.Success -> {
+                session.pendingCompletion = false
+                clearPendingStoreCheckout()
+                val pkg = PoplurProducts.cardPackage(event.productId)
+                session.completed += JSONObject().apply {
+                    put("productId", event.productId)
+                    put("cardId", pkg?.cardId ?: JSONObject.NULL)
+                    put("creditsAdded", event.credits)
+                    event.transactionId?.let { put("transactionId", it) }
+                }
+                session.position += 1
+                if (session.position >= session.productQueue.size) {
+                    storeCheckoutSession = null
+                    sendStoreCheckoutResult(
+                        requestId = session.requestId,
+                        success = true,
+                        status = "completed",
+                        message = "All card purchases were verified and delivered.",
+                        completed = session.completed
+                    )
+                } else {
+                    lifecycleScope.launch {
+                        // Play receives the next launch only after the prior token has
+                        // been verified and consumed by PoplurBillingManager.
+                        delay(200)
+                        if (storeCheckoutSession !== session) return@launch
+                        if (!launchCurrentStoreProduct(session)) {
+                            storeCheckoutSession = null
+                            sendStoreCheckoutResult(
+                                session.requestId,
+                                false,
+                                "unavailable",
+                                billingManager.message.value ?: "The next Google Play item could not be opened.",
+                                session.completed
+                            )
+                        }
+                    }
+                }
+            }
+            PurchaseEventStatus.Pending -> {
+                session.pendingCompletion = true
+                persistPendingStoreCheckout(session)
+                sendStoreCheckoutResult(
+                    session.requestId,
+                    false,
+                    "pending",
+                    "Payment is pending in Google Play. Credits will be delivered only after payment completes.",
+                    session.completed
+                )
+            }
+            PurchaseEventStatus.Cancelled -> {
+                storeCheckoutSession = null
+                clearPendingStoreCheckout()
+                sendStoreCheckoutResult(
+                    session.requestId,
+                    false,
+                    "cancelled",
+                    "Checkout was cancelled. Remaining items were not charged.",
+                    session.completed
+                )
+            }
+            PurchaseEventStatus.Failed -> {
+                storeCheckoutSession = null
+                clearPendingStoreCheckout()
+                sendStoreCheckoutResult(
+                    session.requestId,
+                    false,
+                    "error",
+                    event.message,
+                    session.completed
+                )
+            }
+        }
+    }
+
+    private fun persistPendingStoreCheckout(session: StoreCheckoutSession) {
+        val queue = JSONArray().apply { session.productQueue.forEach(::put) }
+        val completed = JSONArray().apply { session.completed.forEach(::put) }
+        val json = JSONObject().apply {
+            put("requestId", session.requestId)
+            put("productQueue", queue)
+            put("position", session.position)
+            put("completed", completed)
+            put("pendingCompletion", session.pendingCompletion)
+        }
+        storeCheckoutPreferences.edit().putString(PENDING_STORE_CHECKOUT_KEY, json.toString()).apply()
+    }
+
+    private fun restorePendingStoreCheckout(): StoreCheckoutSession? {
+        val raw = storeCheckoutPreferences.getString(PENDING_STORE_CHECKOUT_KEY, null) ?: return null
+        return runCatching {
+            val json = JSONObject(raw)
+            if (!json.optBoolean("pendingCompletion")) return@runCatching null
+            val queueJson = json.getJSONArray("productQueue")
+            val queue = List(queueJson.length()) { index -> queueJson.getString(index) }
+            val position = json.optInt("position", 0)
+            if (queue.isEmpty() || position !in queue.indices) return@runCatching null
+            val completed = mutableListOf<JSONObject>()
+            val completedJson = json.optJSONArray("completed") ?: JSONArray()
+            for (index in 0 until completedJson.length()) {
+                completedJson.optJSONObject(index)?.let(completed::add)
+            }
+            StoreCheckoutSession(
+                requestId = json.getString("requestId"),
+                productQueue = queue,
+                position = position,
+                completed = completed,
+                pendingCompletion = true
+            )
+        }.getOrNull().also { restored ->
+            if (restored == null) clearPendingStoreCheckout()
+        }
+    }
+
+    private fun clearPendingStoreCheckout() {
+        storeCheckoutPreferences.edit().remove(PENDING_STORE_CHECKOUT_KEY).apply()
+    }
+
+    private fun sendStoreCheckoutResult(
+        requestId: String,
+        success: Boolean,
+        status: String,
+        message: String,
+        completed: List<JSONObject> = emptyList()
+    ) {
+        val canonicalStatus = when (status) {
+            "completed", "success" -> "success"
+            "pending" -> "pending"
+            "cancelled" -> "cancelled"
+            else -> "failure"
+        }
+        val completedCounts = linkedMapOf<String, Int>()
+        completed.forEach { item ->
+            val cardId = item.optString("cardId")
+            if (cardId.isNotBlank()) completedCounts[cardId] = (completedCounts[cardId] ?: 0) + 1
+        }
+        val completedItems = JSONArray().apply {
+            completedCounts.forEach { (cardId, quantity) ->
+                put(JSONObject().put("cardId", cardId).put("quantity", quantity))
+            }
+        }
+        val payload = JSONObject().apply {
+            put("type", "poplurStoreCheckoutResult")
+            put("requestId", requestId)
+            put("success", success)
+            put("ok", success)
+            put("status", canonicalStatus)
+            put("rawStatus", status)
+            put("message", message)
+            put("completedItems", completedItems)
+        }
+        homeWebView.post {
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplurStoreCheckoutResult',{detail:$payload}));" +
+                    "window.dispatchEvent(new CustomEvent('poplur-native-store-checkout-result',{detail:$payload}));" +
+                    "window.postMessage($payload,'*');true;",
+                null
+            )
+        }
+    }
+
+    private fun deliverProfileTheme(
+        theme: ProfileTheme,
+        accepted: Boolean,
+        error: String? = null
+    ) {
+        val payload = JSONObject().apply {
+            put("accepted", accepted)
+            put("id", theme.id)
+            put("themeId", theme.id)
+            put("displayName", theme.displayName)
+            put("isDefault", theme.isDefault)
+            put("primaryAccent", theme.primaryAccent.toWebHex())
+            put("secondaryAccent", theme.secondaryAccent.toWebHex())
+            put("foreground", theme.foreground.toWebHex())
+            put("overlayColor", theme.overlayColor.toWebHex())
+            put("overlayOpacity", theme.overlayOpacity.toDouble())
+            put("statusBar", theme.statusBarIcons.name.lowercase())
+            put("availability", theme.availability.name.lowercase())
+            if (!error.isNullOrBlank()) put("error", error)
+        }
+        homeWebView.post {
+            homeWebView.evaluateJavascript(
+                "window.poplurProfileTheme?.($payload);" +
+                    "window.dispatchEvent(new CustomEvent('poplur-native-profile-theme',{detail:$payload}));true;",
+                null
+            )
+        }
+    }
+
+    private fun applyProfileThemeSystemBars(theme: ProfileTheme) {
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (theme.isDefault) {
+            window.statusBarColor = darkHome
+            window.navigationBarColor = darkHome
+            controller.isAppearanceLightStatusBars = false
+        } else {
+            window.statusBarColor = theme.overlayColor.toArgb()
+            window.navigationBarColor = theme.overlayColor.toArgb()
+            controller.isAppearanceLightStatusBars =
+                theme.statusBarIcons == ProfileStatusBarIcons.Dark
+        }
+    }
+
+    private fun Color.toWebHex(): String = String.format("#%06X", toArgb() and 0x00FFFFFF)
+
     private fun deliverWebProfile() {
         // Diagnostic: on the A03 no profile payload EVER reached the web — not even
         // the username the pre-existing code sent — and every failure mode on this
@@ -953,6 +1342,52 @@ class PostLoginWebActivity : ComponentActivity() {
                         null
                     )
                 }
+            }
+    }
+
+    private fun deliverWebProfilePosts() {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        FirebaseFirestore.getInstance().collection("posts")
+            .whereEqualTo("userID", user.uid)
+            .limit(64)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val posts = JSONArray()
+                snapshot.documents
+                    .sortedByDescending { document ->
+                        document.getLong("createdAtMillis")
+                            ?: document.getTimestamp("createdAt")?.toDate()?.time
+                            ?: 0L
+                    }
+                    .forEach { document ->
+                        val mediaURL = document.getString("mediaURL")?.trim().orEmpty()
+                        if (mediaURL.isBlank()) return@forEach
+                        posts.put(JSONObject().apply {
+                            put("id", document.id)
+                            put("mediaURL", mediaURL)
+                            put("mediaType", document.getString("mediaType") ?: if (
+                                mediaURL.contains(".mp4", ignoreCase = true)
+                                    || mediaURL.contains(".mov", ignoreCase = true)
+                                    || mediaURL.contains(".webm", ignoreCase = true)
+                            ) "video" else "photo")
+                            document.getString("posterURL")?.takeIf { it.isNotBlank() }
+                                ?.let { put("posterURL", it) }
+                            document.getString("caption")?.takeIf { it.isNotBlank() }
+                                ?.let { put("caption", it) }
+                            document.getString("channelId")?.takeIf { it.isNotBlank() }
+                                ?.let { put("channelId", it) }
+                        })
+                    }
+                val payload = JSONObject().put("posts", posts)
+                homeWebView.post {
+                    homeWebView.evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('poplur-native-profile-posts',{detail:$payload}));true;",
+                        null
+                    )
+                }
+            }
+            .addOnFailureListener { error ->
+                Log.w(TAG, "deliverWebProfilePosts failed", error)
             }
     }
 
@@ -1060,6 +1495,9 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        phoneBootPlayer?.stop()
+        phoneBootPlayer?.release()
+        phoneBootPlayer = null
         if (::performanceController.isInitialized) performanceController.close()
         revealRunnable?.let { loadingWebView.removeCallbacks(it) }
         hideVolumeRunnable?.let { homeWebView.removeCallbacks(it) }
@@ -1078,6 +1516,29 @@ class PostLoginWebActivity : ComponentActivity() {
         if (loadingWebView.parent != null) loadingWebView.destroy()
         cameraFaceDetector.close()
         super.onDestroy()
+    }
+
+    private fun playPhoneBootSound() {
+        phoneBootPlayer?.stop()
+        phoneBootPlayer?.release()
+        phoneBootPlayer = null
+        val player = MediaPlayer()
+        runCatching {
+            assets.openFd("popular_phone_bootup.mp3").use { asset ->
+                player.setDataSource(asset.fileDescriptor, asset.startOffset, asset.length)
+            }
+            player.setOnCompletionListener { completed ->
+                if (phoneBootPlayer === completed) phoneBootPlayer = null
+                completed.release()
+            }
+            player.setVolume(1f, 1f)
+            player.prepare()
+            player.start()
+            phoneBootPlayer = player
+        }.onFailure {
+            player.release()
+            Log.w(TAG, "Phone boot sound failed", it)
+        }
     }
 
     private fun detectCameraFrame(dataUrl: String, mirrored: Boolean) {
@@ -1155,6 +1616,9 @@ class PostLoginWebActivity : ComponentActivity() {
         const val MAX_CAMERA_FRAME_DATA_URL_CHARS = 4_000_000
         const val MAX_CAMERA_FRAME_BYTES = 3_000_000
         const val MAX_CAMERA_FRAME_EDGE = 960
+        const val MAX_STORE_CHECKOUT_ITEMS = 20
+        const val STORE_PRODUCT_WAIT_MS = 5_000L
+        const val PENDING_STORE_CHECKOUT_KEY = "pending_checkout_json"
     }
 }
 

@@ -1,12 +1,16 @@
 package com.apptists.poplur2025.ui.screens
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -19,9 +23,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,7 +47,11 @@ import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.SoftPink
 import com.apptists.poplur2025.ui.appIconResId
 import com.apptists.poplur2025.ui.components.CubeMenuLayout
+import com.apptists.poplur2025.ui.profile.ProfileTheme
+import com.apptists.poplur2025.ui.profile.ProfileThemes
 import com.apptists.poplur2025.ui.rememberDrawableBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /**
@@ -57,6 +71,8 @@ fun SettingsScreen(
     onClosedCaptionsChange: (Boolean) -> Unit = {},
     selectedCubeSkin: CubeSkin = CubeSkin.Default,
     onCubeSkinChange: (CubeSkin) -> Unit = {},
+    selectedProfileTheme: ProfileTheme = ProfileThemes.Default,
+    onProfileThemeChange: (ProfileTheme) -> Unit = {},
     cubeMenuLayout: CubeMenuLayout = CubeMenuLayout.Vertical,
     onCubeMenuLayoutChange: (CubeMenuLayout) -> Unit = {},
     isDarkMode: Boolean = true,
@@ -200,6 +216,28 @@ fun SettingsScreen(
                     ) {
                         onCubeSkinChange(skin)
                     }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            SectionLabel("PROFILE BACKGROUND")
+            Text(
+                "Choose a fixed background for your profile. This setting is separate from Cube Skin.",
+                color = SoftPink.subtitle,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 6.dp, end = 6.dp, bottom = 12.dp)
+            )
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 4.dp)
+            ) {
+                items(ProfileThemes.All, key = ProfileTheme::id) { profileTheme ->
+                    ProfileThemeTile(
+                        theme = profileTheme,
+                        isSelected = selectedProfileTheme.id == profileTheme.id,
+                        onClick = { onProfileThemeChange(profileTheme) }
+                    )
                 }
             }
 
@@ -482,6 +520,104 @@ private fun SkinTile(
             fontWeight = FontWeight.Black,
             color = if (isSelected) SoftPink.accent else SoftPink.subtitle,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun ProfileThemeTile(
+    theme: ProfileTheme,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val context = LocalContext.current
+    val previewBitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(
+        initialValue = null,
+        key1 = theme.backgroundResId
+    ) {
+        value = withContext(Dispatchers.IO) {
+            theme.backgroundResId?.let { resourceId ->
+                runCatching {
+                    BitmapFactory.decodeResource(
+                        context.resources,
+                        resourceId,
+                        BitmapFactory.Options().apply { inSampleSize = 8 }
+                    )?.asImageBitmap()
+                }.getOrNull()
+            }
+        }
+    }
+    val tileShape = RoundedCornerShape(18.dp)
+
+    Column(
+        modifier = Modifier
+            .width(92.dp)
+            .selectable(selected = isSelected, role = Role.RadioButton, onClick = onClick)
+            .semantics {
+                contentDescription = "${theme.displayName} profile background"
+                selected = isSelected
+                stateDescription = if (isSelected) "Selected" else "Not selected"
+            },
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .width(86.dp)
+                .height(116.dp)
+                .shadow(8.dp, tileShape, clip = false)
+                .clip(tileShape)
+                .background(
+                    if (theme.isDefault) {
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            listOf(Color.White, SoftPink.pageBG)
+                        )
+                    } else {
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            listOf(theme.primaryAccent, theme.secondaryAccent)
+                        )
+                    }
+                )
+                .border(
+                    width = if (isSelected) 3.dp else 1.dp,
+                    color = if (isSelected) SoftPink.accent else Color.White.copy(alpha = 0.7f),
+                    shape = tileShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            previewBitmap?.let { bitmap ->
+                Image(
+                    bitmap = bitmap,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            if (theme.isDefault) {
+                Text("P", color = SoftPink.accent, fontSize = 28.sp, fontWeight = FontWeight.Black)
+            }
+            if (isSelected) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(7.dp)
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(SoftPink.accent),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("✓", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                }
+            }
+        }
+        Spacer(Modifier.height(7.dp))
+        Text(
+            theme.displayName,
+            color = if (isSelected) SoftPink.accent else SoftPink.subtitle,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
     }

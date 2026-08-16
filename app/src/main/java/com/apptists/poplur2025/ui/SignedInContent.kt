@@ -17,6 +17,8 @@ import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.data.AppTab
 import com.apptists.poplur2025.data.PoplurLanguage
 import com.apptists.poplur2025.ui.screens.*
+import com.apptists.poplur2025.ui.profile.ProfileTheme
+import com.apptists.poplur2025.ui.profile.ProfileThemes
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import kotlinx.coroutines.CoroutineScope
@@ -47,6 +49,7 @@ fun SignedInContent(
     profileCubeCommand: ProfileCubeMenuCommand?,
     profileAvatarIs3D: Boolean,
     selectedCubeSkin: CubeSkin,
+    selectedProfileTheme: ProfileTheme = ProfileThemes.Default,
     profileSortOrder: PoplurAIProfileSortOrder?,
     profileSortToken: Int,
     hasSeenProfileWakeTutorial: Boolean,
@@ -119,7 +122,8 @@ fun SignedInContent(
     onAiVideoLocationNameChange: (String) -> Unit,
     onIsFeedTvGuideVisibleChange: (Boolean) -> Unit,
     onPhoneColorwaySelected: androidx.compose.ui.graphics.Color?,
-    onSelectedCubeSkinChange: (CubeSkin) -> Unit = {}
+    onSelectedCubeSkinChange: (CubeSkin) -> Unit = {},
+    onSelectedProfileThemeChange: (ProfileTheme) -> Unit = {}
 ) {
     val haptics = LocalHapticFeedback.current
     
@@ -180,6 +184,7 @@ fun SignedInContent(
             forcedColorway = onPhoneColorwaySelected,
             avatarIs3D = profileAvatarIs3D,
             cubeSkin = selectedCubeSkin,
+            profileTheme = selectedProfileTheme,
             assistantSortOrder = profileSortOrder,
             assistantSortToken = profileSortToken,
             showHeyPoplurTutorial = !hasSeenProfileWakeTutorial,
@@ -423,7 +428,9 @@ fun SignedInContent(
             closedCaptionsEnabled = closedCaptionsEnabled,
             profileAvatarIs3D = profileAvatarIs3D,
             selectedCubeSkin = selectedCubeSkin,
-            onCubeSkinChange = onSelectedCubeSkinChange
+            onCubeSkinChange = onSelectedCubeSkinChange,
+            selectedProfileTheme = selectedProfileTheme,
+            onProfileThemeChange = onSelectedProfileThemeChange
         )
         AppTab.CubeDebug -> com.apptists.poplur2025.ui.previews.CubeDebugScreen(
             onBack = { onTabChange(previousTab ?: AppTab.Profile) }
