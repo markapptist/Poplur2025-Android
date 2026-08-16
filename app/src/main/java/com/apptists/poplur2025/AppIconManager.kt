@@ -20,7 +20,15 @@ object AppIconManager {
         PoplurAppIconOption("default", "Default Clay", R.mipmap.app_icon_default, "DefaultIcon"),
         PoplurAppIconOption("pastel", "Pastel Clay", R.mipmap.app_icon_pastel, "PastelIcon"),
         PoplurAppIconOption("neonBlue", "Neon Blue", R.mipmap.app_icon_neon_blue, "NeonBlueIcon"),
-        PoplurAppIconOption("roseGold", "Rose Gold", R.mipmap.app_icon_rose_gold, "RoseGoldIcon")
+        PoplurAppIconOption("roseGold", "Rose Gold", R.mipmap.app_icon_rose_gold, "RoseGoldIcon"),
+        PoplurAppIconOption("camo", "Camo Clay", R.mipmap.app_icon_camo, "CamoIcon"),
+        PoplurAppIconOption("chocolate", "Chocolate", R.mipmap.app_icon_chocolate, "ChocolateIcon"),
+        PoplurAppIconOption("gold", "Gold Clay", R.mipmap.app_icon_gold, "GoldIcon"),
+        PoplurAppIconOption("ice", "Ice Clay", R.mipmap.app_icon_ice, "IceIcon"),
+        PoplurAppIconOption("rainbow", "Rainbow", R.mipmap.app_icon_rainbow, "RainbowIcon"),
+        PoplurAppIconOption("rubber", "Rubber Clay", R.mipmap.app_icon_rubber, "RubberIcon"),
+        PoplurAppIconOption("sparklePink", "Sparkle Pink", R.mipmap.app_icon_sparkle_pink, "SparklePinkIcon"),
+        PoplurAppIconOption("toy", "Toy Clay", R.mipmap.app_icon_toy, "ToyIcon")
     )
 
     /**
