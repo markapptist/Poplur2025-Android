@@ -25,6 +25,7 @@ class PoplurApp : Application() {
                 PlayIntegrityAppCheckProviderFactory.getInstance()
             }
         )
+        AppIconManager.ensureValidSelection(this)
         AdManager.initialize(this)
         WearRadiusSync.start(this)
         PoplurNotifications.ensureChannel(this)

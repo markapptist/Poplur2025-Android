@@ -6,9 +6,9 @@ import org.junit.Test
 
 class AppIconCatalogTest {
     @Test
-    fun catalogHasTwelveStableUniqueIcons() {
+    fun catalogHasFourStableUniqueIcons() {
         val icons = AppIconManager.options
-        assertEquals(12, icons.size)
+        assertEquals(4, icons.size)
         assertEquals(icons.size, icons.map { it.id }.toSet().size)
         assertEquals("default", icons.first().id)
         assertTrue(icons.all { it.displayName.isNotBlank() && it.previewRes != 0 })

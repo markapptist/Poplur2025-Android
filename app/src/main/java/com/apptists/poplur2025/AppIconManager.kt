@@ -20,16 +20,34 @@ object AppIconManager {
         PoplurAppIconOption("default", "Default Clay", R.mipmap.app_icon_default, "DefaultIcon"),
         PoplurAppIconOption("pastel", "Pastel Clay", R.mipmap.app_icon_pastel, "PastelIcon"),
         PoplurAppIconOption("neonBlue", "Neon Blue", R.mipmap.app_icon_neon_blue, "NeonBlueIcon"),
-        PoplurAppIconOption("roseGold", "Rose Gold", R.mipmap.app_icon_rose_gold, "RoseGoldIcon"),
-        PoplurAppIconOption("camo", "Camo Clay", R.mipmap.app_icon_camo, "CamoIcon"),
-        PoplurAppIconOption("chocolate", "Chocolate", R.mipmap.app_icon_chocolate, "ChocolateIcon"),
-        PoplurAppIconOption("gold", "Gold Clay", R.mipmap.app_icon_gold, "GoldIcon"),
-        PoplurAppIconOption("ice", "Ice Clay", R.mipmap.app_icon_ice, "IceIcon"),
-        PoplurAppIconOption("rainbow", "Rainbow", R.mipmap.app_icon_rainbow, "RainbowIcon"),
-        PoplurAppIconOption("rubber", "Rubber Clay", R.mipmap.app_icon_rubber, "RubberIcon"),
-        PoplurAppIconOption("sparklePink", "Sparkle Pink", R.mipmap.app_icon_sparkle_pink, "SparklePinkIcon"),
-        PoplurAppIconOption("toy", "Toy Clay", R.mipmap.app_icon_toy, "ToyIcon")
+        PoplurAppIconOption("roseGold", "Rose Gold", R.mipmap.app_icon_rose_gold, "RoseGoldIcon")
     )
+
+    /**
+     * Repairs the launcher entry for anyone updating from a build that still had the
+     * retired icons. Their alias was explicitly disabled via PackageManager, and that
+     * override outlives the update — so if the icon they had selected is gone, the app
+     * would be left with no enabled launcher alias at all.
+     */
+    fun ensureValidSelection(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val saved = prefs.getString(KEY_SELECTED_ID, "default")
+        if (options.any { it.id == saved }) return
+
+        prefs.edit().putString(KEY_SELECTED_ID, "default").commit()
+        val packageManager = context.packageManager
+        options.forEachIndexed { index, option ->
+            packageManager.setComponentEnabledSetting(
+                componentName(context, option),
+                if (index == 0) {
+                    PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                } else {
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+                },
+                PackageManager.DONT_KILL_APP
+            )
+        }
+    }
 
     fun currentId(context: Context): String {
         val saved = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
