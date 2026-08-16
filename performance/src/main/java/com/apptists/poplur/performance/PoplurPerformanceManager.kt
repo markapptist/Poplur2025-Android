@@ -397,12 +397,21 @@ class PoplurPerformanceManager private constructor(private val application: Appl
 
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
     private fun registerThermalListenerApi29() {
-        updateThermalCondition(mapThermalStatus(powerManager.currentThermalStatus))
-        val listener = PowerManager.OnThermalStatusChangedListener { status ->
-            updateThermalCondition(mapThermalStatus(status))
+        try {
+            updateThermalCondition(mapThermalStatus(powerManager.currentThermalStatus))
+            val listener = PowerManager.OnThermalStatusChangedListener { status ->
+                updateThermalCondition(mapThermalStatus(status))
+            }
+            powerManager.addThermalStatusListener(application.mainExecutor, listener)
+            thermalListener = listener
+        } catch (error: RuntimeException) {
+            // Thermal callbacks are an optional signal. Robolectric and some
+            // vendor services can reject listener registration; retain the
+            // foreground, power-saver, and memory-pressure policies instead
+            // of letting an unavailable sensor crash application startup.
+            thermalListener = null
+            log("Thermal listener unavailable: ${error.message}")
         }
-        thermalListener = listener
-        powerManager.addThermalStatusListener(application.mainExecutor, listener)
     }
 
     private fun log(message: String) {

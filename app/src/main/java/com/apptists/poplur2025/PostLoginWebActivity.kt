@@ -832,6 +832,17 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "requestProfileTheme") {
                 deliverProfileTheme(profileThemeRepository.selectedTheme.value, accepted = true)
             }
+            if (type == "appIconChanged") {
+                val payload = body.optJSONObject("detail") ?: body
+                val iconId = payload.optString("iconId").ifBlank { payload.optString("id") }
+                runOnUiThread {
+                    val accepted = AppIconManager.select(this@PostLoginWebActivity, iconId)
+                    deliverAppIcon(accepted, if (accepted) null else "Unknown app icon ID.")
+                }
+            }
+            if (type == "requestAppIcon") {
+                deliverAppIcon(accepted = true)
+            }
             if (type == "poplurStoreCheckoutRequested") {
                 runOnUiThread { requestStoreCheckout(body) }
             }
@@ -1264,6 +1275,20 @@ class PostLoginWebActivity : ComponentActivity() {
             homeWebView.evaluateJavascript(
                 "window.poplurProfileTheme?.($payload);" +
                     "window.dispatchEvent(new CustomEvent('poplur-native-profile-theme',{detail:$payload}));true;",
+                null
+            )
+        }
+    }
+
+    private fun deliverAppIcon(accepted: Boolean, error: String? = null) {
+        val payload = JSONObject().apply {
+            put("accepted", accepted)
+            put("id", AppIconManager.currentId(this@PostLoginWebActivity))
+            if (!error.isNullOrBlank()) put("message", error)
+        }
+        homeWebView.post {
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-native-app-icon',{detail:$payload}));true;",
                 null
             )
         }

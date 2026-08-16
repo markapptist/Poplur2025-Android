@@ -33,12 +33,32 @@
             android:exported="true"
             android:theme="@style/Theme.Poplur.SplashScreen"
             android:launchMode="singleTask"
-            android:screenOrientation="portrait">
+            android:screenOrientation="portrait" />
+
+        <activity-alias
+            android:name=".launcher.DefaultIcon"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/app_icon_default"
+            android:label="Poplur"
+            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <activity-alias android:name=".launcher.PastelIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/app_icon_pastel" android:label="Poplur" android:targetActivity=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity-alias>
+        <activity-alias android:name=".launcher.NeonBlueIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/app_icon_neon_blue" android:label="Poplur" android:targetActivity=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity-alias>
+        <activity-alias android:name=".launcher.RoseGoldIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/app_icon_rose_gold" android:label="Poplur" android:targetActivity=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity-alias>
+        <activity-alias android:name=".launcher.CamoIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/app_icon_camo" android:label="Poplur" android:targetActivity=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity-alias>
+        <activity-alias android:name=".launcher.ChocolateIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/app_icon_chocolate" android:label="Poplur" android:targetActivity=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity-alias>
+        <activity-alias android:name=".launcher.GoldIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/app_icon_gold" android:label="Poplur" android:targetActivity=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity-alias>
+        <activity-alias android:name=".launcher.IceIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/app_icon_ice" android:label="Poplur" android:targetActivity=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity-alias>
+        <activity-alias android:name=".launcher.RainbowIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/app_icon_rainbow" android:label="Poplur" android:targetActivity=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity-alias>
+        <activity-alias android:name=".launcher.RubberIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/app_icon_rubber" android:label="Poplur" android:targetActivity=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity-alias>
+        <activity-alias android:name=".launcher.SparklePinkIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/app_icon_sparkle_pink" android:label="Poplur" android:targetActivity=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity-alias>
+        <activity-alias android:name=".launcher.ToyIcon" android:enabled="false" android:exported="true" android:icon="@mipmap/app_icon_toy" android:label="Poplur" android:targetActivity=".MainActivity"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity-alias>
 
         <!-- DEBUG: launches straight into the native libGDX PoplurFPS game for verification -->
         <activity

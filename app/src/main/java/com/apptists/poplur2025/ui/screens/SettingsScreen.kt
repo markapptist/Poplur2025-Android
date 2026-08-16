@@ -39,6 +39,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.apptists.poplur2025.R
+import com.apptists.poplur2025.AppIconManager
+import com.apptists.poplur2025.PoplurAppIconOption
 import com.apptists.poplur2025.PoplurLiteTier
 import com.apptists.poplur2025.data.FeedAdProbability
 import com.apptists.poplur2025.data.FeedAdProbabilityConfig
@@ -100,6 +102,7 @@ fun SettingsScreen(
         )
     }
     var cacheText by remember { mutableStateOf("—") }
+    var selectedAppIconId by remember { mutableStateOf(AppIconManager.currentId(ctx)) }
     var adProbabilityConfig by remember { mutableStateOf(FeedAdProbability.currentConfig(ctx)) }
 
     var infoTitle by remember { mutableStateOf("") }
@@ -220,6 +223,30 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(24.dp))
+            SectionLabel("APP ICON")
+            Text(
+                "Choose how Poplur appears on this device.",
+                color = SoftPink.subtitle,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 6.dp, end = 6.dp, bottom = 12.dp)
+            )
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 4.dp)
+            ) {
+                items(AppIconManager.options, key = PoplurAppIconOption::id) { icon ->
+                    AppIconTile(
+                        icon = icon,
+                        isSelected = selectedAppIconId == icon.id,
+                        onClick = {
+                            if (AppIconManager.select(ctx, icon.id)) selectedAppIconId = icon.id
+                        }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
             SectionLabel("PROFILE BACKGROUND")
             Text(
                 "Choose a fixed background for your profile. This setting is separate from Cube Skin.",
@@ -316,6 +343,66 @@ fun SettingsScreen(
             title = { Text(infoTitle, fontWeight = FontWeight.Black, color = SoftPink.title) },
             text = { Text(infoBody, color = SoftPink.rowTitle) },
             containerColor = SoftPink.card
+        )
+    }
+}
+
+@Composable
+private fun AppIconTile(
+    icon: PoplurAppIconOption,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .width(94.dp)
+            .selectable(selected = isSelected, role = Role.RadioButton, onClick = onClick)
+            .semantics {
+                contentDescription = icon.displayName
+                selected = isSelected
+                stateDescription = if (isSelected) "Selected" else "Not selected"
+            },
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box {
+            Image(
+                painter = painterResource(icon.previewRes),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .size(86.dp)
+                    .shadow(8.dp, RoundedCornerShape(20.dp), clip = false)
+                    .clip(RoundedCornerShape(20.dp))
+                    .border(
+                        if (isSelected) 3.dp else 0.dp,
+                        if (isSelected) SoftPink.accent else Color.Transparent,
+                        RoundedCornerShape(20.dp)
+                    )
+            )
+            if (isSelected) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 5.dp, y = (-5).dp)
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(SoftPink.accent),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("✓", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            icon.displayName,
+            fontSize = 12.sp,
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.Black,
+            color = if (isSelected) SoftPink.accent else SoftPink.subtitle,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
