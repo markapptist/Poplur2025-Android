@@ -7,6 +7,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
+import com.google.firebase.messaging.RemoteMessage
 
 /**
  * Phase 1 of engagement push notifications: get this device a token and keep it
@@ -84,12 +85,8 @@ object PoplurMessaging {
 }
 
 /**
- * Receives token rotations from FCM. Registered in AndroidManifest.
- *
- * `onMessageReceived` is deliberately NOT implemented yet — displaying an
- * engagement notification is Phase 4, and there is no sender until Phase 3, so
- * an implementation now would be untestable code guarding an event that cannot
- * occur.
+ * Receives token rotations and engagement notifications from FCM. Registered in
+ * AndroidManifest.
  */
 class PoplurMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
@@ -103,6 +100,33 @@ class PoplurMessagingService : FirebaseMessagingService() {
             return
         }
         PoplurMessaging.writeToken(uid, token)
+    }
+
+    /**
+     * Displays an engagement notification.
+     *
+     * Only reached when the app is in the FOREGROUND, or for a data-only
+     * message. A notification-payload message arriving while the app is
+     * backgrounded is drawn by the system directly and never comes through
+     * here — which is why the Cloud Function also sets `channelId` and `tag` in
+     * its android block: those must be right on the path this code cannot touch.
+     */
+    override fun onMessageReceived(message: RemoteMessage) {
+        super.onMessageReceived(message)
+        val data = message.data
+        val postId = data["postId"].orEmpty()
+        val title = message.notification?.title ?: data["title"].orEmpty()
+        val body = message.notification?.body ?: data["body"].orEmpty()
+        if (title.isBlank() && body.isBlank()) return
+
+        // One notification per POST rather than per engagement: id is derived
+        // from postId so a second like on the same post replaces the first
+        // instead of stacking a fresh banner for every tap of applause. The
+        // Cloud Function's coalescing already limits how often this fires; this
+        // is the belt to that braces.
+        val id = if (postId.isNotEmpty()) postId.hashCode() else message.messageId.hashCode()
+        PoplurNotifications.post(applicationContext, id, title, body)
+        Log.i(TAG, "onMessageReceived: posted engagement notification for post=$postId")
     }
 
     private companion object {
