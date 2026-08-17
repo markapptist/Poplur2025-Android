@@ -35,7 +35,18 @@ class AuthViewModel : ViewModel() {
                     _isSignedIn.value = firebaseAuth.currentUser != null
 
                     listener = FirebaseAuth.AuthStateListener { updatedAuth ->
-                        _isSignedIn.value = updatedAuth.currentUser != null
+                        val signedIn = updatedAuth.currentUser != null
+                        _isSignedIn.value = signedIn
+                        // FCM issues this device's token independently of sign-in,
+                        // and on a fresh install it lands FIRST — so
+                        // PoplurMessagingService.onNewToken has no uid to attach
+                        // it to and deliberately skips the write. Retrying here is
+                        // what stops the device from being registered to nobody.
+                        // An AuthStateListener also fires on registration, so a
+                        // restored session is covered without a separate call.
+                        if (signedIn) {
+                            com.apptists.poplur2025.PoplurMessaging.syncTokenForCurrentUser()
+                        }
                     }.also(firebaseAuth::addAuthStateListener)
                 } catch (e: Exception) {
                     _isSignedIn.value = false

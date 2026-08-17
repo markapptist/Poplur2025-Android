@@ -128,6 +128,10 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-functions-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
+    // Engagement push notifications. Version comes from the BOM above; the
+    // credentials come from google-services.json, so Android needs no equivalent
+    // of the APNs key that gates iOS delivery.
+    implementation("com.google.firebase:firebase-messaging-ktx")
 
     implementation("androidx.credentials:credentials:1.6.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
