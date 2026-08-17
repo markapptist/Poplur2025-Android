@@ -364,6 +364,12 @@ class PoplurPerformanceManager private constructor(private val application: Appl
     }
 
     private fun deriveModeAndReason(): Pair<PoplurPerformanceMode, String> {
+        // Master off-switch, mirroring iOS PoplurPerformanceManager
+        // .governorDisabled and the web frameGovernor's GOVERNOR_DISABLED:
+        // no thermal, power-saver, memory or device-tier demotion. Flip all
+        // three together. OFF means the device heats at the rate the content
+        // actually costs.
+        if (GOVERNOR_DISABLED) return PoplurPerformanceMode.FULL to "Governor disabled"
         var mode = if (deviceResourceTier == PoplurDeviceResourceTier.LOW) {
             PoplurPerformanceMode.REDUCED
         } else {
@@ -420,6 +426,11 @@ class PoplurPerformanceManager private constructor(private val application: Appl
 
     companion object {
         private const val TAG = "PoplurPerformance"
+
+        /** See deriveModeAndReason. FULL also means targetFps 30 — the
+         *  decorative ceiling lives in PoplurPerformanceMode, and FULL is
+         *  its fastest tier. */
+        const val GOVERNOR_DISABLED = true
 
         @Volatile private var instance: PoplurPerformanceManager? = null
 
