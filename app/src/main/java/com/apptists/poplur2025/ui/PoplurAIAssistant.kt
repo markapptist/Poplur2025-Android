@@ -108,6 +108,9 @@ fun PoplurAIAssistantOverlay(
     var isWaitingForCommand by remember { mutableStateOf(false) }
     var statusText by remember { mutableStateOf("Say Hey Poplur") }
     var wakeToken by remember { mutableIntStateOf(0) }
+    // Bumped when the microphone is refused, so the reason can be shown and
+    // then withdrawn without leaving the panel lit.
+    var denialToken by remember { mutableIntStateOf(0) }
     var lastHandledText by remember { mutableStateOf("") }
     var lastHandledAt by remember { mutableStateOf(0L) }
     var ttsReady by remember { mutableStateOf(false) }
@@ -119,6 +122,14 @@ fun PoplurAIAssistantOverlay(
         if (!granted) {
             pendingExplicitStart = false
             statusText = "Enable microphone access"
+            // SHOW it. The panel below renders only while `isIlluminated`, so
+            // setting the words alone put them on a surface nobody could see:
+            // denying the microphone made HEY POPLUR do visibly nothing, which
+            // reads as a broken button rather than a withheld permission. And
+            // once Android has recorded two denials it stops presenting the
+            // sheet at all, so every later press was silent too.
+            isIlluminated = true
+            denialToken += 1
         }
     }
 
@@ -253,6 +264,14 @@ fun PoplurAIAssistantOverlay(
                 pendingExplicitStart = true
                 permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
+        }
+    }
+
+    LaunchedEffect(denialToken) {
+        if (denialToken > 0) {
+            delay(3_500)
+            isIlluminated = false
+            statusText = "Say Hey Poplur"
         }
     }
 

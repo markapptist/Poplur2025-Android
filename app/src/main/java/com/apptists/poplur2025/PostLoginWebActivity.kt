@@ -63,6 +63,7 @@ import com.apptists.poplur2025.billing.PurchaseEvent
 import com.apptists.poplur2025.billing.PurchaseEventStatus
 import com.apptists.poplur2025.data.AppTab
 import com.apptists.poplur2025.ui.PoplurAICommand
+import com.apptists.poplur2025.ui.PoplurNativeSplashCover
 import com.apptists.poplur2025.ui.PoplurAIAssistantOverlay
 import com.apptists.poplur2025.ui.PoplurAIParser
 import com.apptists.poplur2025.ui.profile.ProfileStatusBarIcons
@@ -136,6 +137,9 @@ class PostLoginWebActivity : ComponentActivity() {
     private val volumeFraction = mutableStateOf(0f)
     private val voiceForeground = mutableStateOf(false)
     private val voiceRequestToken = mutableIntStateOf(0)
+    // False until prelogin/splash.html has actually committed a frame. Until then the
+    // native clay bar covers the WebView/Chromium startup window — see PoplurNativeSplashCover.
+    private val splashWebPainted = mutableStateOf(false)
     private var pendingNativeVoiceCommand: String? = null
     @Volatile private var cameraLiveVisible = false
     private var hideVolumeRunnable: Runnable? = null
@@ -210,7 +214,13 @@ class PostLoginWebActivity : ComponentActivity() {
                 val fraction by volumeFraction
                 val voiceEnabled by voiceForeground
                 val explicitVoiceRequest by voiceRequestToken
+                val webSplashPainted by splashWebPainted
                 Box(Modifier.fillMaxSize()) {
+                    // Drawn on the activity's FIRST frame, so the wait is never a bare
+                    // black screen. Retires the moment the web splash can take over.
+                    if (!webSplashPainted) {
+                        PoplurNativeSplashCover(modifier = Modifier.fillMaxSize())
+                    }
                     if (visible) {
                         PoplurVolumeBars(
                             modifier = Modifier
@@ -476,6 +486,15 @@ class PostLoginWebActivity : ComponentActivity() {
                 view: WebView,
                 request: WebResourceRequest
             ): WebResourceResponse? = interceptAssetRequest(assetLoader, request)
+
+            override fun onPageCommitVisible(view: WebView, url: String?) {
+                // First actual paint, not merely "load finished" — onPageFinished can fire
+                // before anything is on screen, which would pull the native cover too early
+                // and put the black gap back.
+                if (url?.contains("/prelogin/splash.html") == true) {
+                    runOnUiThread { splashWebPainted.value = true }
+                }
+            }
 
             override fun onPageFinished(view: WebView, url: String?) {
                 // 3GB-class devices: flatten expensive effects (see PoplurLiteTier).
