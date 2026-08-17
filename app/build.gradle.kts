@@ -20,10 +20,28 @@ val localProperties = Properties().apply {
     }
 }
 val mapillaryAccessToken: String = localProperties.getProperty("MAPILLARY_ACCESS_TOKEN") ?: ""
-val admobInterstitialUnitId: String = localProperties.getProperty("ADMOB_INTERSTITIAL_UNIT_ID")
-    ?: "ca-app-pub-2086359936541081/6696033455"
-val admobFeedNativeUnitId: String = localProperties.getProperty("ADMOB_FEED_NATIVE_UNIT_ID")
-    ?: ""
+fun productionAdUnitId(propertyName: String, fallback: String, required: Boolean): String {
+    val value = localProperties.getProperty(propertyName)?.trim().orEmpty().ifEmpty { fallback }
+    require(!value.contains("3940256099942544")) {
+        "$propertyName must not use Google's demo publisher account"
+    }
+    require(value.isEmpty() || Regex("ca-app-pub-[0-9]+/[0-9]+").matches(value)) {
+        "$propertyName must be a valid AdMob ad-unit ID"
+    }
+    require(!required || value.isNotEmpty()) { "$propertyName is required" }
+    return value
+}
+
+val admobInterstitialUnitId = productionAdUnitId(
+    propertyName = "ADMOB_INTERSTITIAL_UNIT_ID",
+    fallback = "ca-app-pub-2086359936541081/6696033455",
+    required = true,
+)
+val admobFeedNativeUnitId = productionAdUnitId(
+    propertyName = "ADMOB_FEED_NATIVE_UNIT_ID",
+    fallback = "",
+    required = false,
+)
 
 android { namespace = "com.apptists.poplur2025"
     compileSdk = 35;
@@ -48,13 +66,6 @@ android { namespace = "com.apptists.poplur2025"
     }
 
     buildTypes {
-        debug {
-            // Google explicitly requires demo inventory during development.
-            // More importantly, a NativeAd loader cannot use the production
-            // interstitial unit ID: that format mismatch is rejected with 403.
-            buildConfigField("String", "ADMOB_INTERSTITIAL_UNIT_ID", "\"ca-app-pub-3940256099942544/1033173712\"")
-            buildConfigField("String", "ADMOB_FEED_NATIVE_UNIT_ID", "\"ca-app-pub-3940256099942544/2247696110\"")
-        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

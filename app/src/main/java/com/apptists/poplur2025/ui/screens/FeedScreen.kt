@@ -3157,6 +3157,10 @@ private fun GoogleMobileAdContent(slot: FeedSlot.GoogleMobileAdSlot) {
     LaunchedEffect(slot.id) {
         didFail = false
         nativeAd = null
+        if (!AdManager.isAvailable || FEED_NATIVE_AD_UNIT_ID.isBlank()) {
+            didFail = true
+            return@LaunchedEffect
+        }
         AdManager.loadNativeAd(
             context = context,
             adUnitId = FEED_NATIVE_AD_UNIT_ID,

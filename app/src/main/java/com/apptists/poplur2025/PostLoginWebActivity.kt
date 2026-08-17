@@ -293,6 +293,16 @@ class PostLoginWebActivity : ComponentActivity() {
         // it was meant to cover. The splash is one hardware-decoded video with the
         // same clay progress bar. The globe screen remains the approved GCL design
         // (and is being kept for the watch/wear build).
+        // The APPROVED clay splash is the SHORT VIDEO CLIP — one hardware-decoded
+        // mp4 with the candy-stripe clay bar over it. Not the globe Loading screen:
+        // that is a different approved screen, kept for the watch/wear build, and
+        // swapping it in here was wrong.
+        //
+        // What made this look broken was never the choice of document. It is that
+        // Chromium takes 5-6s to initialise on an A03, so the clip cannot paint
+        // yet and Android's own starting window (logo on black) is what you see.
+        // PoplurNativeSplashCover fills exactly that window with the same clay bar
+        // and hands over the moment the clip commits its first frame.
         loadingWebView.loadUrl("$origin/prelogin/splash.html")
 
         // Push an existing fix without prompting. Missing permissions are
@@ -511,6 +521,11 @@ class PostLoginWebActivity : ComponentActivity() {
      * HomeTwin's iframe are mapped back to assets/claymap here without changing the approved web
      * source or its iOS URL scheme.
      */
+    /** Does this path exist in the APK's assets? Used to choose between a
+     *  bundled public/ copy and the flattened one next to it. */
+    private fun assetExists(path: String): Boolean =
+        try { assets.open(path).close(); true } catch (_: Exception) { false }
+
     private fun interceptAssetRequest(
         assetLoader: WebViewAssetLoader,
         request: WebResourceRequest
@@ -538,6 +553,16 @@ class PostLoginWebActivity : ComponentActivity() {
         // web home erroring and thrashing at ~13fps — the Android/iPad "lag".
         val mappedPath = when {
             relativePath.isEmpty() -> "/assets/claymap/index.html"
+            // The approved Loading screen asks for its models under
+            // poplur-clay-map/PUBLIC/... because that is where they sit in the web
+            // repo, but the sync flattens public/ away for some of them — the 2MB
+            // globe lands at poplur-clay-map/poplur-globe-lite.glb. loader.load()
+            // has no error callback there, so a 404 is silent: you get the approved
+            // screen with no globe on it, which looks like a broken splash rather
+            // than a missing file. Fall back to the flattened copy.
+            relativePath.startsWith("poplur-clay-map/public/") ->
+                if (assetExists(relativePath)) "/assets/$relativePath"
+                else "/assets/poplur-clay-map/" + relativePath.removePrefix("poplur-clay-map/public/")
             relativePath.startsWith("poplur-clay-map/") -> "/assets/$relativePath"
             relativePath.startsWith("prelogin/") -> "/assets/$relativePath"
             relativePath.startsWith("Poplur2025-iOS/") -> "/assets/$relativePath"

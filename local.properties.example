@@ -9,6 +9,7 @@ sdk.dir=/path/to/Android/sdk
 MAPILLARY_ACCESS_TOKEN=your_mapillary_access_token_here
 
 # Optional AdMob overrides. The checked-in defaults use Poplur's production unit.
-# Set a distinct native-ad unit once it is created in the AdMob console.
+# Set a distinct Native-format unit once it is created in the AdMob console.
+# Do not reuse the interstitial unit ID for a native placement.
 ADMOB_INTERSTITIAL_UNIT_ID=ca-app-pub-2086359936541081/6696033455
-ADMOB_FEED_NATIVE_UNIT_ID=ca-app-pub-2086359936541081/6696033455
+ADMOB_FEED_NATIVE_UNIT_ID=
