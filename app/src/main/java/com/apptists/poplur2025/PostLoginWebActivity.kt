@@ -23,6 +23,7 @@ import android.util.Base64
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.JavascriptInterface
+import androidx.core.app.NotificationManagerCompat
 import android.webkit.PermissionRequest
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -855,6 +856,17 @@ class PostLoginWebActivity : ComponentActivity() {
                     phoneBootPlayer?.stop()
                     phoneBootPlayer?.release()
                     phoneBootPlayer = null
+                }
+            }
+            if (type == "notificationsRead") {
+                // Reading the in-app list must clear what the launcher shows.
+                // Android has no per-app badge API: the badge is a side effect
+                // of active notifications (setShowBadge on the poplur_alerts
+                // channel), so cancelling them IS clearing the badge. Leaving
+                // them posted keeps a count on the icon for notifications the
+                // user has already read inside the app.
+                runOnUiThread {
+                    NotificationManagerCompat.from(this@PostLoginWebActivity).cancelAll()
                 }
             }
             if (type == "requestProfile") {
