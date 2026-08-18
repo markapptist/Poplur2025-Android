@@ -1635,7 +1635,7 @@ class PostLoginWebActivity : ComponentActivity() {
         // The incoming-calls Firestore stream was process-lifetime before:
         // registered in onCreate, removed by nobody, streaming through
         // backgrounding and sign-out alike.
-        CallSessionManager.stopListeningForIncomingCalls()
+        com.apptists.poplur2025.call.CallSessionManager.stopListeningForIncomingCalls()
         phoneBootPlayer?.stop()
         phoneBootPlayer?.release()
         phoneBootPlayer = null
