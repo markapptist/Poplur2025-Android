@@ -6,15 +6,8 @@ import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import com.apptists.poplur2025.util.PoplurEQSync
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Locale
 
 // Feed commercial announcer: Claude API script + Android TTS.
@@ -23,8 +16,6 @@ import java.util.Locale
 object FeedBumperService {
 
     private const val TAG = "FeedBumperService"
-    private const val ENDPOINT = "https://api.anthropic.com/v1/messages"
-    private const val MODEL = "claude-haiku-4-5-20251001"
 
     private val _isActive = MutableStateFlow(false)
     val isActive: StateFlow<Boolean> = _isActive
@@ -104,59 +95,25 @@ object FeedBumperService {
         }
     }
 
-    private suspend fun generateScript(post: Post, channelName: String): String =
-        withContext(Dispatchers.IO) {
-            val key = Secrets.claudeApiKey
-            if (key.isEmpty()) return@withContext fallbackScript(post, channelName)
-
-            var ctx = "Channel: $channelName"
-            if (post.locationName.isNotBlank()) ctx += "\nLocation: ${post.locationName}"
-            if (post.isLiveStream) ctx += "\nThis is a LIVE broadcast."
-            if (post.likes > 100) ctx += "\nTrending: ${post.likes} likes."
-            if (post.radius > 0) {
-                val r = if (post.radius >= 1000) "${post.radius / 1000} km" else "${post.radius} m"
-                ctx += "\nRadius reach: $r"
-            }
-
-            val prompt = """
-You are a charismatic TV host for Poplur, a social video app.
-Using the details below, write ONE natural spoken sentence (12–22 words) that a host would say live on air to introduce the next video.
-Reference the channel, location, and radius reach naturally — don't just list them.
-Be warm, specific, and engaging. Return ONLY the spoken sentence — no quotes, no labels.
-
-$ctx
-""".trimIndent()
-
-            val body = JSONObject().apply {
-                put("model", MODEL)
-                put("max_tokens", 80)
-                put("messages", JSONArray().put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", prompt)
-                }))
-            }
-
-            val url = URL(ENDPOINT)
-            val conn = url.openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "POST"
-                conn.setRequestProperty("x-api-key", key)
-                conn.setRequestProperty("anthropic-version", "2023-06-01")
-                conn.setRequestProperty("content-type", "application/json")
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 15_000
-                conn.doOutput = true
-                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
-
-                if (conn.responseCode != 200) return@withContext fallbackScript(post, channelName)
-
-                val text = JSONObject(conn.inputStream.bufferedReader().readText())
-                    .getJSONArray("content").getJSONObject(0).getString("text").trim()
-                text.ifBlank { fallbackScript(post, channelName) }
-            } finally {
-                conn.disconnect()
-            }
+    // The host-sentence prompt lives on the backend (POST /bumper/script);
+    // the device only sends the structured context.
+    private suspend fun generateScript(post: Post, channelName: String): String {
+        var ctx = "Channel: $channelName"
+        if (post.locationName.isNotBlank()) ctx += "\nLocation: ${post.locationName}"
+        if (post.isLiveStream) ctx += "\nThis is a LIVE broadcast."
+        if (post.likes > 100) ctx += "\nTrending: ${post.likes} likes."
+        if (post.radius > 0) {
+            val r = if (post.radius >= 1000) "${post.radius / 1000} km" else "${post.radius} m"
+            ctx += "\nRadius reach: $r"
         }
+
+        return try {
+            PoplurAIBackendClient().bumperScript(context = ctx).trim()
+                .ifBlank { fallbackScript(post, channelName) }
+        } catch (e: AIStackException.BackendError) {
+            fallbackScript(post, channelName)
+        }
+    }
 
     private fun fallbackScript(post: Post, channelName: String): String {
         val radiusPart = if (post.radius >= 1000) ", reaching ${post.radius / 1000} km"

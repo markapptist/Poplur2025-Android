@@ -8,12 +8,7 @@ import android.net.Uri
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
 
 // MARK: - Data model
 
@@ -29,17 +24,14 @@ data class TVStyleMetadata(
 // MARK: - Errors
 
 sealed class TVAnalyzerError(message: String) : Exception(message) {
-    object NoAPIKey : TVAnalyzerError("No Claude API key configured")
     object ParseError : TVAnalyzerError("Failed to parse Claude response as TVStyleMetadata")
-    data class HttpError(val code: Int) : TVAnalyzerError("HTTP $code from Claude API")
+    data class HttpError(val code: Int) : TVAnalyzerError("HTTP $code from Poplur AI backend")
 }
 
 // MARK: - Analyzer
 
 object TVStyleAnalyzer {
 
-    private const val ENDPOINT = "https://api.anthropic.com/v1/messages"
-    private const val MODEL = "claude-haiku-4-5-20251001"
     private const val MAX_DIMENSION = 512
 
     suspend fun analyze(context: Context, uri: Uri, isVideo: Boolean): TVStyleMetadata =
@@ -83,79 +75,26 @@ object TVStyleAnalyzer {
         return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     }
 
-    private fun callClaude(imageBase64: String): TVStyleMetadata {
-        val key = Secrets.claudeApiKey
-        if (key.isEmpty()) throw TVAnalyzerError.NoAPIKey
-
-        val prompt = """
-You are a TV broadcast classifier for Poplur TV, a social platform where every post is a TV broadcast.
-Analyze this image and respond ONLY with a JSON object — no extra text, no markdown:
-{"channel":"<food|fitness|sports|beauty|fashion|music|tech|news|city|entertainment>","tvFormat":"<commercial|highlight_reel|cooking_show|documentary|talk_show|music_video|news_segment>","adConcept":"<what this would be as a TV ad or show in under 8 words>","caption":"<PUNCHY ALL-CAPS HEADLINE MAX 5 WORDS>","tagline":"<one compelling motivational sentence>","broadcastName":"<POPLUR CHANNEL e.g. POPLUR FITNESS>"}
-""".trimIndent()
-
-        val body = JSONObject().apply {
-            put("model", MODEL)
-            put("max_tokens", 300)
-            put("messages", JSONArray().put(JSONObject().apply {
-                put("role", "user")
-                put("content", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("type", "image")
-                        put("source", JSONObject().apply {
-                            put("type", "base64")
-                            put("media_type", "image/jpeg")
-                            put("data", imageBase64)
-                        })
-                    })
-                    put(JSONObject().apply {
-                        put("type", "text")
-                        put("text", prompt)
-                    })
-                })
-            }))
-        }
-
-        val url = URL(ENDPOINT)
-        val conn = url.openConnection() as HttpURLConnection
-        try {
-            conn.requestMethod = "POST"
-            conn.setRequestProperty("x-api-key", key)
-            conn.setRequestProperty("anthropic-version", "2023-06-01")
-            conn.setRequestProperty("content-type", "application/json")
-            conn.connectTimeout = 20_000
-            conn.readTimeout = 20_000
-            conn.doOutput = true
-
-            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
-
-            val code = conn.responseCode
-            if (code != 200) {
-                val body = runCatching { conn.errorStream?.bufferedReader()?.readText() }.getOrNull() ?: ""
-                println("🎬 [TVStyleAnalyzer] HTTP $code: $body")
-                throw TVAnalyzerError.HttpError(code)
-            }
-            val response = conn.inputStream.bufferedReader().readText()
-            val outer = JSONObject(response)
-            var text = outer.getJSONArray("content").getJSONObject(0).getString("text").trim()
-            // Strip markdown code fences Claude sometimes adds
-            val start = text.indexOf('{')
-            val end = text.lastIndexOf('}')
-            if (start >= 0 && end > start) text = text.substring(start, end + 1)
-            val json = JSONObject(text)
-            return TVStyleMetadata(
-                channel       = json.optString("channel", "entertainment"),
-                tvFormat      = json.optString("tvFormat", "commercial"),
-                adConcept     = json.optString("adConcept", ""),
-                caption       = json.optString("caption", ""),
-                tagline       = json.optString("tagline", ""),
-                broadcastName = json.optString("broadcastName", "POPLUR TV")
-            )
+    // The Claude classification runs on Poplur's backend (POST /tv/style);
+    // the device only ships the reduced JPEG and reads the JSON reply.
+    private suspend fun callClaude(imageBase64: String): TVStyleMetadata {
+        val json = try {
+            PoplurAIBackendClient().tvStyleMetadata(imageBase64)
+        } catch (e: AIStackException.BackendError) {
+            println("🎬 [TVStyleAnalyzer] backend HTTP ${e.statusCode}")
+            throw TVAnalyzerError.HttpError(e.statusCode)
         } catch (e: TVAnalyzerError) {
             throw e
         } catch (e: Exception) {
             throw TVAnalyzerError.ParseError
-        } finally {
-            conn.disconnect()
         }
+        return TVStyleMetadata(
+            channel       = json.optString("channel", "entertainment"),
+            tvFormat      = json.optString("tvFormat", "commercial"),
+            adConcept     = json.optString("adConcept", ""),
+            caption       = json.optString("caption", ""),
+            tagline       = json.optString("tagline", ""),
+            broadcastName = json.optString("broadcastName", "POPLUR TV")
+        )
     }
 }

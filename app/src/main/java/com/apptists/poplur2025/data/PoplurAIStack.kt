@@ -297,6 +297,7 @@ sealed class AIStackException(message: String) : Exception(message) {
     data class ProviderMustRunOnBackend(val provider: PoplurAIProvider) :
         AIStackException("${provider.label} must be called through Poplur's backend.")
     object InvalidLocation : AIStackException("Choose a real map location before publishing.")
+    data class BackendError(val statusCode: Int) : AIStackException("Poplur AI backend returned HTTP $statusCode.")
 }
 
 object PoplurAIBackendEndpoint {
@@ -310,6 +311,11 @@ object PoplurAIBackendEndpoint {
     const val GenerateGame = "/ai/generate/game"
     const val Jobs = "/ai/jobs"
     const val RadioHost = "/radio/host"
+    const val AssistantGuestChat = "/assistant/guest-chat"
+    const val TvStyle = "/tv/style"
+    const val BumperScript = "/bumper/script"
+    const val GameConfig = "/games/config"
+    const val VideoStoryboard = "/video/storyboard"
     const val RadiusBoost = "/posts/{id}/radius-boost"
     const val BusinessCampaign = "/businesses/{businessId}/ai-campaigns"
 }
@@ -364,6 +370,99 @@ class PoplurAIBackendClient(
         } finally {
             connection.disconnect()
         }
+    }
+
+    /**
+     * Shared POST helper for the small JSON-in/JSON-out Claude endpoints.
+     * [authenticated] = false only for the pre-login guest routes.
+     */
+    private suspend fun postJson(
+        endpoint: String,
+        body: JSONObject,
+        authenticated: Boolean = true
+    ): JSONObject = withContext(Dispatchers.IO) {
+        if (baseUrl.isBlank()) throw AIStackException.BackendBaseUrlMissing
+        val token = if (authenticated) {
+            val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                ?: throw AIStackException.AiLockedForPlan
+            user.getIdToken(false).await().token
+                ?: throw AIStackException.AiLockedForPlan
+        } else null
+        val connection = URL("${baseUrl.trimEnd('/')}/${endpoint.trimStart('/')}").openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 20_000
+            connection.readTimeout = 30_000
+            connection.doOutput = true
+            token?.let { connection.setRequestProperty("Authorization", "Bearer $it") }
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val statusCode = connection.responseCode
+            val responseBody = if (statusCode in 200..299) {
+                connection.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            }
+            if (statusCode !in 200..299) {
+                throw AIStackException.BackendError(statusCode)
+            }
+            JSONObject(responseBody)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /** Poplur TV broadcast metadata for one post image (POST /tv/style). */
+    suspend fun tvStyleMetadata(imageBase64: String): JSONObject =
+        postJson(PoplurAIBackendEndpoint.TvStyle, JSONObject().put("imageBase64", imageBase64))
+
+    /** One spoken TV-host sentence introducing the next feed video. */
+    suspend fun bumperScript(context: String, language: String = "english"): String {
+        val payload = postJson(
+            PoplurAIBackendEndpoint.BumperScript,
+            JSONObject().put("context", context).put("language", language)
+        )
+        val script = payload.optString("script")
+        if (script.isBlank()) throw AIStackException.BackendError(0)
+        return script
+    }
+
+    /** A generated mini-game session config, as the raw config JSONObject. */
+    suspend fun gameConfig(mode: String, prompt: String?): JSONObject {
+        val body = JSONObject().put("mode", mode)
+        if (!prompt.isNullOrBlank()) body.put("prompt", prompt)
+        return postJson(PoplurAIBackendEndpoint.GameConfig, body).optJSONObject("config")
+            ?: throw AIStackException.BackendError(0)
+    }
+
+    /** Three-shot storyboard for the AI video studio (POST /video/storyboard). */
+    suspend fun videoStoryboard(
+        prompt: String,
+        styleLabel: String,
+        styleSuffix: String,
+        locationName: String
+    ): JSONObject = postJson(
+        PoplurAIBackendEndpoint.VideoStoryboard,
+        JSONObject()
+            .put("prompt", prompt)
+            .put("styleLabel", styleLabel)
+            .put("styleSuffix", styleSuffix)
+            .put("locationName", locationName)
+    )
+
+    /**
+     * Pre-login auth-screen guide answer. No Firebase user exists yet, so this
+     * hits the unauthenticated, rate-limited guest route.
+     */
+    suspend fun authGuideReply(screen: String, question: String): String {
+        val payload = postJson(
+            PoplurAIBackendEndpoint.AssistantGuestChat,
+            JSONObject().put("screen", screen).put("question", question),
+            authenticated = false
+        )
+        val reply = payload.optString("reply")
+        if (reply.isBlank()) throw AIStackException.BackendError(0)
+        return reply
     }
 
     suspend fun radioHostAudio(
