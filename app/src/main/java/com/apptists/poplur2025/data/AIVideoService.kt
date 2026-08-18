@@ -5,11 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
 
 enum class AIVideoStyle(
     val label: String,
@@ -124,90 +119,41 @@ object AIVideoService {
         }
     }
 
-    // ── Storyboard via Claude ────────────────────────────────────────────────
+    // ── Storyboard via Poplur backend (Claude runs server-side) ─────────────
 
-    private fun buildStoryboard(
+    private suspend fun buildStoryboard(
         prompt: String,
         style: AIVideoStyle,
         locationName: String
     ): AIVideoStoryboard {
-        val key = Secrets.claudeApiKey
-        if (key.isBlank()) return fallbackStoryboard(prompt, style)
-
-        val locationCtx = if (locationName.isNotBlank()) "Location: $locationName." else ""
-        val styleDesc = "${style.label} — ${style.promptSuffix}"
-
-        val systemPrompt = """
-You are a creative director for Poplur, a social video app where content is tied to real-world locations.
-Generate a 3-shot storyboard for a short vertical social video based on the user's prompt.
-Style: $styleDesc
-$locationCtx
-
-Return ONLY valid JSON in this exact structure — no markdown, no explanation:
-{
-  "title": "short catchy title",
-  "style": "brief style description",
-  "shots": [
-    {"shot": 1, "type": "opening shot type", "prompt": "detailed visual description of what happens in this 5-second clip, no text or watermarks", "duration": 5},
-    {"shot": 2, "type": "main action type", "prompt": "detailed visual description", "duration": 5},
-    {"shot": 3, "type": "closing shot type", "prompt": "detailed visual description", "duration": 5}
-  ]
-}
-
-IMPORTANT: Each prompt must describe ORIGINAL characters only — no copyrighted IP, no named celebrities or brands.
-Make the prompts rich, cinematic, and specific to the ${style.label} aesthetic.
-""".trimIndent()
-
-        val body = JSONObject().apply {
-            put("model", "claude-haiku-4-5-20251001")
-            put("max_tokens", 600)
-            put("system", systemPrompt)
-            put("messages", JSONArray().put(JSONObject().apply {
-                put("role", "user")
-                put("content", prompt)
-            }))
-        }
-
-        val conn = URL("https://api.anthropic.com/v1/messages").openConnection() as HttpURLConnection
-        try {
-            conn.requestMethod = "POST"
-            conn.setRequestProperty("x-api-key", key)
-            conn.setRequestProperty("anthropic-version", "2023-06-01")
-            conn.setRequestProperty("content-type", "application/json")
-            conn.connectTimeout = 20_000
-            conn.readTimeout = 20_000
-            conn.doOutput = true
-            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
-
-            if (conn.responseCode != 200) return fallbackStoryboard(prompt, style)
-
-            val responseText = conn.inputStream.bufferedReader().readText()
-            val content = JSONObject(responseText)
-                .getJSONArray("content")
-                .getJSONObject(0)
-                .getString("text")
-                .trim()
-
-            val json = JSONObject(content)
-            val shots = json.getJSONArray("shots").let { arr ->
-                (0 until arr.length()).map { i ->
-                    val s = arr.getJSONObject(i)
-                    AIVideoStoryboardShot(
-                        shot = s.getInt("shot"),
-                        type = s.getString("type"),
-                        prompt = s.getString("prompt"),
-                        duration = s.optInt("duration", 5)
-                    )
-                }
-            }
-            return AIVideoStoryboard(
-                title = json.getString("title"),
-                style = json.getString("style"),
-                shots = shots
+        val json = try {
+            PoplurAIBackendClient().videoStoryboard(
+                prompt = prompt,
+                styleLabel = style.label,
+                styleSuffix = style.promptSuffix,
+                locationName = locationName
             )
-        } finally {
-            conn.disconnect()
+        } catch (e: Exception) {
+            Log.w(TAG, "Storyboard backend unavailable, using fallback: ${e.message}")
+            return fallbackStoryboard(prompt, style)
         }
+
+        val shots = json.getJSONArray("shots").let { arr ->
+            (0 until arr.length()).map { i ->
+                val s = arr.getJSONObject(i)
+                AIVideoStoryboardShot(
+                    shot = s.getInt("shot"),
+                    type = s.getString("type"),
+                    prompt = s.getString("prompt"),
+                    duration = s.optInt("duration", 5)
+                )
+            }
+        }
+        return AIVideoStoryboard(
+            title = json.getString("title"),
+            style = json.getString("style"),
+            shots = shots
+        )
     }
 
     private fun fallbackStoryboard(prompt: String, style: AIVideoStyle): AIVideoStoryboard {

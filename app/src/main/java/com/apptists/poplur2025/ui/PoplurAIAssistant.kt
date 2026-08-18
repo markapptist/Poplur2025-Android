@@ -104,6 +104,13 @@ fun PoplurAIAssistantOverlay(
         )
     }
     var pendingExplicitStart by remember { mutableStateOf(false) }
+    // Parity with iOS (WebHomeCameraLayer): the recognizer runs only after an
+    // explicit HEY POPLUR arm in this session, and disarms after 45s without
+    // a wake or command. A previously granted permission must never mean an
+    // always-on microphone — continuous mic + platform ASR beside the WebView
+    // was the audit's #3 burner, and its visibility guard was dead code.
+    var armedByUser by remember { mutableStateOf(false) }
+    val lastMeaningfulAt = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     var isIlluminated by remember { mutableStateOf(false) }
     var isWaitingForCommand by remember { mutableStateOf(false) }
     var statusText by remember { mutableStateOf("Say Hey Poplur") }
@@ -177,6 +184,7 @@ fun PoplurAIAssistantOverlay(
         isIlluminated = true
         isWaitingForCommand = true
         statusText = "Listening"
+        lastMeaningfulAt.set(System.currentTimeMillis())
         scope.launch {
             delay(6_000)
             if (wakeToken == token) {
@@ -196,6 +204,7 @@ fun PoplurAIAssistantOverlay(
         isWaitingForCommand = false
         val feedback = PoplurAIParser.feedback(command)
         statusText = feedback
+        lastMeaningfulAt.set(System.currentTimeMillis())
         // The host forwards feedback to the WebView first so it can silence
         // Feed/Map before native TTS enters the device audio session.
         currentOnCommand(command)
@@ -259,6 +268,7 @@ fun PoplurAIAssistantOverlay(
     LaunchedEffect(explicitRequestToken) {
         if (explicitRequestToken > 0) {
             if (hasAudioPermission) {
+                armedByUser = true
                 activateWake()
             } else {
                 pendingExplicitStart = true
@@ -278,12 +288,13 @@ fun PoplurAIAssistantOverlay(
     LaunchedEffect(hasAudioPermission, pendingExplicitStart) {
         if (hasAudioPermission && pendingExplicitStart) {
             pendingExplicitStart = false
+            armedByUser = true
             activateWake()
         }
     }
 
-    DisposableEffect(enabled, hasAudioPermission) {
-        if (!enabled || !hasAudioPermission || !SpeechRecognizer.isRecognitionAvailable(context)) {
+    DisposableEffect(enabled, hasAudioPermission, armedByUser) {
+        if (!enabled || !hasAudioPermission || !armedByUser || !SpeechRecognizer.isRecognitionAvailable(context)) {
             onDispose { }
         } else {
             val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as AudioManager
@@ -351,6 +362,21 @@ fun PoplurAIAssistantOverlay(
                 }
             }
 
+            // The 45s disarm: no wake and no command for that long means the
+            // user is done talking to it. Flipping armedByUser re-keys this
+            // effect, which disposes the recognizer and returns the mic to
+            // the OS until the next explicit HEY POPLUR press.
+            val disarmJob = scope.launch {
+                while (true) {
+                    delay(5_000L)
+                    if (System.currentTimeMillis() - lastMeaningfulAt.get() > 45_000L) {
+                        statusText = "Say Hey Poplur"
+                        armedByUser = false
+                        break
+                    }
+                }
+            }
+
             recognizer.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
                     lastRecognizerEventAt = System.currentTimeMillis()
@@ -405,6 +431,7 @@ fun PoplurAIAssistantOverlay(
             onDispose {
                 restartJob?.cancel()
                 watchdogJob.cancel()
+                disarmJob.cancel()
                 restoreSystemSound()
                 runCatching { recognizer.cancel() }
                 runCatching { recognizer.destroy() }

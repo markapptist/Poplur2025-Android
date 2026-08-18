@@ -429,8 +429,13 @@ class PoplurPerformanceManager private constructor(private val application: Appl
 
         /** See deriveModeAndReason. FULL also means targetFps 30 — the
          *  decorative ceiling lives in PoplurPerformanceMode, and FULL is
-         *  its fastest tier. */
-        const val GOVERNOR_DISABLED = true
+         *  its fastest tier.
+         *
+         *  Recontracted after the 17 Aug thermal audit: FULL is the resting
+         *  state and masks nothing, so this switch now only removes the
+         *  thermal/power/memory safety ladder. Ship true only for a
+         *  deliberate experiment — mirror the iOS and web flags together. */
+        const val GOVERNOR_DISABLED = false
 
         @Volatile private var instance: PoplurPerformanceManager? = null
 

@@ -72,6 +72,13 @@ object CallSessionManager {
             }
     }
 
+    /** Mirror of startListeningForIncomingCalls — the owning screen must call
+     *  this on teardown or the snapshot stream outlives the whole UI. */
+    fun stopListeningForIncomingCalls() {
+        incomingListener?.remove()
+        incomingListener = null
+    }
+
     fun placeCall(callee: UserProfile) {
         if (_callState.value !is CallState.Idle) return
         scope.launch {

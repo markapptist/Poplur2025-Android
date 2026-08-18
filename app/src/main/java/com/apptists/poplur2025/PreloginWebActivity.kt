@@ -430,12 +430,22 @@ class PreloginWebActivity : ComponentActivity() {
      */
     override fun onStart() {
         super.onStart()
+        com.apptists.poplur2025.util.PoplurEQSync.noteActivityStarted()
         if (::performanceController.isInitialized) performanceController.setVisible(true)
-        if (::webView.isInitialized) webView.onResume()
+        if (::webView.isInitialized) {
+            webView.onResume()
+            // Undo a whole-app pauseTimers(); see PostLoginWebActivity.
+            webView.resumeTimers()
+        }
     }
 
     override fun onStop() {
         if (::performanceController.isInitialized) performanceController.setVisible(false)
+        if (com.apptists.poplur2025.util.PoplurEQSync.noteActivityStopped() &&
+            ::webView.isInitialized
+        ) {
+            webView.pauseTimers()
+        }
         if (::webView.isInitialized) {
             // The AI host speaks through the Web Speech API, not an <audio> tag, so
             // it is cancelled explicitly rather than trusted to `onPause()`.

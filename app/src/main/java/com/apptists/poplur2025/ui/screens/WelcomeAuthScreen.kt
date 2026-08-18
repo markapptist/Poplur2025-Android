@@ -80,12 +80,7 @@ import com.apptists.poplur2025.data.AccountType
 import com.apptists.poplur2025.data.BusinessProfile
 import com.apptists.poplur2025.data.BusinessVerificationMethod
 import com.apptists.poplur2025.data.BusinessVerificationStatus
-import com.apptists.poplur2025.data.Secrets
 import androidx.compose.foundation.shape.CircleShape
-import java.net.HttpURLConnection
-import java.net.URL
-import org.json.JSONArray
-import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
@@ -1945,42 +1940,17 @@ private fun authGuideGreeting(mode: AuthMode) = when (mode) {
     AuthMode.SignUp -> "Let's get you set up. Choose personal for your own posts, or business if you represent a brand."
 }
 
-private fun authGuideSystemPrompt(mode: AuthMode) = when (mode) {
-    AuthMode.Welcome -> "You are Poplur's onboarding guide. Poplur is a location-based social app — every post has a radius that controls how far it reaches. Answer in 1-2 warm, friendly sentences."
-    AuthMode.Login -> "You are Poplur's sign-in helper. The user is logging in with email and password. If stuck, they can tap FORGOT to reset. Answer in 1-2 sentences."
-    AuthMode.SignUp -> "You are Poplur's sign-up guide. Personal accounts are for individual creators; business accounts unlock brand features. Answer in 1-2 friendly sentences."
-}
-
+// Pre-login, so this goes through the backend's unauthenticated, rate-limited
+// guest route; the per-screen system prompt lives server-side.
 private suspend fun callClaudeForAuth(mode: AuthMode, question: String): String {
-    return withContext(Dispatchers.IO) {
-        runCatching {
-            val key = Secrets.claudeApiKey
-            val url = URL("https://api.anthropic.com/v1/messages")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.requestMethod = "POST"
-            conn.setRequestProperty("x-api-key", key)
-            conn.setRequestProperty("anthropic-version", "2023-06-01")
-            conn.setRequestProperty("content-type", "application/json")
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 10_000
-            conn.doOutput = true
-            val body = JSONObject().apply {
-                put("model", "claude-haiku-4-5-20251001")
-                put("max_tokens", 80)
-                put("system", authGuideSystemPrompt(mode))
-                put("messages", JSONArray().put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", question)
-                }))
-            }.toString()
-            conn.outputStream.use { it.write(body.toByteArray()) }
-            val response = conn.inputStream.bufferedReader().readText()
-            JSONObject(response)
-                .getJSONArray("content")
-                .getJSONObject(0)
-                .getString("text")
-        }.getOrDefault(authGuideGreeting(mode))
+    val screen = when (mode) {
+        AuthMode.Welcome -> "welcome"
+        AuthMode.Login -> "login"
+        AuthMode.SignUp -> "signUp"
     }
+    return runCatching {
+        com.apptists.poplur2025.data.PoplurAIBackendClient().authGuideReply(screen, question)
+    }.getOrDefault(authGuideGreeting(mode))
 }
 
 @Composable

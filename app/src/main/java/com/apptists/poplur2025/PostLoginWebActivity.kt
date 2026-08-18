@@ -28,6 +28,8 @@ import android.webkit.PermissionRequest
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
+import android.webkit.ConsoleMessage
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -201,7 +203,12 @@ class PostLoginWebActivity : ComponentActivity() {
             this,
             "PoplurPostLoginWeb",
         )
-        performanceController.attach(homeWebView, loadingWebView)
+        // Only home is managed. The controller treats its first view as the
+        // active one and pauses the rest — attaching the loading cover made
+        // the surface the user is actually watching the paused one (its
+        // splash <video> included) while home booted "active" underneath.
+        // The cover is transient and destroyed at reveal; let it just play.
+        performanceController.attach(homeWebView)
 
         val root = FrameLayout(this)
         rootLayout = root
@@ -440,11 +447,23 @@ class PostLoginWebActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        com.apptists.poplur2025.util.PoplurEQSync.noteActivityStarted()
+        // Process-global and idempotent; undoes a pauseTimers() from a full
+        // app-hide. WebView.onPause() alone never stops JS timers.
+        if (::homeWebView.isInitialized) homeWebView.resumeTimers()
         if (::performanceController.isInitialized) performanceController.setVisible(true)
     }
 
     override fun onStop() {
         if (::performanceController.isInitialized) performanceController.setVisible(false)
+        if (com.apptists.poplur2025.util.PoplurEQSync.noteActivityStopped() &&
+            ::homeWebView.isInitialized
+        ) {
+            // The whole app left the screen: stop the bundle's setInterval/
+            // setTimeout wheels too, not just drawing. Chromium's own
+            // background throttling in a WebView is weaker than in Chrome.
+            homeWebView.pauseTimers()
+        }
         super.onStop()
     }
 
@@ -474,6 +493,24 @@ class PostLoginWebActivity : ComponentActivity() {
         if (receivesNativeEvents) addJavascriptInterface(Bridge(), "PoplurNative")
         if (receivesNativeEvents) {
             webChromeClient = object : WebChromeClient() {
+                // The home WebView had NO console capture, so "the feed never
+                // loads" left no trail anywhere: a JS error inside the bundle
+                // and a WebView that simply painted black were indistinguishable
+                // from logcat. Errors and warnings only -- the bundle is chatty
+                // at info level and this is a 3GB device.
+                override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                    if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR ||
+                        message.messageLevel() == ConsoleMessage.MessageLevel.WARNING
+                    ) {
+                        Log.w(
+                            TAG,
+                            "webConsole ${message.messageLevel()}: ${message.message()} " +
+                                "(${message.sourceId()}:${message.lineNumber()})"
+                        )
+                    }
+                    return true
+                }
+
                 override fun onPermissionRequest(request: PermissionRequest) {
                     runOnUiThread {
                         val wantsVideo = request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
@@ -493,6 +530,25 @@ class PostLoginWebActivity : ComponentActivity() {
             }
         }
         webViewClient = object : WebViewClient() {
+            // A 3GB device under memory pressure can have its WebView RENDERER
+            // killed out from under the app. The view then stays mounted and
+            // paints nothing -- a black screen with the native chrome and the
+            // native ad SDK still running happily on top of it, which is exactly
+            // what "the feed never loads but ads play over it" looks like.
+            // Nothing was reporting it. Returning true keeps the app alive
+            // rather than letting the system kill the whole process.
+            override fun onRenderProcessGone(
+                view: WebView,
+                detail: RenderProcessGoneDetail
+            ): Boolean {
+                Log.e(
+                    TAG,
+                    "WEBVIEW RENDERER GONE crashed=${detail.didCrash()} " +
+                        "priorityAtExit=${detail.rendererPriorityAtExit()} — the home surface is now blank"
+                )
+                return true
+            }
+
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest
@@ -1576,6 +1632,10 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // The incoming-calls Firestore stream was process-lifetime before:
+        // registered in onCreate, removed by nobody, streaming through
+        // backgrounding and sign-out alike.
+        CallSessionManager.stopListeningForIncomingCalls()
         phoneBootPlayer?.stop()
         phoneBootPlayer?.release()
         phoneBootPlayer = null
