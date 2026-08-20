@@ -931,6 +931,9 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "requestProfilePosts") {
                 deliverWebProfilePosts()
             }
+            if (type == "requestProfileTracks") {
+                deliverWebProfileTracks()
+            }
             if (type == "profileThemeChanged") {
                 val payload = body.optJSONObject("detail") ?: body
                 val themeId = payload.optString("themeId").ifBlank { payload.optString("id") }
@@ -1525,6 +1528,77 @@ class PostLoginWebActivity : ComponentActivity() {
             }
             .addOnFailureListener { error ->
                 Log.w(TAG, "deliverWebProfilePosts failed", error)
+            }
+    }
+
+    /**
+     * The signed-in user's posted MUSIC, for the iPod's shelf.
+     *
+     * Same shape as deliverWebProfilePosts and for the same reason: the web
+     * layer holds no Firestore credentials, so the authenticated shell reads
+     * and hands back rows. What travels is a POINTER — `url` for a file Poplur
+     * hosts (a real stream URL the handheld fetches and decodes) or
+     * `permalink` for a SoundCloud track, which plays in their embedded player
+     * because their audio is not ours to fetch. A row naming neither is
+     * dropped here rather than shipped to a client that could only fail on it.
+     */
+    private fun deliverWebProfileTracks() {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        FirebaseFirestore.getInstance().collection("tracks")
+            .whereEqualTo("userID", user.uid)
+            .limit(128)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val tracks = JSONArray()
+                snapshot.documents
+                    .sortedByDescending { document ->
+                        document.getLong("createdAtMillis")
+                            ?: document.getTimestamp("createdAt")?.toDate()?.time
+                            ?: 0L
+                    }
+                    .forEach { document ->
+                        val audioURL = document.getString("audioURL")?.trim().orEmpty()
+                        val permalink = document.getString("permalink")?.trim().orEmpty()
+                        if (audioURL.isBlank() && permalink.isBlank()) return@forEach
+                        tracks.put(JSONObject().apply {
+                            put("id", document.id)
+                            put("title", document.getString("title")?.takeIf { it.isNotBlank() } ?: "Untitled")
+                            put(
+                                "postedAt",
+                                document.getLong("createdAtMillis")
+                                    ?: document.getTimestamp("createdAt")?.toDate()?.time
+                                    ?: 0L
+                            )
+                            if (audioURL.isNotBlank()) put("url", audioURL)
+                            if (permalink.isNotBlank()) put("permalink", permalink)
+                            document.getString("artist")?.takeIf { it.isNotBlank() }
+                                ?.let { put("artist", it) }
+                            document.getString("place")?.takeIf { it.isNotBlank() }
+                                ?.let { put("place", it) }
+                            document.getString("licence")?.takeIf { it.isNotBlank() }
+                                ?.let { put("licence", it) }
+                            document.getString("mood")?.takeIf { it.isNotBlank() }
+                                ?.let { put("mood", it) }
+                            document.getDouble("lat")?.let { put("lat", it) }
+                            document.getDouble("lng")?.let { put("lng", it) }
+                            document.getDouble("bpm")?.let { put("bpm", it) }
+                            document.getDouble("duration")?.let { put("duration", it) }
+                            put(
+                                "postedBy",
+                                document.getString("postedBy")?.takeIf { it.isNotBlank() } ?: user.uid
+                            )
+                        })
+                    }
+                val payload = JSONObject().put("tracks", tracks)
+                homeWebView.post {
+                    homeWebView.evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('poplur-native-profile-tracks',{detail:$payload}));true;",
+                        null
+                    )
+                }
+            }
+            .addOnFailureListener { error ->
+                Log.w(TAG, "deliverWebProfileTracks failed", error)
             }
     }
 
