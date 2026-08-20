@@ -768,6 +768,134 @@ class PostLoginWebActivity : ComponentActivity() {
         }
     }
 
+    private fun sendUploadProgress(requestId: String, fraction: Double, phase: String) {
+        val payload = JSONObject().apply {
+            put("requestId", requestId)
+            put("fraction", fraction.coerceIn(0.0, 1.0))
+            put("phase", phase)
+        }
+        homeWebView.post {
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-upload-progress', { detail: $payload })); true;", null
+            )
+        }
+    }
+
+    /**
+     * The studio posting a track: the bounced mix into Storage, a row into
+     * tracks/ pointing at it, and the ground it was left on.
+     *
+     * Separate from uploadClayPost because a track is not a post — it lands in
+     * a different collection under different rules and has no channel, caption
+     * or feed placement. It answers on the same upload events, though, because
+     * the web already waits on exactly those.
+     */
+    private fun uploadStudioTrack(body: JSONObject) {
+        val requestId = body.optString("requestId")
+        if (requestId.isBlank()) return
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            sendUploadResult(requestId, false, "Posting music needs you signed in to Poplur.")
+            return
+        }
+        val title = body.optString("title").trim()
+        if (title.isBlank()) {
+            sendUploadResult(requestId, false, "Give the track a name first.")
+            return
+        }
+        val data = body.optString("data")
+        val encoded = if (data.startsWith("data:")) data.substringAfter(',', "") else ""
+        if (encoded.isBlank()) {
+            sendUploadResult(requestId, false, "That mix never reached the app.")
+            return
+        }
+        val audio = runCatching {
+            android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
+        }.getOrNull()
+        if (audio == null || audio.isEmpty()) {
+            sendUploadResult(requestId, false, "That mix could not be decoded for upload.")
+            return
+        }
+        // storage.rules refuses anything past 25MB. Saying so here beats
+        // running the whole upload and being rejected at the end.
+        if (audio.size >= 25 * 1024 * 1024) {
+            sendUploadResult(requestId, false, "That mix is too long to post — keep it under 25MB.")
+            return
+        }
+        if (!body.has("latitude") || !body.has("longitude")) {
+            sendUploadResult(requestId, false, "Poplur could not tell where you are, and a track has to be left somewhere.")
+            return
+        }
+        val lat = body.optDouble("latitude")
+        val lng = body.optDouble("longitude")
+        if (lat.isNaN() || lng.isNaN()) {
+            sendUploadResult(requestId, false, "Poplur could not tell where you are, and a track has to be left somewhere.")
+            return
+        }
+
+        val trackId = java.util.UUID.randomUUID().toString()
+        val objectRef = FirebaseStorage.getInstance().reference.child("music/${user.uid}/$trackId.wav")
+        // The bucket checks contentType on the way in and the player trusts it
+        // on the way out, so it is set rather than guessed from the path.
+        val meta = com.google.firebase.storage.StorageMetadata.Builder()
+            .setContentType("audio/wav")
+            .build()
+
+        sendUploadProgress(requestId, 0.02, "PREPARING")
+        objectRef.putBytes(audio, meta)
+            .addOnProgressListener { snapshot ->
+                if (snapshot.totalByteCount > 0) {
+                    // Capped below 1.0 deliberately: the Firestore row still has
+                    // to land, and a full bar with no row is a lie about whether
+                    // the track exists.
+                    val fraction = snapshot.bytesTransferred.toDouble() / snapshot.totalByteCount.toDouble()
+                    sendUploadProgress(requestId, fraction.coerceIn(0.02, 0.95), "UPLOADING")
+                }
+            }
+            .addOnFailureListener { error ->
+                sendUploadResult(requestId, false, "The upload did not finish: ${error.localizedMessage}")
+            }
+            .addOnSuccessListener {
+                sendUploadProgress(requestId, 1.0, "SAVING")
+                objectRef.downloadUrl
+                    .addOnFailureListener { error ->
+                        sendUploadResult(requestId, false, "The track uploaded but Poplur could not get a link to it: ${error.localizedMessage}")
+                    }
+                    .addOnSuccessListener { url ->
+                        val row = hashMapOf<String, Any>(
+                            "userID" to user.uid,
+                            "title" to title,
+                            "audioURL" to url.toString(),
+                            "lat" to lat,
+                            "lng" to lng,
+                            // The rules require the SERVER clock: "newest" must
+                            // not be something a client can buy with a lie.
+                            "createdAt" to FieldValue.serverTimestamp(),
+                            "createdAtMillis" to System.currentTimeMillis(),
+                            "licence" to (body.optString("licence").ifBlank { "own-work" }),
+                            "artist" to (user.displayName ?: "Poplur artist"),
+                            "postedBy" to user.uid
+                        )
+                        body.optString("genre").takeIf { it.isNotBlank() }
+                            ?.let { row["mood"] = it.uppercase() }
+                        body.optDouble("bpm").takeIf { !it.isNaN() }?.let { row["bpm"] = it }
+                        body.optDouble("duration").takeIf { !it.isNaN() }?.let { row["duration"] = it }
+                        body.optDouble("radiusKm").takeIf { !it.isNaN() }?.let { row["radiusKm"] = it }
+
+                        FirebaseFirestore.getInstance().collection("tracks").document(trackId)
+                            .set(row)
+                            .addOnSuccessListener { sendUploadResult(requestId, true) }
+                            .addOnFailureListener { error ->
+                                // Audio in the bucket with nothing pointing at
+                                // it is an orphan nobody can reach and nobody is
+                                // accounting for. Take it back out.
+                                objectRef.delete()
+                                sendUploadResult(requestId, false, "The track could not be posted: ${error.localizedMessage}")
+                            }
+                    }
+            }
+    }
+
     private fun uploadClayPost(body: JSONObject) {
         val requestId = body.optString("requestId")
         if (requestId.isBlank()) return
@@ -933,6 +1061,9 @@ class PostLoginWebActivity : ComponentActivity() {
             }
             if (type == "requestProfileTracks") {
                 deliverWebProfileTracks()
+            }
+            if (type == "publishTrack") {
+                uploadStudioTrack(body)
             }
             if (type == "profileThemeChanged") {
                 val payload = body.optJSONObject("detail") ?: body
