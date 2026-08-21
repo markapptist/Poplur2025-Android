@@ -1136,6 +1136,52 @@ class PostLoginWebActivity : ComponentActivity() {
                     )
                 }
             }
+            // Direct messages. The chat screen is a page inside this WebView and
+            // the bundle has no Firebase, so every read and write crosses here.
+            // Threads and messages arrive as LIVE snapshots rather than one-shot
+            // fetches: a chat that only updates when you reopen it is not a chat.
+            if (type == "requestDMThreads") {
+                PoplurDirectMessages.observeThreads { threads ->
+                    pushWebMessage(
+                        JSONObject()
+                            .put("type", "poplurDMThreads")
+                            .put("threads", threads)
+                    )
+                }
+            }
+            if (type == "openDMThread") {
+                val threadId = body.optString("threadId")
+                if (threadId.isNotEmpty() && threadId.length <= 200) {
+                    PoplurDirectMessages.observeThread(threadId) { messages ->
+                        pushWebMessage(
+                            JSONObject()
+                                .put("type", "poplurDMMessages")
+                                .put("threadId", threadId)
+                                .put("messages", messages)
+                        )
+                    }
+                }
+            }
+            if (type == "closeDMThread") {
+                PoplurDirectMessages.closeThread()
+            }
+            if (type == "sendDM") {
+                val otherId = body.optString("otherId")
+                val text = body.optString("text")
+                lifecycleScope.launch {
+                    val ok = PoplurDirectMessages.send(otherId, text)
+                    // The live listener delivers the message itself; this only
+                    // reports a FAILURE, so the composer can put the text back
+                    // rather than swallowing it.
+                    if (!ok) {
+                        pushWebMessage(
+                            JSONObject()
+                                .put("type", "poplurDMSendFailed")
+                                .put("text", text)
+                        )
+                    }
+                }
+            }
             if (type == "profileThemeChanged") {
                 val payload = body.optJSONObject("detail") ?: body
                 val themeId = payload.optString("themeId").ifBlank { payload.optString("id") }
@@ -1942,6 +1988,9 @@ class PostLoginWebActivity : ComponentActivity() {
         // registered in onCreate, removed by nobody, streaming through
         // backgrounding and sign-out alike.
         com.apptists.poplur2025.call.CallSessionManager.stopListeningForIncomingCalls()
+        // Same reasoning for the DM streams: a thread listener that outlives
+        // the activity keeps pushing into a WebView that is being destroyed.
+        PoplurDirectMessages.stop()
         phoneBootPlayer?.stop()
         phoneBootPlayer?.release()
         phoneBootPlayer = null
