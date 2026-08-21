@@ -76,6 +76,7 @@ import androidx.compose.ui.graphics.toArgb
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
@@ -104,6 +105,14 @@ import kotlin.math.max
 class PostLoginWebActivity : ComponentActivity() {
 
     private val TAG = "PostLoginWebActivity"
+
+    /** The only shape the account accepts — mirrors the iOS sanitizer. */
+    private fun sanitizeUsername(value: String?): String? = value
+        ?.trim()
+        ?.replace("@", "")
+        ?.filter { it.isLetterOrDigit() || it == '_' || it == '.' }
+        ?.take(30)
+        ?.takeIf { it.isNotEmpty() }
 
     private lateinit var homeWebView: WebView
     private lateinit var rootLayout: FrameLayout
@@ -1056,6 +1065,28 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "requestProfile") {
                 deliverWebProfile()
             }
+            // The username had NO writer on the live path. The only one was the
+            // native edit-profile screen, which the web home orphaned, so every
+            // handle was per-device: invisible to other devices and to the
+            // server that mints wallet passes.
+            if (type == "saveProfileUsername") {
+                val payload = body.optJSONObject("detail") ?: body
+                val raw = sanitizeUsername(payload.optString("username")) ?: ""
+                // Bounded and character-checked rather than trusted: this lands
+                // in a document other people read, and it is what a pass, a chat
+                // thread and the phone's address book will all render.
+                val uid = FirebaseAuth.getInstance().currentUser?.uid
+                if (raw.isNotEmpty() && raw.length <= 30 &&
+                    raw.all { it.isLetterOrDigit() || it == '_' || it == '.' } &&
+                    uid != null
+                ) {
+                    FirebaseFirestore.getInstance()
+                        .collection("users").document(uid)
+                        .set(mapOf("username" to raw), SetOptions.merge())
+                        .addOnSuccessListener { Log.d(TAG, "[PoplurProfile] username saved: $raw") }
+                        .addOnFailureListener { Log.w(TAG, "[PoplurProfile] username save FAILED", it) }
+                }
+            }
             if (type == "requestProfilePosts") {
                 deliverWebProfilePosts()
             }
@@ -1567,10 +1598,15 @@ class PostLoginWebActivity : ComponentActivity() {
             return
         }
         Log.i(TAG, "deliverWebProfile: uid=${user.uid} requesting Firestore users doc")
-        val fallbackUsername = user.email
-            ?.substringBefore("@")
-            ?.takeIf { it.isNotBlank() }
-            ?: "mark"
+        // Two different things, deliberately kept apart. `derivedUsername` is a
+        // name Auth genuinely knows and is the ONLY thing safe to write into the
+        // account. `fallbackUsername` keeps the pre-existing hardcoded default
+        // for DISPLAY, and must never be persisted — seeding it would stamp
+        // "mark" onto the account of every user whose email is missing.
+        val derivedUsername = sanitizeUsername(
+            user.displayName?.takeIf { it.isNotBlank() } ?: user.email?.substringBefore("@")
+        )
+        val fallbackUsername = derivedUsername ?: "mark"
         FirebaseFirestore.getInstance().collection("users").document(user.uid).get()
             .addOnCompleteListener { task ->
                 Log.i(
@@ -1583,10 +1619,24 @@ class PostLoginWebActivity : ComponentActivity() {
                 val accountType = document?.getString("accountType")
                 val business = accountType.equals("business", ignoreCase = true)
                     || document?.getBoolean("isBusinessAccount") == true
+                val storedUsername = (document?.getString("username")
+                    ?: document?.getString("handle"))?.takeIf { it.isNotBlank() }
+                if (storedUsername == null && derivedUsername != null) {
+                    // The account has never had a username, because nothing on
+                    // the live path could set one: the only writer was the
+                    // native edit-profile screen, which the web home orphaned.
+                    // Every device showed a name derived from Auth while the
+                    // DOCUMENT stayed empty — which is why a server-minted
+                    // wallet pass fell back to a uid prefix and a handle never
+                    // followed the user to a second device.
+                    FirebaseFirestore.getInstance()
+                        .collection("users").document(user.uid)
+                        .set(mapOf("username" to derivedUsername), SetOptions.merge())
+                        .addOnSuccessListener { Log.i(TAG, "[PoplurProfile] seeded username: $derivedUsername") }
+                        .addOnFailureListener { Log.w(TAG, "[PoplurProfile] username seed FAILED", it) }
+                }
                 val payload = JSONObject().apply {
-                    put("username", document?.getString("username")
-                        ?: document?.getString("handle")
-                        ?: fallbackUsername)
+                    put("username", storedUsername ?: fallbackUsername)
                     put("business", business)
                     // `profilePictureURL` is what EditProfile actually writes (iOS
                     // EditProfileView.swift:276 and the same document here), so it has to
