@@ -18,8 +18,14 @@ import kotlinx.coroutines.tasks.await
 import java.util.UUID
 
 // Signaling collection: calls/{documentId}
-// Fields: callerId, callerName, calleeId, calleeName, channelId, status, createdAt
+// Fields: callerId, callerName, calleeId, calleeName, channelId, status, createdAt, provider
 // Status flow: ringing → connected | declined | ended
+//
+// "provider" distinguishes this Agora call from an iOS/web WebRTC call
+// (PoplurCallSignalling) that watches the same calleeId/status:"ringing"
+// shape with no channelId. Without it, a WebRTC call placed to an Android
+// user surfaced here as Incoming and, on accept, joined an Agora channel
+// the caller never published a token for — a dead call, not a real one.
 //
 // TODO: replace UserProfile.id with the callee's real Firebase Auth UID once
 // real user profiles store their uid in Firestore.
@@ -60,7 +66,8 @@ object CallSessionManager {
             .whereEqualTo("status", "ringing")
             .addSnapshotListener { snapshot, _ ->
                 if (_callState.value !is CallState.Idle) return@addSnapshotListener
-                val doc = snapshot?.documents?.firstOrNull() ?: return@addSnapshotListener
+                val doc = snapshot?.documents?.firstOrNull { it.data?.get("provider") != "webrtc" }
+                    ?: return@addSnapshotListener
                 val data = doc.data ?: return@addSnapshotListener
                 val callerName = data["callerName"] as? String ?: "Unknown"
                 val channelId = data["channelId"] as? String ?: doc.id
@@ -92,7 +99,8 @@ object CallSessionManager {
                 "calleeName" to callee.displayName,
                 "channelId" to channelId,
                 "status" to "ringing",
-                "createdAt" to FieldValue.serverTimestamp()
+                "createdAt" to FieldValue.serverTimestamp(),
+                "provider" to "agora"
             )
             val ref = runCatching { db.collection("calls").add(payload).await() }.getOrNull() ?: return@launch
             callDocumentId = ref.id
