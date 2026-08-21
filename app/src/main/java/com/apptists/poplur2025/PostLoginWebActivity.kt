@@ -1096,6 +1096,46 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "publishTrack") {
                 uploadStudioTrack(body)
             }
+            // The Poplur phone's address book: favourites, people you have a
+            // chat with, and people your radius has actually crossed. Mirrors
+            // the iOS bridge exactly, including the window.postMessage wire
+            // format, because the same web bundle reads both.
+            if (type == "requestPhoneContacts") {
+                // The radius and the position ride on the request: the ledger is
+                // the web's, and a second copy here would drift.
+                val radiusKm = if (body.has("radiusKm")) body.optDouble("radiusKm") else null
+                val latitude = if (body.has("latitude")) body.optDouble("latitude") else null
+                val longitude = if (body.has("longitude")) body.optDouble("longitude") else null
+                lifecycleScope.launch {
+                    val contacts = PoplurPhoneContacts.contacts(
+                        radiusKm = radiusKm?.takeIf { !it.isNaN() },
+                        latitude = latitude?.takeIf { !it.isNaN() },
+                        longitude = longitude?.takeIf { !it.isNaN() }
+                    )
+                    pushWebMessage(
+                        JSONObject()
+                            .put("type", "poplurPhoneContacts")
+                            .put("contacts", contacts)
+                    )
+                }
+            }
+            if (type == "togglePhoneFavourite") {
+                val contactId = body.optString("contactId")
+                val favourite = body.optBoolean("favourite")
+                val name = body.optString("name").takeIf { it.isNotBlank() }
+                lifecycleScope.launch {
+                    PoplurPhoneContacts.setFavourite(contactId, favourite, name)
+                    // Re-read rather than patching the page's copy: the sort
+                    // order changes when a favourite moves to the top, and one
+                    // source of truth is cheaper than two that drift.
+                    val contacts = PoplurPhoneContacts.contacts()
+                    pushWebMessage(
+                        JSONObject()
+                            .put("type", "poplurPhoneContacts")
+                            .put("contacts", contacts)
+                    )
+                }
+            }
             if (type == "profileThemeChanged") {
                 val payload = body.optJSONObject("detail") ?: body
                 val themeId = payload.optString("themeId").ifBlank { payload.optString("id") }
@@ -1525,6 +1565,17 @@ class PostLoginWebActivity : ComponentActivity() {
                     "window.postMessage($payload,'*');true;",
                 null
             )
+        }
+    }
+
+    /**
+     * Hands one payload to the page the way iOS does — a plain
+     * `window.postMessage`, because these features arrived on the web side
+     * listening for messages rather than for a named CustomEvent.
+     */
+    private fun pushWebMessage(payload: JSONObject) {
+        homeWebView.post {
+            homeWebView.evaluateJavascript("window.postMessage($payload,'*');true;", null)
         }
     }
 
