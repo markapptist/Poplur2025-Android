@@ -448,6 +448,9 @@ class PostLoginWebActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         voiceForeground.value = true
+        // A push banner on top of the screen the user is already reading is
+        // redundant: the web list already has the row.
+        PoplurNotifications.appInForeground = true
         // Sensor delivery is foreground-only: an unregistered listener is the
         // difference between a cube that moves and a background wake-up budget
         // this app has already been burned by.
@@ -478,6 +481,7 @@ class PostLoginWebActivity : ComponentActivity() {
 
     override fun onPause() {
         voiceForeground.value = false
+        PoplurNotifications.appInForeground = false
         stopCubeMotion()
         super.onPause()
     }
@@ -1049,6 +1053,25 @@ class PostLoginWebActivity : ComponentActivity() {
                     phoneBootPlayer?.stop()
                     phoneBootPlayer?.release()
                     phoneBootPlayer = null
+                }
+            }
+            // The notifications screen lives in the web bundle, which forwards
+            // each row it logs as {type:"notification", id, title, detail, kind}.
+            // This process used to drop that message on the floor, so an Android
+            // install got no push for a DM, a mention or an engagement — the web
+            // list and the lock screen simply disagreed. Routed through the same
+            // three tiers iOS uses.
+            if (type == "notification") {
+                val id = body.optString("id")
+                val title = body.optString("title")
+                if (id.isNotEmpty() && title.isNotEmpty()) {
+                    val detail = body.optString("detail")
+                    val kind = body.optString("kind").takeIf { it.isNotEmpty() }
+                    runOnUiThread {
+                        PoplurNotifications.scheduleFromWeb(
+                            this@PostLoginWebActivity, id, title, detail, kind
+                        )
+                    }
                 }
             }
             if (type == "notificationsRead") {
