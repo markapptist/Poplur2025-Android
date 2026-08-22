@@ -98,6 +98,8 @@ data class PoplurPerformanceSnapshot(
     val thermalCondition: PoplurThermalCondition,
     val memoryPressure: PoplurMemoryPressure,
     val powerSaveMode: Boolean,
+    /** On a charger. A floor on the mode, not a fixed mode — see the governor. */
+    val charging: Boolean,
     val appInForeground: Boolean,
     val appInteractive: Boolean,
     val current3dSceneVisible: Boolean,

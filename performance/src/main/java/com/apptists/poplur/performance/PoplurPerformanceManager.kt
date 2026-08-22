@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -86,6 +87,17 @@ class PoplurPerformanceManager private constructor(private val application: Appl
     @Volatile private var thermalCondition = PoplurThermalCondition.UNKNOWN
     @Volatile private var memoryPressure = PoplurMemoryPressure.NONE
     @Volatile private var powerSaveMode = powerManager.isPowerSaveMode
+    /**
+     * Whether the device is on a charger.
+     *
+     * The governor was blind to this on both platforms, and the iOS device log
+     * says that was the wrong call: of 17 recorded nominal->fair transitions,
+     * 14 happened while charging, and two of the three SERIOUS(throttling)
+     * events did too. One of those was at battery=100%, where the charger draws
+     * almost nothing -- so that heat was the app spending a full frame budget
+     * the device no longer had the headroom for, not the charger.
+     */
+    @Volatile private var charging = readCharging(application)
     @Volatile private var appInForeground = false
     @Volatile private var appInteractive = false
     @Volatile private var memoryWarningCount = 0
@@ -103,6 +115,15 @@ class PoplurPerformanceManager private constructor(private val application: Appl
         }
     }
 
+    private val chargingReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_POWER_CONNECTED -> updateCharging(true)
+                Intent.ACTION_POWER_DISCONNECTED -> updateCharging(false)
+            }
+        }
+    }
+
     private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
 
     init {
@@ -115,6 +136,15 @@ class PoplurPerformanceManager private constructor(private val application: Appl
             application,
             powerSaveReceiver,
             IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        ContextCompat.registerReceiver(
+            application,
+            chargingReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_POWER_CONNECTED)
+                addAction(Intent.ACTION_POWER_DISCONNECTED)
+            },
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) registerThermalListenerApi29()
@@ -153,6 +183,7 @@ class PoplurPerformanceManager private constructor(private val application: Appl
             append(" current=${snapshot.currentRendererName ?: "none"}")
             append(" cache=${snapshot.cacheEstimatedBytes / (1024 * 1024)}MB/")
             append("${snapshot.modelTextureCacheBudgetBytes / (1024 * 1024)}MB(${snapshot.cachedAssetCount})")
+            append(" charging=${snapshot.charging}")
             append(" warnings=${snapshot.memoryWarningCount}")
         }
     }
@@ -222,6 +253,12 @@ class PoplurPerformanceManager private constructor(private val application: Appl
             removed.renderer.get()?.performanceRendererName
         }
         publishState("Unregistered ${name ?: "renderer"}")
+    }
+
+    private fun updateCharging(plugged: Boolean) {
+        if (charging == plugged) return
+        charging = plugged
+        publishState(if (plugged) "Charger" else "Charger removed")
     }
 
     private fun updatePowerSaveMode(enabled: Boolean) {
@@ -342,6 +379,7 @@ class PoplurPerformanceManager private constructor(private val application: Appl
             thermalCondition = thermalCondition,
             memoryPressure = memoryPressure,
             powerSaveMode = powerSaveMode,
+            charging = charging,
             appInForeground = appInForeground,
             appInteractive = appInteractive,
             current3dSceneVisible = visibleHeavy > 0,
@@ -392,6 +430,10 @@ class PoplurPerformanceManager private constructor(private val application: Appl
             PoplurThermalCondition.SHUTDOWN -> raise(PoplurPerformanceMode.EMERGENCY, "Critical thermal pressure")
             else -> Unit
         }
+        // A FLOOR, not a fixed mode: raise() only ever steps further down, so
+        // real thermal pressure can still push past this, and unplugging
+        // restores full quality on the next publish.
+        if (charging) raise(PoplurPerformanceMode.REDUCED, "Charging")
         if (powerSaveMode) raise(PoplurPerformanceMode.LOW_POWER, "System power saver")
         when (memoryPressure) {
             PoplurMemoryPressure.MODERATE -> raise(PoplurPerformanceMode.REDUCED, "Memory pressure")
@@ -436,6 +478,22 @@ class PoplurPerformanceManager private constructor(private val application: Appl
          *  thermal/power/memory safety ladder. Ship true only for a
          *  deliberate experiment — mirror the iOS and web flags together. */
         const val GOVERNOR_DISABLED = false
+
+        /**
+         * Reads the sticky ACTION_BATTERY_CHANGED broadcast. A null return
+         * (no sticky intent yet) reads as "not charging", which only means the
+         * clamp waits for the first ACTION_POWER_CONNECTED rather than
+         * clamping a device that is not actually plugged in.
+         */
+        private fun readCharging(context: Context): Boolean {
+            val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                ?: return false
+            return when (intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)) {
+                BatteryManager.BATTERY_STATUS_CHARGING,
+                BatteryManager.BATTERY_STATUS_FULL -> true
+                else -> false
+            }
+        }
 
         @Volatile private var instance: PoplurPerformanceManager? = null
 
