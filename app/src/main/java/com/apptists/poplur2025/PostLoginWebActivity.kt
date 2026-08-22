@@ -368,11 +368,46 @@ class PostLoginWebActivity : ComponentActivity() {
     private var lastMotionPostUptimeMs = 0L
     private var lastPostedRoll = Float.NaN
     private var lastPostedPitch = Float.NaN
+    /// Compass heading in degrees clockwise from north, or NaN on hardware that
+    /// cannot supply one. Gravity alone gives tilt but not AIM: it cannot tell a
+    /// phone panned to face a different wall from one that never moved, which is
+    /// why the cube ignored being pointed around. TYPE_ROTATION_VECTOR is the
+    /// fused source that can, and phones without it (the A03 has neither gyro
+    /// nor magnetometer) simply keep the previous parallax-only behaviour.
+    private var headingDeg = Float.NaN
+    private var lastPostedHeading = Float.NaN
+    private val rotationMatrix = FloatArray(9)
+    private val orientationAngles = FloatArray(3)
+
+    /// Shortest angular distance, so a pan across north (359.9° -> 0.1°) reads
+    /// as 0.2 and not 359.8.
+    private fun headingMovedSincePost(): Boolean {
+        if (headingDeg.isNaN()) return false
+        if (lastPostedHeading.isNaN()) return true
+        var delta = (headingDeg - lastPostedHeading) % 360f
+        if (delta > 180f) delta -= 360f
+        if (delta < -180f) delta += 360f
+        // Tighter than the 0.025 rad (~1.4°) used for roll/pitch above: that
+        // number is raw-accelerometer noise, and any phone that reports a
+        // rotation vector at all is fusing it from a real gyro/magnetometer and
+        // is far quieter at rest.
+        return kotlin.math.abs(delta) >= 0.5f
+    }
 
     private val motionListener = object : SensorEventListener {
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
         override fun onSensorChanged(event: SensorEvent) {
+            if (event.sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
+                // Only updates the reading. The accelerometer stream below is
+                // continuous, so it carries whatever heading is current on its
+                // next post rather than opening a second bridge path.
+                SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+                SensorManager.getOrientation(rotationMatrix, orientationAngles)
+                val azimuth = Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
+                headingDeg = (azimuth + 360f) % 360f
+                return
+            }
             if (event.sensor?.type != Sensor.TYPE_ACCELEROMETER) return
             val alpha = 0.8f
             if (hasGravity) {
@@ -414,17 +449,25 @@ class PostLoginWebActivity : ComponentActivity() {
             // 100ms on every post-login screen, for no visible motion. A tilt
             // gesture moves tens of degrees, so this stays well below anything
             // the eye can follow.
+            // Heading is part of the test, not just the payload: panning a level
+            // phone is almost pure heading, so on a roll/pitch-only gate every
+            // sample of the exact gesture compass facing exists for was dropped.
             if (!lastPostedRoll.isNaN()
                 && kotlin.math.abs(roll - lastPostedRoll) < 0.025f
                 && kotlin.math.abs(pitch - lastPostedPitch) < 0.025f
+                && !headingMovedSincePost()
             ) return
             lastMotionPostUptimeMs = now
             lastPostedRoll = roll
             lastPostedPitch = pitch
+            lastPostedHeading = headingDeg
             if (!::homeWebView.isInitialized) return
+            // Omitted entirely when there is no heading, so the web keeps its
+            // parallax-only behaviour instead of reading a bogus one.
+            val headingField = if (headingDeg.isNaN()) "" else ",heading:$headingDeg"
             homeWebView.evaluateJavascript(
                 "window.dispatchEvent(new CustomEvent('poplur-native-motion'," +
-                    "{detail:{roll:$roll,pitch:$pitch}}));true;",
+                    "{detail:{roll:$roll,pitch:$pitch$headingField}}));true;",
                 null
             )
         }
@@ -436,6 +479,13 @@ class PostLoginWebActivity : ComponentActivity() {
         // SENSOR_DELAY_GAME is ~50Hz; the 30Hz post cap above does the real
         // rate limiting. Anything faster only burns battery on a budget phone.
         manager.registerListener(motionListener, accelerometer, SensorManager.SENSOR_DELAY_GAME)
+        // Absent on hardware without a gyro/magnetometer (the A03), in which
+        // case heading stays NaN and nothing downstream changes.
+        manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let { rotationVector ->
+            // Heading changes slowly compared to a tilt and is rate-limited by
+            // the same 30Hz post cap, so the cheaper UI delay is plenty.
+            manager.registerListener(motionListener, rotationVector, SensorManager.SENSOR_DELAY_UI)
+        }
     }
 
     private fun stopCubeMotion() {
@@ -443,6 +493,8 @@ class PostLoginWebActivity : ComponentActivity() {
         hasGravity = false
         lastPostedRoll = Float.NaN
         lastPostedPitch = Float.NaN
+        headingDeg = Float.NaN
+        lastPostedHeading = Float.NaN
     }
 
     override fun onResume() {
