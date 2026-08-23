@@ -1,0 +1,11 @@
+Product ID,Published State,Purchase Type,Auto Translate,Locale; Title; Description,Auto Fill Prices,Price
+radius_starter,published,managed_by_android,false,en_US; Starter Radius; Expand your map radius by 5 km. Drop pops and claim more ground around you.,true,1990000
+radius_city,published,managed_by_android,false,en_US; City Boost; Expand your map radius by 25 km. Claim your whole city and the ground around it.,true,4990000
+radius_world,published,managed_by_android,false,en_US; World Push; Expand your map radius by 100 km. Push your radius across borders and oceans.,true,9990000
+credits_100,published,managed_by_android,false,en_US; Starter Pack — 100 Credits; 100 Poplur Credits for avatar cubes and the casino.,true,1990000
+credits_500,published,managed_by_android,false,en_US; Creator Pack — 500 Credits; 500 Poplur Credits. Build avatar cubes and play the daily casino.,true,7990000
+credits_1500,published,managed_by_android,false,en_US; Pro Pack — 1500 Credits; 1500 Poplur Credits. The best value for avatar sculpting and the casino.,true,19990000
+com.apptists.poplur2025.card.inverted,published,managed_by_android,false,en_US; Inverted Card; A sharp inside-out Poplur finish. Adds 300 Poplur Credits after a verified purchase.,true,2990000
+com.apptists.poplur2025.card.lens,published,managed_by_android,false,en_US; Lens Card; A glossy optical card with a camera-lens core. Adds 550 Poplur Credits after a verified purchase.,true,4990000
+com.apptists.poplur2025.card.splitdiamond,published,managed_by_android,false,en_US; Split Diamond Card; A faceted split-diamond card built for standout profiles. Adds 800 Poplur Credits after a verified purchase.,true,6990000
+com.apptists.poplur2025.card.swoosh,published,managed_by_android,false,en_US; Swoosh Card; A flowing sculpted card with Poplur motion. Adds 1200 Poplur Credits after a verified purchase.,true,9990000

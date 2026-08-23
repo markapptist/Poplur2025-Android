@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import java.lang.ref.WeakReference
 import com.apptists.poplur2025.BuildConfig
 import com.google.android.gms.ads.AdLoader
 import com.google.android.gms.ads.AdListener
@@ -25,6 +26,9 @@ object AdManager {
         get() = adsAllowed
 
     private var interstitial: InterstitialAd? = null
+    private var isLoadingInterstitial = false
+    private var pendingActivity: WeakReference<Activity>? = null
+    private var pendingVisibilityChanged: ((Boolean) -> Unit)? = null
 
     fun initialize(context: Context) {
         if (!adsAllowed) {
@@ -38,24 +42,31 @@ object AdManager {
     /** Preloaded like iOS: the ad is fetched ahead of the moment it is shown,
      *  and a fresh one is requested as soon as the current one is consumed. */
     fun loadInterstitial(context: Context) {
-        if (!adsAllowed) return
+        if (!adsAllowed || isLoadingInterstitial || interstitial != null) return
+        isLoadingInterstitial = true
         InterstitialAd.load(
             context.applicationContext,
             interstitialUnitId,
             AdRequest.Builder().build(),
             object : InterstitialAdLoadCallback() {
-                override fun onAdLoaded(ad: InterstitialAd) { interstitial = ad }
+                override fun onAdLoaded(ad: InterstitialAd) {
+                    isLoadingInterstitial = false
+                    interstitial = ad
+                    presentPendingInterstitialIfPossible()
+                }
                 override fun onAdFailedToLoad(error: LoadAdError) {
+                    isLoadingInterstitial = false
                     interstitial = null
                     Log.w("Ads", "Interstitial failed to load: ${error.message}")
+                    clearPendingPresentation(visible = false)
                 }
             },
         )
     }
 
-    /** Feed interstitial between channel changes — the web feed's AdMob beat,
-     *  mirroring AdManager.presentInterstitial on iOS. No-op until one has
-     *  loaded; the next is always requested behind the one just shown. */
+    /** Feed interstitial at a natural Feed transition. If the preloaded ad has
+     *  not arrived yet, keep this real-ad opportunity pending and present as
+     *  soon as it does instead of silently dropping the first eligible break. */
     fun presentInterstitial(
         activity: Activity,
         onVisibilityChanged: (Boolean) -> Unit = {},
@@ -65,6 +76,8 @@ object AdManager {
             return
         }
         val ad = interstitial ?: run {
+            pendingActivity = WeakReference(activity)
+            pendingVisibilityChanged = onVisibilityChanged
             loadInterstitial(activity)
             return
         }
@@ -83,6 +96,25 @@ object AdManager {
             }
         }
         ad.show(activity)
+    }
+
+    private fun presentPendingInterstitialIfPossible() {
+        val activity = pendingActivity?.get()
+        val onVisibilityChanged = pendingVisibilityChanged
+        pendingActivity = null
+        pendingVisibilityChanged = null
+        if (activity == null || activity.isFinishing || activity.isDestroyed) {
+            onVisibilityChanged?.invoke(false)
+            return
+        }
+        presentInterstitial(activity, onVisibilityChanged ?: {})
+    }
+
+    private fun clearPendingPresentation(visible: Boolean) {
+        val onVisibilityChanged = pendingVisibilityChanged
+        pendingActivity = null
+        pendingVisibilityChanged = null
+        onVisibilityChanged?.invoke(visible)
     }
 
     fun loadBanner(adView: AdView) {

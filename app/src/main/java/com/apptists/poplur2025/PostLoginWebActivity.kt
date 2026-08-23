@@ -1256,6 +1256,19 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "poplurStoreCheckoutRequested") {
                 runOnUiThread { requestStoreCheckout(body) }
             }
+            if (type == "shareReferral") {
+                val code = body.optString("code", "")
+                val link = body.optString("link", "https://poplur.com")
+                val text = "Join me on Poplur — use my code $code and we both get credits and the whole map.\n$link"
+                runOnUiThread {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        this.type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                        putExtra(Intent.EXTRA_SUBJECT, "Poplur")
+                    }
+                    startActivity(Intent.createChooser(intent, "Invite a friend"))
+                }
+            }
             if (type == "requestCameraRoll") {
                 PoplurPermissionPrimer.markHandled(
                     this@PostLoginWebActivity,
@@ -1331,12 +1344,12 @@ class PostLoginWebActivity : ComponentActivity() {
                     "web_$channel"
                 }
                 val config = FeedAdProbability.currentConfig(this@PostLoginWebActivity)
-                // A fixed three-post cadence mirrors the 30% network share
-                // while guaranteeing small channels do not hash into an
-                // all-Poplur session.
+                // A fixed two-post cadence keeps a real Google placement at a
+                // natural break in the stream while making it visible in a
+                // normal viewing session.
                 val shouldPresent = if (isContentAdvance) {
                     val sequence = body.optInt("sequence", 0)
-                    sequence > 0 && sequence % 3 == 0
+                    sequence > 0 && sequence % 2 == 0
                 } else {
                     FeedAdProbability.placement(index, namespace, config) ==
                         FeedAdPlacementKind.GoogleMobileAd
