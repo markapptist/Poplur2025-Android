@@ -2,7 +2,6 @@ package com.apptists.poplur2025.ui
 
 import android.net.Uri
 import android.graphics.Bitmap
-import android.content.SharedPreferences
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -50,10 +49,6 @@ fun SignedInContent(
     profileAvatarIs3D: Boolean,
     selectedCubeSkin: CubeSkin,
     selectedProfileTheme: ProfileTheme = ProfileThemes.Default,
-    profileSortOrder: PoplurAIProfileSortOrder?,
-    profileSortToken: Int,
-    hasSeenProfileWakeTutorial: Boolean,
-    profileWakeTutorialPulse: Int,
     capturedMediaUri: Uri?,
     capturePostStep: CapturePostStep,
     isCapturedVideo: Boolean,
@@ -79,7 +74,6 @@ fun SignedInContent(
     authViewModel: AuthViewModel,
     mapViewModel: MapViewModel,
     scope: CoroutineScope,
-    settingsPrefs: SharedPreferences,
     playPopSound: () -> Unit,
     onTabChange: (AppTab) -> Unit,
     onPreviousTabChange: (AppTab?) -> Unit,
@@ -100,8 +94,6 @@ fun SignedInContent(
     onIsPhoneActiveChange: (Boolean) -> Unit,
     onIsProfileSubActiveChange: (Boolean) -> Unit,
     onIsPhoneCallScreenVisibleChange: (Boolean) -> Unit,
-    onHasSeenProfileWakeTutorialChange: (Boolean) -> Unit,
-    onProfileWakeTutorialPulseChange: (Int) -> Unit,
     onCapturedMediaUriChange: (Uri?) -> Unit,
     onCapturePostStepChange: (CapturePostStep) -> Unit,
     onIsCapturedVideoChange: (Boolean) -> Unit,
@@ -184,19 +176,7 @@ fun SignedInContent(
             forcedColorway = onPhoneColorwaySelected,
             avatarIs3D = profileAvatarIs3D,
             cubeSkin = selectedCubeSkin,
-            profileTheme = selectedProfileTheme,
-            assistantSortOrder = profileSortOrder,
-            assistantSortToken = profileSortToken,
-            showHeyPoplurTutorial = !hasSeenProfileWakeTutorial,
-            onHeyPoplurTutorialShown = {
-                if (!hasSeenProfileWakeTutorial) {
-                    onHasSeenProfileWakeTutorialChange(true)
-                    settingsPrefs.edit().putBoolean("profile_hey_poplur_tutorial_seen", true).apply()
-                }
-            },
-            onTutorialPulseRequest = {
-                onProfileWakeTutorialPulseChange(profileWakeTutorialPulse + 1)
-            }
+            profileTheme = selectedProfileTheme
         )
         AppTab.Map -> MapScreen(
             isVisible = isAppVisible,

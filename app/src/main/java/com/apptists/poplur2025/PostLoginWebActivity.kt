@@ -16,7 +16,6 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
 import android.util.Base64
@@ -48,7 +47,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,11 +62,7 @@ import com.apptists.poplur2025.billing.PoplurBillingManager
 import com.apptists.poplur2025.billing.PoplurProducts
 import com.apptists.poplur2025.billing.PurchaseEvent
 import com.apptists.poplur2025.billing.PurchaseEventStatus
-import com.apptists.poplur2025.data.AppTab
-import com.apptists.poplur2025.ui.PoplurAICommand
 import com.apptists.poplur2025.ui.PoplurNativeSplashCover
-import com.apptists.poplur2025.ui.PoplurAIAssistantOverlay
-import com.apptists.poplur2025.ui.PoplurAIParser
 import com.apptists.poplur2025.ui.profile.ProfileStatusBarIcons
 import com.apptists.poplur2025.ui.profile.ProfileTheme
 import com.apptists.poplur2025.ui.profile.ProfileThemeRepository
@@ -147,12 +141,9 @@ class PostLoginWebActivity : ComponentActivity() {
     private val minimumElapsed = mutableStateOf(false)
     private val volumeVisible = mutableStateOf(false)
     private val volumeFraction = mutableStateOf(0f)
-    private val voiceForeground = mutableStateOf(false)
-    private val voiceRequestToken = mutableIntStateOf(0)
     // False until prelogin/splash.html has actually committed a frame. Until then the
     // native clay bar covers the WebView/Chromium startup window — see PoplurNativeSplashCover.
     private val splashWebPainted = mutableStateOf(false)
-    private var pendingNativeVoiceCommand: String? = null
     @Volatile private var cameraLiveVisible = false
     private var hideVolumeRunnable: Runnable? = null
     private var revealRunnable: Runnable? = null
@@ -229,8 +220,6 @@ class PostLoginWebActivity : ComponentActivity() {
             setContent {
                 val visible by volumeVisible
                 val fraction by volumeFraction
-                val voiceEnabled by voiceForeground
-                val explicitVoiceRequest by voiceRequestToken
                 val webSplashPainted by splashWebPainted
                 Box(Modifier.fillMaxSize()) {
                     // Drawn on the activity's FIRST frame, so the wait is never a bare
@@ -246,13 +235,6 @@ class PostLoginWebActivity : ComponentActivity() {
                             volumeFraction = fraction
                         )
                     }
-                    PoplurAIAssistantOverlay(
-                        enabled = voiceEnabled,
-                        accent = Color(0xFFFF4FA3),
-                        explicitRequestToken = explicitVoiceRequest,
-                        modifier = Modifier.fillMaxSize(),
-                        onCommand = ::deliverNativeVoiceCommand
-                    )
                 }
             }
         }
@@ -339,7 +321,6 @@ class PostLoginWebActivity : ComponentActivity() {
         loadingWebView.postDelayed({
             if (!isFinishing && !homeReady.value) {
                 homeReady.value = true
-                flushPendingNativeVoiceCommand()
                 revealIfReady()
             }
         }, HOME_READY_TIMEOUT_MS)
@@ -499,7 +480,6 @@ class PostLoginWebActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        voiceForeground.value = true
         // A push banner on top of the screen the user is already reading is
         // redundant: the web list already has the row.
         PoplurNotifications.appInForeground = true
@@ -532,7 +512,6 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onPause() {
-        voiceForeground.value = false
         PoplurNotifications.appInForeground = false
         stopCubeMotion()
         super.onPause()
@@ -1085,15 +1064,8 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "homeReady" || type == "mapReady") {
                 runOnUiThread {
                     homeReady.value = true
-                    flushPendingNativeVoiceCommand()
                     revealIfReady()
                 }
-            }
-            if (type == "requestVoiceAssistant") {
-                // The shared HEY POPLUR profile button is an explicit action, and
-                // therefore the only Home event allowed to launch Android's
-                // RECORD_AUDIO permission sheet.
-                runOnUiThread { voiceRequestToken.intValue += 1 }
             }
             if (type == "phoneBootEffects") {
                 runOnUiThread { playPhoneBootSound() }
@@ -1978,56 +1950,6 @@ class PostLoginWebActivity : ComponentActivity() {
                 Log.e(TAG, "Unable to open the in-app browser", error)
             }
         }
-    }
-
-    private fun deliverNativeVoiceCommand(command: PoplurAICommand) {
-        val detail = JSONObject()
-        // Native TTS is outside the WebView audio graph. Include the exact
-        // spoken line so the shared Home can hold its Voice owner for the
-        // utterance and prevent Feed/Map from continuing underneath it.
-        detail.put("feedback", PoplurAIParser.feedback(command))
-        when (command) {
-            is PoplurAICommand.OpenTab -> when (command.tab) {
-                AppTab.Map -> detail.put("tab", "map")
-                AppTab.Camera, AppTab.CreateEntry, AppTab.CapturedOutput -> detail.put("tab", "post")
-                AppTab.Feed -> detail.put("tab", "feed")
-                AppTab.Profile -> detail.put("tab", "profile")
-                else -> Unit
-            }
-            is PoplurAICommand.Camera -> detail.put("tab", "post")
-            is PoplurAICommand.GoToChannel -> {
-                detail.put("tab", "feed")
-                detail.put("channel", command.query)
-            }
-            is PoplurAICommand.PostToLocation -> detail.put("tab", "post")
-            is PoplurAICommand.SortPosts, PoplurAICommand.ShowAnalytics -> detail.put("tab", "profile")
-            is PoplurAICommand.OpenPage,
-            is PoplurAICommand.SetTourActive,
-            PoplurAICommand.Logout,
-            is PoplurAICommand.Unknown -> Unit
-        }
-        val json = detail.toString()
-        if (!homeReady.value) {
-            pendingNativeVoiceCommand = json
-            return
-        }
-        dispatchNativeVoiceCommand(json)
-    }
-
-    private fun flushPendingNativeVoiceCommand() {
-        val json = pendingNativeVoiceCommand ?: return
-        pendingNativeVoiceCommand = null
-        dispatchNativeVoiceCommand(json)
-    }
-
-    private fun dispatchNativeVoiceCommand(json: String) {
-        val deliver = {
-            homeWebView.evaluateJavascript(
-                "window.dispatchEvent(new CustomEvent('poplur-native-voice-command', { detail: $json })); true;",
-                null
-            )
-        }
-        if (Looper.myLooper() == Looper.getMainLooper()) deliver() else homeWebView.post(deliver)
     }
 
     override fun onRequestPermissionsResult(

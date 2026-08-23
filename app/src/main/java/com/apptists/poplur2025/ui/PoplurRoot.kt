@@ -302,12 +302,6 @@ fun PoplurRoot(
     var profileCubeMenuCommand by remember { mutableStateOf<ProfileCubeMenuCommand?>(null) }
     var profileCubeCommittedIconTitle by remember { mutableStateOf<String?>(null) }
     var profilePanelIconTitle by remember { mutableStateOf<String?>(null) }
-    var profileSortOrder by remember { mutableStateOf<PoplurAIProfileSortOrder?>(null) }
-    var profileSortToken by remember { mutableIntStateOf(0) }
-    var profileWakeTutorialPulse by remember { mutableIntStateOf(0) }
-    var hasSeenProfileWakeTutorial by rememberSaveable {
-        mutableStateOf(settingsPrefs.getBoolean("profile_hey_poplur_tutorial_seen", false))
-    }
     var phoneColorwaySelected by remember { mutableStateOf<Color?>(null) }
     var showGames by remember { mutableStateOf(false) }
 
@@ -818,100 +812,6 @@ fun PoplurRoot(
         profileCubeMenuCommand = ProfileCubeMenuCommand(profileCubeCommandId, action)
     }
 
-    val openPoplurAIPage: (String) -> Unit = { rawPage ->
-        val page = rawPage.lowercase(Locale.US)
-        when {
-            "tv" in page -> {
-                previousTab = tab
-                tab = AppTab.Feed
-                feedTvGuideRequest++
-            }
-            "message" in page || "mail" in page || "dm" in page -> {
-                profileCubeCommittedIconTitle = "Mail"
-                previousTab = AppTab.Profile
-                tab = AppTab.Messages
-            }
-            "setting" in page -> {
-                profileCubeCommittedIconTitle = "Settings"
-                previousTab = AppTab.Profile
-                tab = AppTab.Settings
-            }
-            "stat" in page || "analytic" in page -> {
-                previousTab = tab
-                tab = AppTab.Profile
-                sendProfileCubeCommand(ProfileCubeMenuAction.Stats)
-            }
-            "camera" in page || "record" in page -> {
-                previousTab = tab
-                tab = AppTab.Camera
-            }
-            "map" in page -> {
-                previousTab = tab
-                tab = AppTab.Map
-            }
-            "profile" in page -> {
-                previousTab = tab
-                tab = AppTab.Profile
-            }
-            "feed" in page -> {
-                previousTab = tab
-                tab = AppTab.Feed
-            }
-        }
-    }
-
-    val handlePoplurAICommand: (PoplurAICommand) -> Unit = { command ->
-        when (command) {
-            is PoplurAICommand.OpenTab -> {
-                previousTab = tab
-                tab = command.tab
-            }
-            is PoplurAICommand.OpenPage -> openPoplurAIPage(command.page)
-            is PoplurAICommand.GoToChannel -> {
-                previousTab = tab
-                tab = AppTab.Feed
-                feedTargetChannelQuery = command.query
-                feedTargetChannelToken++
-            }
-            is PoplurAICommand.PostToLocation -> {
-                previousTab = tab
-                tab = AppTab.Map
-                pendingCaptureLocation = null
-                capturedMediaUri = null
-                captureFlowOrigin = CaptureFlowOrigin.MapFirst
-                capturePostStep = CapturePostStep.Preview
-                scope.launch { mapViewModel.triggerPostToMap(command.location) }
-            }
-            is PoplurAICommand.Camera -> {
-                previousTab = tab
-                tab = AppTab.Camera
-                when (command.mode) {
-                    PoplurAICameraMode.Open -> Unit
-                    PoplurAICameraMode.Photo -> cameraPhotoTrigger++
-                    PoplurAICameraMode.Video -> cameraRecordTrigger++
-                }
-            }
-            is PoplurAICommand.SetTourActive -> {
-                previousTab = tab
-                tab = AppTab.Map
-                mapViewModel.setTourPaused(!command.active)
-            }
-            PoplurAICommand.Logout -> authViewModel.signOut()
-            is PoplurAICommand.SortPosts -> {
-                previousTab = tab
-                tab = AppTab.Profile
-                profileSortOrder = command.order
-                profileSortToken++
-            }
-            PoplurAICommand.ShowAnalytics -> {
-                previousTab = tab
-                tab = AppTab.Profile
-                sendProfileCubeCommand(ProfileCubeMenuAction.Stats)
-            }
-            is PoplurAICommand.Unknown -> Unit
-        }
-    }
-
     val holdMenuNavItems = listOf(
         CubeMenuWheelItem(
             label = "HOME",
@@ -1268,10 +1168,6 @@ fun PoplurRoot(
                         onSelectedCubeSkinChange = { selectedCubeSkin = it },
                         selectedProfileTheme = selectedProfileTheme,
                         onSelectedProfileThemeChange = profileThemeRepository::select,
-                        profileSortOrder = profileSortOrder,
-                        profileSortToken = profileSortToken,
-                        hasSeenProfileWakeTutorial = hasSeenProfileWakeTutorial,
-                        profileWakeTutorialPulse = profileWakeTutorialPulse,
                         capturedMediaUri = capturedMediaUri,
                         capturePostStep = capturePostStep,
                         isCapturedVideo = isCapturedVideo,
@@ -1297,7 +1193,6 @@ fun PoplurRoot(
                         authViewModel = authViewModel,
                         mapViewModel = mapViewModel,
                         scope = scope,
-                        settingsPrefs = settingsPrefs,
                         playPopSound = playPopSound,
                         onTabChange = { tab = it },
                         onPreviousTabChange = { previousTab = it },
@@ -1318,8 +1213,6 @@ fun PoplurRoot(
                         onIsPhoneActiveChange = { isPhoneActive = it },
                         onIsProfileSubActiveChange = { isProfileSubActive = it },
                         onIsPhoneCallScreenVisibleChange = { isPhoneCallScreenVisible = it },
-                        onHasSeenProfileWakeTutorialChange = { hasSeenProfileWakeTutorial = it },
-                        onProfileWakeTutorialPulseChange = { profileWakeTutorialPulse = it },
                         onCapturedMediaUriChange = { capturedMediaUri = it },
                         onCapturePostStepChange = { capturePostStep = it },
                         onIsCapturedVideoChange = { isCapturedVideo = it },
@@ -1423,16 +1316,6 @@ fun PoplurRoot(
                 )
             }
         }
-
-        PoplurAIAssistantOverlay(
-            enabled = isSignedIn == true && !showAppInitializationCover && isAppVisible,
-            accent = selectedCubeSkin.uiTheme().accent,
-            tutorialPulseToken = profileWakeTutorialPulse,
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(500f),
-            onCommand = handlePoplurAICommand
-        )
 
         // Games full-screen overlay (above all other overlays)
         if (showGames) {

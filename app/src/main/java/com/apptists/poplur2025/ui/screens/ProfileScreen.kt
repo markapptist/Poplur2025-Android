@@ -78,7 +78,6 @@ import com.apptists.poplur2025.data.DemoPostStore
 import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.ui.CubeSkin
 import com.apptists.poplur2025.ui.CubeSkinBackgroundLayer
-import com.apptists.poplur2025.ui.PoplurAIProfileSortOrder
 import com.apptists.poplur2025.ui.components.ProfileAvatarSpeaker
 import com.apptists.poplur2025.ui.components.PerformanceSceneView
 import com.apptists.poplur2025.ui.components.RadiusDisplay
@@ -277,12 +276,7 @@ fun ProfileScreen(
     forcedColorway: Color? = null,
     avatarIs3D: Boolean = false,
     cubeSkin: CubeSkin = CubeSkin.Default,
-    profileTheme: ProfileTheme = ProfileThemes.Default,
-    assistantSortOrder: PoplurAIProfileSortOrder? = null,
-    assistantSortToken: Int = 0,
-    showHeyPoplurTutorial: Boolean = false,
-    onHeyPoplurTutorialShown: () -> Unit = {},
-    onTutorialPulseRequest: () -> Unit = {}
+    profileTheme: ProfileTheme = ProfileThemes.Default
 ) {
     ProfileScreenContent(
         profile = profile,
@@ -295,12 +289,7 @@ fun ProfileScreen(
         forcedColorway = forcedColorway,
         avatarIs3D = avatarIs3D,
         cubeSkin = cubeSkin,
-        profileTheme = profileTheme,
-        assistantSortOrder = assistantSortOrder,
-        assistantSortToken = assistantSortToken,
-        showHeyPoplurTutorial = showHeyPoplurTutorial,
-        onHeyPoplurTutorialShown = onHeyPoplurTutorialShown,
-        onTutorialPulseRequest = onTutorialPulseRequest
+        profileTheme = profileTheme
     )
 }
 
@@ -316,12 +305,7 @@ fun ProfileScreenContent(
     forcedColorway: Color? = null,
     avatarIs3D: Boolean = false,
     cubeSkin: CubeSkin = CubeSkin.Default,
-    profileTheme: ProfileTheme = ProfileThemes.Default,
-    assistantSortOrder: PoplurAIProfileSortOrder? = null,
-    assistantSortToken: Int = 0,
-    showHeyPoplurTutorial: Boolean = false,
-    onHeyPoplurTutorialShown: () -> Unit = {},
-    onTutorialPulseRequest: () -> Unit = {}
+    profileTheme: ProfileTheme = ProfileThemes.Default
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var currentProfile by remember { mutableStateOf(profile) }
@@ -329,7 +313,6 @@ fun ProfileScreenContent(
     var activePanel by remember { mutableStateOf(ProfilePanel.Home) }
     var hasUncheckedNotifications by remember { mutableStateOf(true) }
     var purchasedRadius by remember { mutableIntStateOf(0) }
-    var radiusSortOrder by remember { mutableStateOf<PoplurAIProfileSortOrder?>(null) }
 
     LaunchedEffect(cubeMenuCommand?.id) {
         when (cubeMenuCommand?.action) {
@@ -357,14 +340,6 @@ fun ProfileScreenContent(
                 ProfilePanel.Home -> null
             }
         )
-    }
-
-    LaunchedEffect(assistantSortToken) {
-        if (assistantSortToken > 0) {
-            radiusSortOrder = assistantSortOrder ?: PoplurAIProfileSortOrder.MostRadius
-            selectedTab = 0
-            activePanel = ProfilePanel.Home
-        }
     }
 
     if (isEditing) {
@@ -416,11 +391,7 @@ fun ProfileScreenContent(
             onEdit = { isEditing = true },
             avatarIs3D = avatarIs3D,
             cubeSkin = cubeSkin,
-            profileTheme = profileTheme,
-            radiusSortOrder = radiusSortOrder,
-            showHeyPoplurTutorial = showHeyPoplurTutorial,
-            onHeyPoplurTutorialShown = onHeyPoplurTutorialShown,
-            onTutorialPulseRequest = onTutorialPulseRequest
+            profileTheme = profileTheme
         )
     }
 }
@@ -439,24 +410,15 @@ private fun ProfileHome(
     onEdit: () -> Unit,
     avatarIs3D: Boolean = false,
     cubeSkin: CubeSkin = CubeSkin.Default,
-    profileTheme: ProfileTheme = ProfileThemes.Default,
-    radiusSortOrder: PoplurAIProfileSortOrder? = null,
-    showHeyPoplurTutorial: Boolean = false,
-    onHeyPoplurTutorialShown: () -> Unit = {},
-    onTutorialPulseRequest: () -> Unit = {}
+    profileTheme: ProfileTheme = ProfileThemes.Default
 ) {
     val cubeTheme = cubeSkin.uiTheme()
     val accentColor = if (profileTheme.isDefault) cubeTheme.accent else profileTheme.primaryAccent
     val foregroundColor = if (profileTheme.isDefault) Color.Black else profileTheme.foreground
     val localView = LocalView.current
-    var didStartHeyPoplurTutorial by rememberSaveable { mutableStateOf(false) }
     var showNotificationBanner by remember { mutableStateOf(false) }
     var localUnread by remember { mutableStateOf(hasUncheckedNotifications) }
-    val mediaPosts = when (radiusSortOrder) {
-        PoplurAIProfileSortOrder.MostRadius -> DemoPostStore.posts.sortedByDescending { it.radius }
-        PoplurAIProfileSortOrder.LeastRadius -> DemoPostStore.posts.sortedBy { it.radius }
-        null -> DemoPostStore.posts
-    }
+    val mediaPosts = DemoPostStore.posts
     val profilePostCount = mediaPosts.size
     val profileTotalRadius = mediaPosts.sumOf { it.radius.coerceAtLeast(0) }
 
@@ -478,16 +440,6 @@ private fun ProfileHome(
             if (controller != null && previousLightIcons != null) {
                 controller.isAppearanceLightStatusBars = previousLightIcons
             }
-        }
-    }
-
-    LaunchedEffect(showHeyPoplurTutorial) {
-        if (showHeyPoplurTutorial && !didStartHeyPoplurTutorial) {
-            didStartHeyPoplurTutorial = true
-            delay(1_200)
-            onTutorialPulseRequest()
-            delay(5_800)
-            onHeyPoplurTutorialShown()
         }
     }
 
@@ -531,8 +483,7 @@ private fun ProfileHome(
                 size = if (avatarIs3D) 180.dp else 96.dp,
                 is3D = avatarIs3D,
                 accentColor = accentColor,
-                cubeSkin = cubeSkin,
-                onWakeActivated = onTutorialPulseRequest
+                cubeSkin = cubeSkin
             )
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -604,17 +555,6 @@ private fun ProfileHome(
             unit = "mi",
             contentColor = accentColor
         )
-
-        if (showHeyPoplurTutorial) {
-            HeyPoplurProfileTutorialCard(
-                accent = accentColor,
-                onDismiss = onHeyPoplurTutorialShown,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(start = 24.dp, end = 24.dp, bottom = 146.dp)
-            )
-        }
 
         // Notification bell (top-right) + pink drop-down banner — matches iOS ProfileNotificationBanner
         Box(
@@ -848,57 +788,6 @@ private fun businessStatusColor(status: BusinessVerificationStatus): Color =
         BusinessVerificationStatus.Rejected -> Color(0xFFFF3B30)
         BusinessVerificationStatus.NeedsMoreInfo -> Color(0xFF007AFF)
     }
-
-@Composable
-private fun HeyPoplurProfileTutorialCard(
-    accent: Color,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .shadow(24.dp, RoundedCornerShape(22.dp)),
-        shape = RoundedCornerShape(22.dp),
-        color = Color.Black.copy(alpha = 0.78f),
-        tonalElevation = 0.dp
-    ) {
-        Column(
-            modifier = Modifier
-                .border(1.5.dp, accent.copy(alpha = 0.9f), RoundedCornerShape(22.dp))
-                .padding(horizontal = 22.dp, vertical = 18.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "Say \"Hey Poplur\"",
-                color = Color.White,
-                fontSize = 25.sp,
-                fontWeight = FontWeight.Black
-            )
-            Text(
-                text = "The edges light up in your theme color. Then tell Poplur what to do.",
-                color = Color.White.copy(alpha = 0.82f),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = accent,
-                    contentColor = Color.Black
-                )
-            ) {
-                Text(
-                    text = "Got it",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color.Black
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun ProfileHeaderActionIcon(

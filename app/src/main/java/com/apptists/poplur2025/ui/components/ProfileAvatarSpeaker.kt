@@ -48,7 +48,6 @@ fun ProfileAvatarSpeaker(
     is3D: Boolean = false,
     accentColor: Color = Color(0xFF9B59F5),
     cubeSkin: CubeSkin = CubeSkin.Default,
-    onWakeActivated: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -196,16 +195,12 @@ fun ProfileAvatarSpeaker(
                 }
             }
         } else {
-            // Hint icon when idle — tappable to manually trigger the AI wake effect
+            // Hint icon when idle
             Spacer(Modifier.height(6.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 modifier = Modifier
                     .background(Color.Black.copy(alpha = 0.34f), RoundedCornerShape(50))
-                    .then(
-                        if (onWakeActivated != null) Modifier.clickable { onWakeActivated() }
-                        else Modifier
-                    )
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 repeat(4) { index ->
