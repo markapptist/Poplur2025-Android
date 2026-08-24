@@ -53,17 +53,11 @@ class ClayMapActivity : ComponentActivity() {
                     request: WebResourceRequest
                 ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
             }
-            val prefs = getSharedPreferences("poplur_settings", MODE_PRIVATE)
             val lowTier = PoplurLiteTier.isLowTier(this@ClayMapActivity)
-            val use3D = if (prefs.contains("poplur_use3DMap")) {
-                prefs.getBoolean("poplur_use3DMap", !lowTier)
-            } else {
-                !lowTier
-            }
+            val performanceQuery = if (lowTier) "?mapLite=1" else ""
             loadUrl(
                 "https://appassets.androidplatform.net/assets/claymap/index.html" +
-                    "?mapMode=${if (use3D) "3d" else "2d"}" +
-                    "&fallback2d=${if (!use3D && lowTier) "1" else "0"}"
+                    performanceQuery
             )
         }
         performanceController = PoplurWebViewPerformanceController(this, "PoplurClayMapWeb")

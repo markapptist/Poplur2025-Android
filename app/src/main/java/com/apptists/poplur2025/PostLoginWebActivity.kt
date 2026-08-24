@@ -146,6 +146,10 @@ class PostLoginWebActivity : ComponentActivity() {
     // native clay bar covers the WebView/Chromium startup window — see PoplurNativeSplashCover.
     private val splashWebPainted = mutableStateOf(false)
     @Volatile private var cameraLiveVisible = false
+    // WebRTC's WebView permission request arrives after the page asks for
+    // getUserMedia. Retain one request while Android shows its normal OS
+    // camera/microphone sheet, then answer the original WebView request.
+    private var pendingWebMediaPermissionRequest: PermissionRequest? = null
     private var hideVolumeRunnable: Runnable? = null
     private var revealRunnable: Runnable? = null
 
@@ -249,13 +253,8 @@ class PostLoginWebActivity : ComponentActivity() {
         }
 
         // Both URLs are the exact bundles used by the iOS post-login path.
-        val mapPrefs = getSharedPreferences("poplur_settings", MODE_PRIVATE)
         val lowTier = PoplurLiteTier.isLowTier(this)
-        val use3DMap = if (mapPrefs.contains("poplur_use3DMap")) {
-            mapPrefs.getBoolean("poplur_use3DMap", !lowTier)
-        } else {
-            !lowTier
-        }
+        val mapPerformanceQuery = if (lowTier) "&mapLite=1" else ""
         val fromAuth = intent.getBooleanExtra("fromAuth", false)
         val permissionQuery = if (fromAuth) {
             ""
@@ -281,8 +280,7 @@ class PostLoginWebActivity : ComponentActivity() {
         }
         homeWebView.loadUrl(
             "$origin/claymap/index.html?view=home&tabs=1" +
-                "&mapMode=${if (use3DMap) "3d" else "2d"}" +
-                "&fallback2d=${if (!use3DMap && lowTier) "1" else "0"}" +
+                mapPerformanceQuery +
                 permissionQuery
         )
         // User rule: the approved globe Loading only after explicit sign-in/up;
@@ -557,20 +555,7 @@ class PostLoginWebActivity : ComponentActivity() {
                 }
 
                 override fun onPermissionRequest(request: PermissionRequest) {
-                    runOnUiThread {
-                        val wantsVideo = request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
-                        val cameraGranted = ContextCompat.checkSelfPermission(
-                            this@PostLoginWebActivity,
-                            Manifest.permission.CAMERA
-                        ) == PackageManager.PERMISSION_GRANTED
-                        if (wantsVideo && cameraGranted) {
-                            // The shared camera deliberately asks for video only.
-                            // Never grant microphone access as a side effect.
-                            request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
-                        } else {
-                            request.deny()
-                        }
-                    }
+                    runOnUiThread { requestWebMediaCapturePermission(request) }
                 }
             }
         }
@@ -1167,6 +1152,61 @@ class PostLoginWebActivity : ComponentActivity() {
             }
             if (type == "publishTrack") {
                 uploadStudioTrack(body)
+            }
+            // WebRTC call signalling. The shared clay-map bundle owns media
+            // capture and rendering; Android owns Firestore and returns only
+            // rendezvous/SDP/ICE messages. Keep this separate from the
+            // Agora CallSessionManager so an ordinary phone call cannot become
+            // a FaceTime call (or vice versa).
+            if (type == "callStart") {
+                val otherUid = body.optString("otherId")
+                val callerName = body.optString("callerName").takeIf { it.isNotBlank() }
+                val video = body.optBoolean("video", false)
+                com.apptists.poplur2025.call.PoplurWebCallSignalling.startCall(
+                    otherUid = otherUid,
+                    callerName = callerName,
+                    video = video,
+                ) { callId ->
+                    pushWebMessage(
+                        JSONObject()
+                            .put("type", "poplurCallStarted")
+                            .put("callId", callId ?: "")
+                            .put("ok", callId != null)
+                    )
+                }
+                return
+            }
+            if (type == "callDescription") {
+                com.apptists.poplur2025.call.PoplurWebCallSignalling.publishDescription(
+                    callId = body.optString("callId"),
+                    type = body.optString("sdpType", "offer"),
+                    sdp = body.optString("sdp"),
+                )
+                return
+            }
+            if (type == "callCandidate") {
+                com.apptists.poplur2025.call.PoplurWebCallSignalling.publishCandidate(
+                    callId = body.optString("callId"),
+                    candidate = webCallCandidate(body.optJSONObject("candidate")),
+                )
+                return
+            }
+            if (type == "callEnd") {
+                com.apptists.poplur2025.call.PoplurWebCallSignalling.endCall(body.optString("callId"))
+                return
+            }
+            if (type == "callDecline") {
+                com.apptists.poplur2025.call.PoplurWebCallSignalling.declineCall(body.optString("callId"))
+                return
+            }
+            if (type == "callAccept") {
+                com.apptists.poplur2025.call.PoplurWebCallSignalling.acceptCall(body.optString("callId"))
+                return
+            }
+            if (type == "callWatchIncoming") {
+                com.apptists.poplur2025.call.PoplurWebCallSignalling.onEvent = ::pushWebMessage
+                com.apptists.poplur2025.call.PoplurWebCallSignalling.observeIncoming()
+                return
             }
             // The Poplur phone's address book: favourites, people you have a
             // chat with, and people your radius has actually crossed. Mirrors
@@ -2167,6 +2207,69 @@ class PostLoginWebActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * The post-login page requests camera and microphone together only when a
+     * WebRTC call needs them. Never grant a resource WebView did not request,
+     * and never grant an unknown resource merely because camera was allowed.
+     */
+    private fun requestWebMediaCapturePermission(request: PermissionRequest) {
+        val requested = request.resources.toSet()
+        val wantsVideo = PermissionRequest.RESOURCE_VIDEO_CAPTURE in requested
+        val wantsAudio = PermissionRequest.RESOURCE_AUDIO_CAPTURE in requested
+        if ((!wantsVideo && !wantsAudio)
+            || requested.any {
+                it != PermissionRequest.RESOURCE_VIDEO_CAPTURE
+                    && it != PermissionRequest.RESOURCE_AUDIO_CAPTURE
+            }) {
+            request.deny()
+            return
+        }
+
+        val missing = buildList {
+            if (wantsVideo && ContextCompat.checkSelfPermission(
+                    this@PostLoginWebActivity, Manifest.permission.CAMERA
+                ) != PackageManager.PERMISSION_GRANTED
+            ) add(Manifest.permission.CAMERA)
+            if (wantsAudio && ContextCompat.checkSelfPermission(
+                    this@PostLoginWebActivity, Manifest.permission.RECORD_AUDIO
+                ) != PackageManager.PERMISSION_GRANTED
+            ) add(Manifest.permission.RECORD_AUDIO)
+        }
+        if (missing.isEmpty()) {
+            request.grant(requested.toTypedArray())
+            return
+        }
+
+        // A second prompt cannot safely answer the first request. Deny the
+        // superseded one, then retain exactly this request for the OS result.
+        pendingWebMediaPermissionRequest?.deny()
+        pendingWebMediaPermissionRequest = request
+        ActivityCompat.requestPermissions(
+            this,
+            missing.toTypedArray(),
+            WEB_MEDIA_CAPTURE_REQUEST_CODE,
+        )
+    }
+
+    private fun resolveWebMediaCapturePermission() {
+        val request = pendingWebMediaPermissionRequest ?: return
+        pendingWebMediaPermissionRequest = null
+        val requested = request.resources.toSet()
+        val wantsVideo = PermissionRequest.RESOURCE_VIDEO_CAPTURE in requested
+        val wantsAudio = PermissionRequest.RESOURCE_AUDIO_CAPTURE in requested
+        val videoGranted = !wantsVideo || ContextCompat.checkSelfPermission(
+            this, Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        val audioGranted = !wantsAudio || ContextCompat.checkSelfPermission(
+            this, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (videoGranted && audioGranted) {
+            request.grant(requested.toTypedArray())
+        } else {
+            request.deny()
+        }
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -2193,6 +2296,9 @@ class PostLoginWebActivity : ComponentActivity() {
                 null
             )
         }
+        if (requestCode == WEB_MEDIA_CAPTURE_REQUEST_CODE) {
+            resolveWebMediaCapturePermission()
+        }
     }
 
     override fun onDestroy() {
@@ -2200,6 +2306,11 @@ class PostLoginWebActivity : ComponentActivity() {
         // registered in onCreate, removed by nobody, streaming through
         // backgrounding and sign-out alike.
         com.apptists.poplur2025.call.CallSessionManager.stopListeningForIncomingCalls()
+        // The WebRTC relay has its own incoming, description and candidate
+        // listeners. It must not outlive the WebView it posts into.
+        com.apptists.poplur2025.call.PoplurWebCallSignalling.stopAll()
+        pendingWebMediaPermissionRequest?.deny()
+        pendingWebMediaPermissionRequest = null
         // Same reasoning for the DM streams: a thread listener that outlives
         // the activity keeps pushing into a WebView that is being destroyed.
         PoplurDirectMessages.stop()
@@ -2320,6 +2431,7 @@ class PostLoginWebActivity : ComponentActivity() {
         const val REVEAL_DURATION_MS = 450L
         const val VOLUME_HIDE_MS = 1500L
         const val CAMERA_REQUEST_CODE = 7403
+        const val WEB_MEDIA_CAPTURE_REQUEST_CODE = 7404
         const val MAX_WEB_CAPTURE_ROUTES = 16
         const val MAX_CAMERA_FRAME_DATA_URL_CHARS = 4_000_000
         const val MAX_CAMERA_FRAME_BYTES = 3_000_000
@@ -2332,6 +2444,21 @@ class PostLoginWebActivity : ComponentActivity() {
         const val STORE_PRODUCT_WAIT_MS = 5_000L
         const val PENDING_STORE_CHECKOUT_KEY = "pending_checkout_json"
     }
+}
+
+/** WebRTC candidates are shallow JSON objects, but copy only JSON-native
+ *  values before handing them to Firestore rather than trusting the WebView
+ *  object wholesale. */
+private fun webCallCandidate(source: JSONObject?): Map<String, Any?> {
+    if (source == null) return emptyMap()
+    val candidate = linkedMapOf<String, Any?>()
+    val keys = source.keys()
+    while (keys.hasNext()) {
+        val key = keys.next()
+        val value = source.opt(key)
+        if (value !== JSONObject.NULL) candidate[key] = value
+    }
+    return candidate
 }
 
 private fun matchParentParams(): FrameLayout.LayoutParams = FrameLayout.LayoutParams(
