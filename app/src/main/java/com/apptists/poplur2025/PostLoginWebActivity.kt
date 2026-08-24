@@ -1110,6 +1110,23 @@ class PostLoginWebActivity : ComponentActivity() {
                     NotificationManagerCompat.from(this@PostLoginWebActivity).cancelAll()
                 }
             }
+            // The bundled WebView cannot use Firebase directly. Hand it a
+            // short-lived ID token on demand for authenticated Poplur tools;
+            // it stays in JS memory and is never persisted.
+            if (type == "requestAuthToken") {
+                FirebaseAuth.getInstance().currentUser?.getIdToken(false)
+                    ?.addOnSuccessListener { result ->
+                        val token = result.token ?: return@addOnSuccessListener
+                        val payload = JSONObject().put("token", token).put("expiresIn", 3600).toString()
+                        val quotedPayload = JSONObject.quote(payload)
+                        homeWebView.post {
+                            homeWebView.evaluateJavascript(
+                                "window.dispatchEvent(new CustomEvent('poplur-native-auth-token', { detail: JSON.parse($quotedPayload) })); true;",
+                                null
+                            )
+                        }
+                    }
+            }
             if (type == "requestProfile") {
                 deliverWebProfile()
             }
@@ -1144,6 +1161,9 @@ class PostLoginWebActivity : ComponentActivity() {
             }
             if (type == "requestProfileTracks") {
                 deliverWebProfileTracks()
+            }
+            if (type == "requestNearbyTracks") {
+                deliverWebNearbyTracks(body)
             }
             if (type == "publishTrack") {
                 uploadStudioTrack(body)
@@ -2014,6 +2034,111 @@ class PostLoginWebActivity : ComponentActivity() {
             }
             .addOnFailureListener { error ->
                 Log.w(TAG, "deliverWebProfileTracks failed", error)
+            }
+    }
+
+    /**
+     * Returns playable Poplur Studio tracks posted near the phone's current
+     * location. SoundCloud discovery intentionally stays out of this bridge:
+     * those rows are attributed link-outs supplied by Poplur's server, while
+     * this query is only for audio that Poplur itself hosts and may play.
+     */
+    private fun deliverWebNearbyTracks(body: JSONObject) {
+        val latitude = body.optDouble("latitude", Double.NaN)
+        val longitude = body.optDouble("longitude", Double.NaN)
+        if (!latitude.isFinite() || !longitude.isFinite() ||
+            kotlin.math.abs(latitude) > 90 || kotlin.math.abs(longitude) > 180
+        ) return
+
+        val requestedRadius = body.optDouble("radiusKm", 120.0)
+        val radiusKm = if (requestedRadius.isFinite()) requestedRadius.coerceIn(1.0, 2_000.0) else 120.0
+        val requestId = body.optString("requestId")
+
+        fun distanceKm(otherLatitude: Double, otherLongitude: Double): Double {
+            val latitudeDelta = Math.toRadians(otherLatitude - latitude)
+            val longitudeDelta = Math.toRadians(otherLongitude - longitude)
+            val latitude1 = Math.toRadians(latitude)
+            val latitude2 = Math.toRadians(otherLatitude)
+            val haversine = Math.pow(Math.sin(latitudeDelta / 2.0), 2.0) +
+                Math.cos(latitude1) * Math.cos(latitude2) *
+                Math.pow(Math.sin(longitudeDelta / 2.0), 2.0)
+            return 6_371.0 * 2.0 * Math.asin(Math.min(1.0, Math.sqrt(haversine)))
+        }
+
+        fun push(tracks: JSONArray) {
+            val payload = JSONObject()
+                .put("requestId", requestId)
+                .put("tracks", tracks)
+            homeWebView.post {
+                homeWebView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('poplur-native-nearby-tracks',{detail:$payload}));true;",
+                    null
+                )
+            }
+        }
+
+        FirebaseFirestore.getInstance().collection("tracks")
+            .limit(256)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val nearby = snapshot.documents.mapNotNull { document ->
+                    val audioURL = document.getString("audioURL")?.trim().orEmpty()
+                    val audioUri = runCatching { Uri.parse(audioURL) }.getOrNull()
+                    if (audioURL.isBlank() ||
+                        !audioUri?.scheme.equals("https", ignoreCase = true) ||
+                        audioUri?.host.isNullOrBlank()
+                    ) return@mapNotNull null
+
+                    val trackLatitude = (document.get("lat") as? Number)?.toDouble()
+                        ?: return@mapNotNull null
+                    val trackLongitude = (document.get("lng") as? Number)?.toDouble()
+                        ?: return@mapNotNull null
+                    if (!trackLatitude.isFinite() || !trackLongitude.isFinite()) return@mapNotNull null
+
+                    val distance = distanceKm(trackLatitude, trackLongitude)
+                    if (distance > radiusKm) return@mapNotNull null
+
+                    val createdAt = document.getLong("createdAtMillis")
+                        ?: document.getTimestamp("createdAt")?.toDate()?.time
+                        ?: 0L
+                    val row = JSONObject().apply {
+                        put("id", document.id)
+                        put("title", document.getString("title")?.takeIf { it.isNotBlank() } ?: "Untitled")
+                        put("url", audioURL)
+                        put("lat", trackLatitude)
+                        put("lng", trackLongitude)
+                        put("distanceKm", distance)
+                        put(
+                            "place",
+                            document.getString("place")?.takeIf { it.isNotBlank() }
+                                ?: String.format(java.util.Locale.US, "%.1f km away", distance)
+                        )
+                        put("postedAt", createdAt)
+                        put(
+                            "postedBy",
+                            document.getString("postedBy")?.takeIf { it.isNotBlank() }
+                                ?: document.getString("userID")?.takeIf { it.isNotBlank() }
+                                ?: "Poplur artist"
+                        )
+                        document.getString("artist")?.takeIf { it.isNotBlank() }
+                            ?.let { put("artist", it) }
+                        document.getString("licence")?.takeIf { it.isNotBlank() }
+                            ?.let { put("licence", it) }
+                        document.getString("mood")?.takeIf { it.isNotBlank() }
+                            ?.let { put("mood", it) }
+                        (document.get("bpm") as? Number)?.toDouble()?.let { put("bpm", it) }
+                        (document.get("duration") as? Number)?.toDouble()?.let { put("duration", it) }
+                    }
+                    distance to row
+                }.sortedBy { it.first }
+
+                val tracks = JSONArray()
+                nearby.forEach { tracks.put(it.second) }
+                push(tracks)
+            }
+            .addOnFailureListener { error ->
+                Log.w(TAG, "deliverWebNearbyTracks failed", error)
+                push(JSONArray())
             }
     }
 
