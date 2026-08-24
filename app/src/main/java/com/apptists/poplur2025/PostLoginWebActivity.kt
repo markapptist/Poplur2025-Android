@@ -72,6 +72,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageMetadata
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
@@ -1112,6 +1113,10 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "requestProfile") {
                 deliverWebProfile()
             }
+            if (type == "saveProfilePhoto") {
+                val payload = body.optJSONObject("detail") ?: body
+                persistWebProfilePhoto(payload.optString("photo"))
+            }
             // The username had NO writer on the live path. The only one was the
             // native edit-profile screen, which the web home orphaned, so every
             // handle was per-device: invisible to other devices and to the
@@ -1823,6 +1828,78 @@ class PostLoginWebActivity : ComponentActivity() {
             }
     }
 
+    /**
+     * Persists the still poster captured by ProfileTwin as the account photo.
+     *
+     * The web layer already keeps a small localStorage copy, but that is only
+     * this WebView on this device. Without this bridge writer Android could
+     * record the profile selfie while leaving `users/{uid}.profilePictureURL`
+     * empty, so a pull-to-refresh correctly fetched an account with no photo.
+     */
+    private fun persistWebProfilePhoto(dataUrl: String) {
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            Log.w(TAG, "persistWebProfilePhoto: no signed-in user")
+            return
+        }
+        if (!dataUrl.startsWith("data:image/jpeg;base64,") ||
+            dataUrl.length > MAX_PROFILE_PHOTO_DATA_URL_CHARS
+        ) {
+            Log.w(TAG, "persistWebProfilePhoto: rejected invalid JPEG data URL")
+            return
+        }
+
+        val bytes = runCatching {
+            Base64.decode(dataUrl.substringAfter(','), Base64.DEFAULT)
+        }.getOrNull()
+        if (bytes == null || bytes.isEmpty() || bytes.size > MAX_PROFILE_PHOTO_BYTES) {
+            Log.w(TAG, "persistWebProfilePhoto: rejected invalid or oversized photo")
+            return
+        }
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            Log.w(TAG, "persistWebProfilePhoto: JPEG could not be decoded")
+            return
+        }
+
+        val photoRef = FirebaseStorage.getInstance().reference
+            .child("profile_pictures/${user.uid}.jpg")
+        val metadata = StorageMetadata.Builder()
+            .setContentType("image/jpeg")
+            .build()
+
+        photoRef.putBytes(bytes, metadata)
+            .addOnFailureListener { error ->
+                Log.w(TAG, "persistWebProfilePhoto: upload failed", error)
+            }
+            .addOnSuccessListener {
+                photoRef.downloadUrl
+                    .addOnFailureListener { error ->
+                        Log.w(TAG, "persistWebProfilePhoto: download URL failed", error)
+                    }
+                    .addOnSuccessListener { downloadUrl ->
+                        FirebaseFirestore.getInstance()
+                            .collection("users").document(user.uid)
+                            .set(
+                                mapOf("profilePictureURL" to downloadUrl.toString()),
+                                SetOptions.merge()
+                            )
+                            .addOnFailureListener { error ->
+                                Log.w(TAG, "persistWebProfilePhoto: profile update failed", error)
+                            }
+                            .addOnSuccessListener {
+                                Log.i(TAG, "persistWebProfilePhoto: account photo saved")
+                                // Reuse the exact response path pull-to-refresh
+                                // uses, so the visible profile updates from the
+                                // account record rather than a second contract.
+                                deliverWebProfile()
+                            }
+                    }
+            }
+    }
+
     private fun deliverWebProfilePosts() {
         val user = FirebaseAuth.getInstance().currentUser ?: return
         FirebaseFirestore.getInstance().collection("posts")
@@ -2122,6 +2199,10 @@ class PostLoginWebActivity : ComponentActivity() {
         const val MAX_CAMERA_FRAME_DATA_URL_CHARS = 4_000_000
         const val MAX_CAMERA_FRAME_BYTES = 3_000_000
         const val MAX_CAMERA_FRAME_EDGE = 960
+        // storage.rules caps profile_pictures below 8 MiB. Reject locally
+        // before allocating an upload Firebase must refuse.
+        const val MAX_PROFILE_PHOTO_BYTES = 8_000_000
+        const val MAX_PROFILE_PHOTO_DATA_URL_CHARS = 10_700_000
         const val MAX_STORE_CHECKOUT_ITEMS = 20
         const val STORE_PRODUCT_WAIT_MS = 5_000L
         const val PENDING_STORE_CHECKOUT_KEY = "pending_checkout_json"
