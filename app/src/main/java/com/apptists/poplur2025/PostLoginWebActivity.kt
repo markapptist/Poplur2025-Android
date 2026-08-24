@@ -57,6 +57,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.apptists.poplur2025.ui.components.PoplurVolumeBars
 import com.apptists.poplur2025.billing.PoplurBillingManager
 import com.apptists.poplur2025.billing.PoplurProducts
@@ -156,6 +158,55 @@ class PostLoginWebActivity : ComponentActivity() {
     private val darkHome = 0xFF050407.toInt()
     private val darkLoading = 0xFF0A0709.toInt()
     private val origin = "https://appassets.androidplatform.net/assets"
+    private val backgroundAudioPreferences by lazy {
+        getSharedPreferences("poplur_audio", MODE_PRIVATE)
+    }
+
+    /**
+     * Scope is retained for Radio's existing app/outside distinction; the
+     * boolean is the shared Radio + iPod preference and defaults to screen-only.
+     */
+    private fun backgroundAudioPayload(): JSONObject {
+        val enabled = backgroundAudioPreferences.getBoolean("background_audio_enabled", false)
+        val savedScope = backgroundAudioPreferences.getString("radio_scope", "screen")
+        val scope = if (!enabled) {
+            "screen"
+        } else if (savedScope == "outside") {
+            "outside"
+        } else {
+            "app"
+        }
+        return JSONObject()
+            .put("enabled", enabled)
+            .put("scope", scope)
+    }
+
+    private fun installBackgroundAudioBootstrap(webView: WebView) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return
+        val payload = backgroundAudioPayload().toString()
+        val script = """
+            (function () {
+              var state = $payload;
+              window.__poplurNativeBackgroundAudio = state;
+              try {
+                localStorage.setItem('poplur.radio.scope', state.scope);
+                localStorage.setItem('poplur.radio.background', state.enabled ? '1' : '0');
+                if (state.enabled) localStorage.setItem('poplur.radio.scope.explicit.v1', '1');
+                else localStorage.removeItem('poplur.radio.scope.explicit.v1');
+              } catch (_) {}
+            })();
+        """.trimIndent()
+        runCatching {
+            WebViewCompat.addDocumentStartJavaScript(
+                webView,
+                script,
+                setOf("https://appassets.androidplatform.net")
+            )
+        }.onFailure { error ->
+            Log.w(TAG, "background audio document-start bootstrap unavailable", error)
+        }
+    }
+
     private data class WebCapture(val uri: Uri, val mimeType: String)
     // Asset requests run on WebView worker threads while camera/picker results
     // arrive on the activity thread.
@@ -534,6 +585,7 @@ class PostLoginWebActivity : ComponentActivity() {
         overScrollMode = WebView.OVER_SCROLL_NEVER
         setBackgroundColor(backgroundColor)
         if (receivesNativeEvents) addJavascriptInterface(Bridge(), "PoplurNative")
+        if (receivesNativeEvents) installBackgroundAudioBootstrap(this)
         if (receivesNativeEvents) {
             webChromeClient = object : WebChromeClient() {
                 // The home WebView had NO console capture, so "the feed never
@@ -1426,11 +1478,16 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "radioScope") {
                 val scope = body.optString("scope")
                 if (scope == "screen" || scope == "app" || scope == "outside") {
-                    getSharedPreferences("poplur_audio", MODE_PRIVATE)
+                    backgroundAudioPreferences
                         .edit()
                         .putString("radio_scope", scope)
+                        .putBoolean("background_audio_enabled", scope != "screen")
                         .apply()
                 }
+            }
+            if (type == "requestBackgroundAudio") {
+                deliverBackgroundAudioPreference()
+                return
             }
             if (type == "fetchProductImage") {
                 PoplurProductImage.handle(body.optString("url"), homeWebView)
@@ -1788,6 +1845,17 @@ class PostLoginWebActivity : ComponentActivity() {
         homeWebView.post {
             homeWebView.evaluateJavascript(
                 "window.dispatchEvent(new CustomEvent('poplur-native-app-icon',{detail:$payload}));true;",
+                null
+            )
+        }
+    }
+
+    private fun deliverBackgroundAudioPreference() {
+        val payload = backgroundAudioPayload().toString()
+        homeWebView.post {
+            homeWebView.evaluateJavascript(
+                "window.__poplurNativeBackgroundAudio=$payload;" +
+                    "window.dispatchEvent(new CustomEvent('poplur-native-background-audio',{detail:$payload}));true;",
                 null
             )
         }
