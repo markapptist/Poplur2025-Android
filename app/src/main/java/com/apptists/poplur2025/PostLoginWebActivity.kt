@@ -1050,16 +1050,22 @@ class PostLoginWebActivity : ComponentActivity() {
 
     private fun revealIfReady() {
         if (!minimumElapsed.value || !homeReady.value || isFinishing) return
+        // Home can become ready before the splash WebView commits its first
+        // frame. In that race `onPageCommitVisible` never retires the native
+        // first-frame cover, because the loading WebView is dismantled below.
+        // Home readiness is now the owner of the handoff, so remove that cheap
+        // Compose cover synchronously as reveal begins.
+        splashWebPainted.value = true
         window.statusBarColor = darkHome
         window.navigationBarColor = darkHome
         loadingWebView.animate()
             .alpha(0f)
             .setDuration(REVEAL_DURATION_MS)
             .withEndAction {
-                // DESTROY the loading WebView, don't just hide it: a whole second
-                // WebView (loading page + three.js globe) kept resident is real
-                // memory on a 3GB device that is already swapping — freeing it
-                // gives the home WebView room to run smoothly.
+                // DESTROY the loading WebView, don't just hide it: even though
+                // this splash is video/CSS rather than Three/WebGL, its decoder,
+                // compositor surface, and WebView are real memory on a 3GB
+                // device. Free them as soon as Home owns the screen.
                 (loadingWebView.parent as? android.view.ViewGroup)?.removeView(loadingWebView)
                 performanceController.detach(loadingWebView)
                 loadingWebView.destroy()
@@ -1196,6 +1202,9 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "requestProfilePosts") {
                 deliverWebProfilePosts()
             }
+            if (type == "deleteProfilePost") {
+                deleteWebProfilePost(body)
+            }
             if (type == "requestProfileTracks") {
                 deliverWebProfileTracks()
             }
@@ -1214,6 +1223,7 @@ class PostLoginWebActivity : ComponentActivity() {
                 val otherUid = body.optString("otherId")
                 val callerName = body.optString("callerName").takeIf { it.isNotBlank() }
                 val video = body.optBoolean("video", false)
+                val requestId = body.optString("requestId")
                 com.apptists.poplur2025.call.PoplurWebCallSignalling.startCall(
                     otherUid = otherUid,
                     callerName = callerName,
@@ -1224,6 +1234,7 @@ class PostLoginWebActivity : ComponentActivity() {
                             .put("type", "poplurCallStarted")
                             .put("callId", callId ?: "")
                             .put("ok", callId != null)
+                            .put("requestId", requestId)
                     )
                 }
                 return
@@ -2072,6 +2083,88 @@ class PostLoginWebActivity : ComponentActivity() {
             .addOnFailureListener { error ->
                 Log.w(TAG, "deliverWebProfilePosts failed", error)
             }
+    }
+
+    /**
+     * Deletes only a post owned by the currently authenticated account.
+     * JavaScript is an untrusted caller, so identifiers are bounded before
+     * becoming Firestore paths and ownership comes from the fetched document.
+     */
+    private fun deleteWebProfilePost(body: JSONObject) {
+        val requestId = boundedBridgeId(body.opt("requestId"))
+        val postId = boundedBridgeId(body.opt("postId"))
+        if (requestId == null || postId == null) {
+            deliverProfilePostDeleteResult(
+                requestId = requestId.orEmpty(),
+                postId = postId.orEmpty(),
+                ok = false,
+                error = "invalid_request",
+            )
+            return
+        }
+
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid == null) {
+            deliverProfilePostDeleteResult(requestId, postId, false, "signed_out")
+            return
+        }
+
+        val reference = FirebaseFirestore.getInstance().collection("posts").document(postId)
+        reference.get()
+            .addOnFailureListener {
+                deliverProfilePostDeleteResult(requestId, postId, false, "delete_failed")
+            }
+            .addOnSuccessListener { snapshot ->
+                if (!snapshot.exists()) {
+                    deliverProfilePostDeleteResult(requestId, postId, false, "not_found")
+                    return@addOnSuccessListener
+                }
+                if (snapshot.getString("userID") != uid) {
+                    deliverProfilePostDeleteResult(requestId, postId, false, "forbidden")
+                    return@addOnSuccessListener
+                }
+
+                // The Firestore row is authoritative. Media storage is not
+                // removed because legacy rows may point at arbitrary/shared
+                // URLs that this bridge cannot prove it owns.
+                reference.delete()
+                    .addOnSuccessListener {
+                        deliverProfilePostDeleteResult(requestId, postId, true)
+                    }
+                    .addOnFailureListener {
+                        deliverProfilePostDeleteResult(requestId, postId, false, "delete_failed")
+                    }
+            }
+    }
+
+    private fun boundedBridgeId(value: Any?): String? {
+        val id = value as? String ?: return null
+        if (id.isEmpty() || id.toByteArray(Charsets.UTF_8).size > 128) return null
+        if (id.any { character ->
+                character.code !in 0x21..0x7E || character == '/' || character == '\\'
+            }
+        ) return null
+        return id
+    }
+
+    private fun deliverProfilePostDeleteResult(
+        requestId: String,
+        postId: String,
+        ok: Boolean,
+        error: String? = null,
+    ) {
+        val payload = JSONObject()
+            .put("requestId", requestId)
+            .put("postId", postId)
+            .put("ok", ok)
+            .apply { if (error != null) put("error", error) }
+            .toString()
+        homeWebView.post {
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-native-profile-post-delete-result',{detail:$payload}));true;",
+                null,
+            )
+        }
     }
 
     /**

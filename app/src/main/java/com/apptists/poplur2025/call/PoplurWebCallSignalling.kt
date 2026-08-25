@@ -73,12 +73,15 @@ object PoplurWebCallSignalling {
     fun publishDescription(callId: String, type: String, sdp: String) {
         if (callId.isBlank()) return
         val key = if (type == "offer") "offer" else "answer"
+        val payload = hashMapOf<String, Any>(
+            key to mapOf("type" to type, "sdp" to sdp),
+        )
+        // startCall already writes ringing. A late offer must not regress a
+        // rendezvous the callee has already advanced to connected.
+        if (key == "answer") payload["status"] = "connected"
         db.collection("calls").document(callId)
             .set(
-                mapOf(
-                    key to mapOf("type" to type, "sdp" to sdp),
-                    "status" to if (key == "answer") "connected" else "ringing",
-                ),
+                payload,
                 SetOptions.merge(),
             )
     }
@@ -108,7 +111,7 @@ object PoplurWebCallSignalling {
     fun declineCall(callId: String) {
         if (callId.isBlank()) return
         db.collection("calls").document(callId)
-            .set(mapOf("status" to "declined"), SetOptions.merge())
+            .update("status", "declined")
     }
 
     fun acceptCall(callId: String) {
@@ -117,7 +120,7 @@ object PoplurWebCallSignalling {
         // very early caller ICE candidates can be lost.
         observe(callId)
         db.collection("calls").document(callId)
-            .set(mapOf("status" to "connected"), SetOptions.merge())
+            .update("status", "connected")
     }
 
     /** Relay the remote SDP, candidates and terminal call state to the WebView. */
@@ -179,8 +182,14 @@ object PoplurWebCallSignalling {
             .whereEqualTo("status", "ringing")
             .addSnapshotListener { snapshot, _ ->
                 snapshot?.documentChanges
-                    ?.filter { it.type == DocumentChange.Type.ADDED }
                     ?.forEach { change ->
+                        if (change.type == DocumentChange.Type.REMOVED) {
+                            emit("poplurCallIncomingUnavailable") {
+                                put("callId", change.document.id)
+                            }
+                            return@forEach
+                        }
+                        if (change.type != DocumentChange.Type.ADDED) return@forEach
                         val data = change.document.data
                         if (data["provider"] as? String != WEBRTC_PROVIDER) return@forEach
                         emit("poplurCallIncoming") {
