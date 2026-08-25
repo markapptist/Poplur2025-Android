@@ -2645,6 +2645,25 @@ class PostLoginWebActivity : ComponentActivity() {
                             document.getString("caption")?.takeIf { it.isNotBlank() }
                                 ?.let { put("caption", it) }
                             document.getLong("radius")?.let { put("radiusMeters", it) }
+                            document.getLong("viewCount")?.let { put("viewCount", it.coerceAtLeast(0)) }
+                            document.getLong("likeCount")?.let { put("likeCount", it.coerceAtLeast(0)) }
+                            document.getLong("commentCount")?.let { put("commentCount", it.coerceAtLeast(0)) }
+                            document.getLong("shareCount")?.let { put("shareCount", it.coerceAtLeast(0)) }
+                            when (document.getString("locationVisibility")) {
+                                "hidden" -> put("locationVisibility", "hidden")
+                                "approximate" -> {
+                                    val latitude = document.getDouble("latitude")
+                                    val longitude = document.getDouble("longitude")
+                                    if (latitude != null && longitude != null &&
+                                        latitude.isFinite() && longitude.isFinite() &&
+                                        kotlin.math.abs(latitude) <= 90 && kotlin.math.abs(longitude) <= 180
+                                    ) {
+                                        put("locationVisibility", "approximate")
+                                        put("originLatitude", latitude)
+                                        put("originLongitude", longitude)
+                                    }
+                                }
+                            }
                         })
                     }
                 val payload = JSONObject().put("posts", posts)
