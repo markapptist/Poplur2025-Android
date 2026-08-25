@@ -11,7 +11,9 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.graphics.BitmapFactory
+import android.graphics.Bitmap
 import android.media.AudioManager
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
@@ -73,8 +75,10 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
+import com.google.firebase.storage.StorageReference
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
@@ -82,6 +86,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.LinkedHashMap
 import java.util.UUID
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -981,6 +986,15 @@ class PostLoginWebActivity : ComponentActivity() {
     private fun uploadClayPost(body: JSONObject) {
         val requestId = body.optString("requestId")
         if (requestId.isBlank()) return
+        val postId = boundedBridgeId(body.opt("postId"))
+        if (postId == null || !postId.startsWith("post-") || postId.length < 21) {
+            sendUploadResult(requestId, false, "That post identity was invalid.")
+            return
+        }
+        if (!body.optBoolean("rightsAttested", false)) {
+            sendUploadResult(requestId, false, "Confirm that you have permission to share this media and music.")
+            return
+        }
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
             sendUploadResult(requestId, false, "You must be signed in before posting.")
@@ -993,21 +1007,28 @@ class PostLoginWebActivity : ComponentActivity() {
             return
         }
 
-        val storageRef = FirebaseStorage.getInstance().reference
-            .child("posts/${user.uid}/${System.currentTimeMillis()}.${if (kind == "video") "mp4" else "jpg"}")
+        val mediaStoragePath = "posts/${user.uid}/$postId.${if (kind == "video") "mp4" else "jpg"}"
+        val storageRef = FirebaseStorage.getInstance().reference.child(mediaStoragePath)
         val captureKey = Uri.parse(data).lastPathSegment
         val storedCapture = captureKey?.let { key ->
             synchronized(webCapturesLock) { webCaptures[key] }
         }
+        val mediaMetadata = StorageMetadata.Builder()
+            .setContentType(if (kind == "video") "video/mp4" else "image/jpeg")
+            .setCustomMetadata("ownerUID", user.uid)
+            .build()
         val upload = when {
-            storedCapture != null -> storageRef.putFile(storedCapture.uri)
+            storedCapture != null -> storageRef.putFile(storedCapture.uri, mediaMetadata)
             data.startsWith("data:") -> {
                 val encoded = data.substringAfter(',', "")
                 if (encoded.isBlank()) {
                     sendUploadResult(requestId, false, "That media could not be prepared.")
                     return
                 }
-                storageRef.putBytes(android.util.Base64.decode(encoded, android.util.Base64.DEFAULT))
+                storageRef.putBytes(
+                    android.util.Base64.decode(encoded, android.util.Base64.DEFAULT),
+                    mediaMetadata,
+                )
             }
             else -> {
                 sendUploadResult(requestId, false, "That media is no longer available on this device.")
@@ -1015,36 +1036,152 @@ class PostLoginWebActivity : ComponentActivity() {
             }
         }
 
-        upload.addOnFailureListener { error ->
+        sendUploadProgress(requestId, 0.04, "PREPARING")
+        upload.addOnProgressListener { snapshot ->
+            if (snapshot.totalByteCount > 0) {
+                val transferred = snapshot.bytesTransferred.toDouble() / snapshot.totalByteCount.toDouble()
+                sendUploadProgress(requestId, 0.08 + transferred.coerceIn(0.0, 1.0) * 0.72, "UPLOADING")
+            }
+        }.addOnFailureListener { error ->
             sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be uploaded.")
         }.addOnSuccessListener {
             storageRef.downloadUrl.addOnFailureListener { error ->
+                storageRef.delete()
                 sendUploadResult(requestId, false, error.localizedMessage ?: "Your uploaded media could not be read.")
             }.addOnSuccessListener { mediaUrl ->
-                val post = hashMapOf<String, Any>(
-                    "userID" to user.uid,
-                    "username" to (user.displayName ?: user.email ?: "Poplur user"),
-                    "mediaURL" to mediaUrl.toString(),
-                    "mediaType" to kind,
-                    "viewCount" to 0,
-                    "radius" to (body.optDouble("radiusKm", 5.0) * 1000).toInt(),
-                    "createdAt" to FieldValue.serverTimestamp()
-                )
-                if (body.has("latitude") && body.has("longitude")) {
-                    post["latitude"] = body.optDouble("latitude")
-                    post["longitude"] = body.optDouble("longitude")
+                val posterBytes = if (kind == "video" && storedCapture != null) {
+                    videoPosterJpeg(storedCapture.uri)
+                } else null
+                if (posterBytes == null) {
+                    saveClayPost(
+                        body = body,
+                        requestId = requestId,
+                        postId = postId,
+                        mediaUrl = mediaUrl.toString(),
+                        mediaStoragePath = mediaStoragePath,
+                        mediaReference = storageRef,
+                        posterUrl = null,
+                        posterStoragePath = null,
+                        posterReference = null,
+                        kind = kind,
+                    )
+                    return@addOnSuccessListener
                 }
-                body.optString("caption").takeIf { it.isNotBlank() }?.let { post["caption"] = it }
-                body.optString("channelId").takeIf { it.isNotBlank() }?.let { post["channelId"] = it }
-                body.optString("filterId").takeIf { it.isNotBlank() }?.let { post["filterId"] = it }
-                if (body.optBoolean("usedAI")) post["usedAI"] = true
 
-                FirebaseFirestore.getInstance().collection("posts").add(post)
-                    .addOnSuccessListener { sendUploadResult(requestId, true) }
-                    .addOnFailureListener { error ->
-                        sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be saved.")
+                val posterStoragePath = "posts/${user.uid}/$postId-poster.jpg"
+                val posterRef = FirebaseStorage.getInstance().reference.child(posterStoragePath)
+                val posterMetadata = StorageMetadata.Builder().setContentType("image/jpeg").build()
+                sendUploadProgress(requestId, 0.84, "MAKING PREVIEW")
+                posterRef.putBytes(posterBytes, posterMetadata)
+                    .addOnFailureListener {
+                        // A poster improves startup, but failure to make one
+                        // must not throw away an otherwise valid recording.
+                        saveClayPost(
+                            body, requestId, postId, mediaUrl.toString(), mediaStoragePath,
+                            storageRef, null, null, null, kind,
+                        )
+                    }
+                    .addOnSuccessListener {
+                        posterRef.downloadUrl
+                            .addOnFailureListener {
+                                posterRef.delete()
+                                saveClayPost(
+                                    body, requestId, postId, mediaUrl.toString(), mediaStoragePath,
+                                    storageRef, null, null, null, kind,
+                                )
+                            }
+                            .addOnSuccessListener { posterUrl ->
+                                saveClayPost(
+                                    body, requestId, postId, mediaUrl.toString(), mediaStoragePath,
+                                    storageRef, posterUrl.toString(), posterStoragePath, posterRef, kind,
+                                )
+                            }
                     }
             }
+        }
+    }
+
+    private fun saveClayPost(
+        body: JSONObject,
+        requestId: String,
+        postId: String,
+        mediaUrl: String,
+        mediaStoragePath: String,
+        mediaReference: StorageReference,
+        posterUrl: String?,
+        posterStoragePath: String?,
+        posterReference: StorageReference?,
+        kind: String,
+    ) {
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            mediaReference.delete()
+            posterReference?.delete()
+            sendUploadResult(requestId, false, "Your sign-in expired before the post was saved.")
+            return
+        }
+        sendUploadProgress(requestId, 0.94, "SAVING POST")
+        val post = hashMapOf<String, Any>(
+            "userID" to user.uid,
+            "username" to (user.displayName ?: user.email ?: "Poplur user"),
+            "mediaURL" to mediaUrl,
+            "playbackURL" to mediaUrl,
+            "mediaStoragePath" to mediaStoragePath,
+            "mediaType" to kind,
+            "viewCount" to 0,
+            "radius" to (body.optDouble("radiusKm", 5.0) * 1000).toInt(),
+            "audience" to "public",
+            "locationVisibility" to if (body.optString("locationVisibility") == "exact") "exact" else "approximate",
+            "processingStatus" to "ready",
+            "status" to "published",
+            "schemaVersion" to 2,
+            "createdAt" to FieldValue.serverTimestamp(),
+            "createdAtMillis" to System.currentTimeMillis(),
+        )
+        if (body.has("latitude") && body.has("longitude")) {
+            post["latitude"] = body.optDouble("latitude")
+            post["longitude"] = body.optDouble("longitude")
+        }
+        posterUrl?.let { post["posterURL"] = it }
+        posterStoragePath?.let { post["posterStoragePath"] = it }
+        body.optString("caption").takeIf { it.isNotBlank() }?.let { post["caption"] = it }
+        body.optString("channelId").takeIf { it.isNotBlank() }?.let { post["channelId"] = it }
+        body.optString("filterId").takeIf { it.isNotBlank() }?.let { post["filterId"] = it }
+        body.optString("rightsAttestationVersion").takeIf { it.isNotBlank() }?.let {
+            post["rightsAttestationVersion"] = it
+            post["rightsAttestedAtMillis"] = System.currentTimeMillis()
+        }
+        if (body.optBoolean("usedAI")) post["usedAI"] = true
+
+        FirebaseFirestore.getInstance().collection("posts").document(postId).set(post)
+            .addOnSuccessListener {
+                sendUploadProgress(requestId, 1.0, "POSTED")
+                sendUploadResult(requestId, true)
+            }
+            .addOnFailureListener { error ->
+                // Do not leave paid Storage occupied by a post nobody can
+                // discover or delete from the product.
+                mediaReference.delete()
+                posterReference?.delete()
+                sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be saved.")
+            }
+    }
+
+    private fun videoPosterJpeg(uri: Uri): ByteArray? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(this, uri)
+            val bitmap = retriever.getFrameAtTime(100_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: return null
+            val output = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, output)
+            bitmap.recycle()
+            output.toByteArray()
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "Could not create video poster", error)
+            null
+        } finally {
+            try { retriever.release() } catch (_: RuntimeException) { }
         }
     }
 
@@ -1201,6 +1338,9 @@ class PostLoginWebActivity : ComponentActivity() {
             }
             if (type == "requestProfilePosts") {
                 deliverWebProfilePosts()
+            }
+            if (type == "requestFeedPosts") {
+                deliverWebFeedPosts()
             }
             if (type == "deleteProfilePost") {
                 deleteWebProfilePost(body)
@@ -2085,6 +2225,56 @@ class PostLoginWebActivity : ComponentActivity() {
             }
     }
 
+    private fun deliverWebFeedPosts() {
+        if (FirebaseAuth.getInstance().currentUser == null) return
+        FirebaseFirestore.getInstance().collection("posts")
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(96)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val posts = JSONArray()
+                snapshot.documents
+                    .sortedByDescending { document ->
+                        document.getLong("createdAtMillis")
+                            ?: document.getTimestamp("createdAt")?.toDate()?.time
+                            ?: 0L
+                    }
+                    .forEach { document ->
+                        if ((document.getString("audience") ?: "public") != "public") return@forEach
+                        if ((document.getString("status") ?: "published") != "published") return@forEach
+                        val mediaURL = (document.getString("playbackURL")
+                            ?: document.getString("mediaURL"))?.trim().orEmpty()
+                        if (mediaURL.isBlank()) return@forEach
+                        posts.put(JSONObject().apply {
+                            put("id", document.id)
+                            put("mediaURL", mediaURL)
+                            put("mediaType", document.getString("mediaType") ?: "video")
+                            put("username", document.getString("username") ?: "Poplur user")
+                            put("channelId", document.getString("channelId") ?: "live")
+                            put(
+                                "createdAtMillis",
+                                document.getLong("createdAtMillis")
+                                    ?: document.getTimestamp("createdAt")?.toDate()?.time
+                                    ?: 0L,
+                            )
+                            document.getString("posterURL")?.takeIf { it.isNotBlank() }
+                                ?.let { put("posterURL", it) }
+                            document.getString("caption")?.takeIf { it.isNotBlank() }
+                                ?.let { put("caption", it) }
+                            document.getLong("radius")?.let { put("radiusMeters", it) }
+                        })
+                    }
+                val payload = JSONObject().put("posts", posts)
+                homeWebView.post {
+                    homeWebView.evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('poplur-native-feed-posts',{detail:$payload}));true;",
+                        null,
+                    )
+                }
+            }
+            .addOnFailureListener { error -> Log.w(TAG, "deliverWebFeedPosts failed", error) }
+    }
+
     /**
      * Deletes only a post owned by the currently authenticated account.
      * JavaScript is an untrusted caller, so identifiers are bounded before
@@ -2119,14 +2309,14 @@ class PostLoginWebActivity : ComponentActivity() {
                     deliverProfilePostDeleteResult(requestId, postId, false, "not_found")
                     return@addOnSuccessListener
                 }
-                if (snapshot.getString("userID") != uid) {
+                if ((snapshot.getString("userID") ?: snapshot.getString("userId")) != uid) {
                     deliverProfilePostDeleteResult(requestId, postId, false, "forbidden")
                     return@addOnSuccessListener
                 }
 
-                // The Firestore row is authoritative. Media storage is not
-                // removed because legacy rows may point at arbitrary/shared
-                // URLs that this bridge cannot prove it owns.
+                listOf("mediaStoragePath", "posterStoragePath")
+                    .mapNotNull { key -> ownedPostStoragePath(snapshot.getString(key), uid) }
+                    .forEach { path -> FirebaseStorage.getInstance().reference.child(path).delete() }
                 reference.delete()
                     .addOnSuccessListener {
                         deliverProfilePostDeleteResult(requestId, postId, true)
@@ -2145,6 +2335,14 @@ class PostLoginWebActivity : ComponentActivity() {
             }
         ) return null
         return id
+    }
+
+    private fun ownedPostStoragePath(value: String?, uid: String): String? {
+        val path = value ?: return null
+        val prefix = "posts/$uid/"
+        if (path.length > 240 || !path.startsWith(prefix) || path.contains("..")) return null
+        val basename = path.removePrefix(prefix)
+        return path.takeIf { basename.isNotEmpty() && !basename.contains('/') }
     }
 
     private fun deliverProfilePostDeleteResult(
