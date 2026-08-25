@@ -115,7 +115,12 @@
             android:launchMode="singleTask"
             android:theme="@style/Theme.Poplur.PreloginWeb"
             android:screenOrientation="portrait"
-            android:windowSoftInputMode="adjustResize" />
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="com.apptists.poplur2025.OPEN_DM" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
         <!-- Clay web map (Phase 1 embed) — the Mapbox GL JS clay map from
              poplur-clay-map running in a WebView, same bundle as iOS -->

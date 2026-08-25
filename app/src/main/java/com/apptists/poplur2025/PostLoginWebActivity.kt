@@ -92,6 +92,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.max
 
@@ -159,6 +160,7 @@ class PostLoginWebActivity : ComponentActivity() {
     private var pendingWebMediaPermissionRequest: PermissionRequest? = null
     private var hideVolumeRunnable: Runnable? = null
     private var revealRunnable: Runnable? = null
+    private var pendingDMThreadId: String? = null
 
     private val darkHome = 0xFF050407.toInt()
     private val darkLoading = 0xFF0A0709.toInt()
@@ -244,6 +246,8 @@ class PostLoginWebActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingDMThreadId = intent.getStringExtra("threadId")
+            ?.takeIf { it.isNotBlank() && it.length <= 200 }
 
         // With MainActivity routing straight to the web surfaces (USE_WEB_SURFACES),
         // PoplurRoot no longer runs to start this — keep incoming calls working.
@@ -1101,6 +1105,91 @@ class PostLoginWebActivity : ComponentActivity() {
         }
     }
 
+    private suspend fun uploadDMAttachment(body: JSONObject) {
+        val user = FirebaseAuth.getInstance().currentUser
+        val otherId = body.optString("otherId")
+        val threadId = body.optString("threadId")
+        val clientMessageId = body.optString("clientMessageId")
+        val kind = body.optString("kind")
+        val source = body.optString("source")
+        val label = when (kind) { "image" -> "Photo"; "video" -> "Video"; else -> "Voice message" }
+        suspend fun finish(ok: Boolean) {
+            pushWebMessage(
+                JSONObject()
+                    .put("type", if (ok) "poplurDMSent" else "poplurDMSendFailed")
+                    .put("clientMessageId", clientMessageId)
+                    .apply { if (!ok) put("text", label) }
+            )
+        }
+        if (user == null || otherId.isBlank() || otherId == user.uid
+            || threadId != PoplurDirectMessages.threadId(user.uid, otherId)
+            || clientMessageId.length !in 20..100
+            || kind !in setOf("image", "video", "audio")
+        ) {
+            finish(false)
+            return
+        }
+
+        val capture = Uri.parse(source).lastPathSegment?.let { key ->
+            synchronized(webCapturesLock) { webCaptures[key] }
+        }
+        val inlineHeader = source.substringBefore(',', "")
+        val inlineBytes = if (source.startsWith("data:") && inlineHeader.endsWith(";base64")) {
+            runCatching { Base64.decode(source.substringAfter(','), Base64.DEFAULT) }.getOrNull()
+        } else null
+        val mimeType = capture?.mimeType
+            ?: inlineHeader.removePrefix("data:").removeSuffix(";base64")
+        if (!mimeType.lowercase().startsWith("$kind/")) {
+            finish(false)
+            return
+        }
+        val limit = when (kind) {
+            "image" -> 12L * 1024L * 1024L
+            "audio" -> 8L * 1024L * 1024L
+            else -> 40L * 1024L * 1024L
+        }
+        val size = capture?.let {
+            runCatching { contentResolver.openAssetFileDescriptor(it.uri, "r")?.use { fd -> fd.length } }
+                .getOrNull()
+        } ?: inlineBytes?.size?.toLong()
+        if (size == null || size <= 0 || size >= limit || (capture == null && inlineBytes == null)) {
+            finish(false)
+            return
+        }
+
+        val extension = when {
+            mimeType.contains("png") -> "png"
+            mimeType.contains("webm") -> "webm"
+            mimeType.contains("quicktime") -> "mov"
+            kind == "audio" -> "m4a"
+            kind == "video" -> "mp4"
+            else -> "jpg"
+        }
+        val reference = FirebaseStorage.getInstance().reference
+            .child("dmMedia/$threadId/${user.uid}/$clientMessageId.$extension")
+        val metadata = StorageMetadata.Builder().setContentType(mimeType.lowercase()).build()
+        try {
+            if (capture != null) reference.putFile(capture.uri, metadata).await()
+            else reference.putBytes(inlineBytes!!, metadata).await()
+            val mediaUrl = reference.downloadUrl.await().toString()
+            val ok = PoplurDirectMessages.sendAttachment(
+                otherUid = otherId,
+                requestedThreadId = threadId,
+                mediaUrl = mediaUrl,
+                mimeType = mimeType,
+                kind = kind,
+                durationMillis = body.optLong("durationMillis").takeIf { body.has("durationMillis") },
+                clientMessageId = clientMessageId
+            )
+            if (!ok) runCatching { reference.delete().await() }
+            finish(ok)
+        } catch (error: Exception) {
+            Log.w(TAG, "DM attachment upload failed", error)
+            runCatching { reference.delete().await() }
+            finish(false)
+        }
+    }
+
     private fun saveClayPost(
         body: JSONObject,
         requestId: String,
@@ -1245,6 +1334,7 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "homeReady" || type == "mapReady") {
                 runOnUiThread {
                     homeReady.value = true
+                    deliverPendingDMDeepLink()
                     revealIfReady()
                 }
             }
@@ -1494,6 +1584,21 @@ class PostLoginWebActivity : ComponentActivity() {
                         PoplurDirectMessages.setTyping(threadId, typing)
                     }
                 }
+            }
+            if (type == "deleteDMThread") {
+                val threadId = body.optString("threadId")
+                lifecycleScope.launch {
+                    val ok = PoplurDirectMessages.hideThread(threadId)
+                    pushWebMessage(
+                        JSONObject()
+                            .put("type", "poplurDMThreadHidden")
+                            .put("threadId", threadId)
+                            .put("ok", ok)
+                    )
+                }
+            }
+            if (type == "sendDMAttachment") {
+                lifecycleScope.launch { uploadDMAttachment(body) }
             }
             if (type == "sendDM") {
                 val otherId = body.optString("otherId")
@@ -1968,6 +2073,27 @@ class PostLoginWebActivity : ComponentActivity() {
         homeWebView.post {
             homeWebView.evaluateJavascript("window.postMessage($payload,'*');true;", null)
         }
+    }
+
+    private fun deliverPendingDMDeepLink() {
+        if (!homeReady.value) return
+        val threadId = pendingDMThreadId
+            ?.takeIf { it.isNotBlank() && it.length <= 200 }
+            ?: return
+        pendingDMThreadId = null
+        pushWebMessage(
+            JSONObject()
+                .put("type", "poplurOpenDM")
+                .put("threadId", threadId)
+        )
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingDMThreadId = intent.getStringExtra("threadId")
+            ?.takeIf { it.isNotBlank() && it.length <= 200 }
+        deliverPendingDMDeepLink()
     }
 
     private fun deliverProfileTheme(

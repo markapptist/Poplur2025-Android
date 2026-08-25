@@ -85,7 +85,14 @@ object PoplurDirectMessages {
                     @Suppress("UNCHECKED_CAST")
                     val readAtBy = document.get("readAtBy") as? Map<String, Timestamp>
                     val readAt = readAtBy?.get(me)?.toDate()?.time ?: 0L
-                    val unread = if (document.getString("lastSenderId") != me && updatedAt > readAt) 1 else 0
+                    @Suppress("UNCHECKED_CAST")
+                    val hiddenAtBy = document.get("hiddenAtBy") as? Map<String, Timestamp>
+                    val hiddenAt = hiddenAtBy?.get(me)?.toDate()?.time ?: 0L
+                    if (hiddenAt >= updatedAt) return@forEach
+                    @Suppress("UNCHECKED_CAST")
+                    val unreadBy = document.get("unreadBy") as? Map<String, Number>
+                    val unread = unreadBy?.get(me)?.toInt()
+                        ?: if (document.getString("lastSenderId") != me && updatedAt > readAt) 1 else 0
                     threads.put(JSONObject().apply {
                         put("id", document.id)
                         put("otherId", other)
@@ -96,7 +103,7 @@ object PoplurDirectMessages {
                             document.getString("lastMessage")?.takeIf { it.isNotBlank() }
                                 ?: "No messages yet"
                         )
-                        put("unread", unread)
+                        put("unread", unread.coerceAtLeast(0))
                         put("updatedAtMillis", updatedAt)
                     })
                 }
@@ -135,6 +142,10 @@ object PoplurDirectMessages {
                         put("text", document.getString("text").orEmpty())
                         put("createdAtMillis", document.getTimestamp("createdAt")?.toDate()?.time ?: 0L)
                         put("pending", document.metadata.hasPendingWrites())
+                        document.getString("kind")?.let { put("kind", it) }
+                        document.getString("mediaURL")?.let { put("mediaURL", it) }
+                        document.getString("mimeType")?.let { put("mimeType", it) }
+                        document.getLong("durationMillis")?.let { put("durationMillis", it) }
                     })
                 }
                 onChange(messages)
@@ -205,34 +216,55 @@ object PoplurDirectMessages {
         val trimmed = text.trim()
         if (trimmed.isEmpty() || trimmed.length > 2000) return false
 
-        val threadRef = db.collection("dmThreads").document(threadId(me, otherUid))
-        val messageRef = threadRef.collection("messages").document(clientMessageId)
+        return commitMessage(
+            otherUid,
+            clientMessageId,
+            trimmed,
+            mapOf("text" to trimmed, "kind" to "text")
+        )
+    }
+
+    suspend fun sendAttachment(
+        otherUid: String,
+        requestedThreadId: String,
+        mediaUrl: String,
+        mimeType: String,
+        kind: String,
+        durationMillis: Long?,
+        clientMessageId: String
+    ): Boolean {
+        val me = uid ?: return false
+        if (otherUid == me || requestedThreadId != threadId(me, otherUid)
+            || !validMessageId(clientMessageId) || kind !in setOf("image", "video", "audio")
+            || !mediaUrl.startsWith("https://") || !mimeType.lowercase().startsWith("$kind/")
+        ) return false
+        val label = when (kind) { "image" -> "Photo"; "video" -> "Video"; else -> "Voice message" }
+        val fields = mutableMapOf<String, Any>(
+            "text" to label,
+            "kind" to kind,
+            "mediaURL" to mediaUrl,
+            "mimeType" to mimeType.lowercase()
+        )
+        if (kind == "audio" && durationMillis != null) {
+            fields["durationMillis"] = durationMillis.coerceIn(0L, 60_000L)
+        }
+        return commitMessage(otherUid, clientMessageId, label, fields)
+    }
+
+    suspend fun hideThread(threadId: String): Boolean {
+        val me = uid ?: return false
+        if (threadId.isEmpty() || threadId.length > 200) return false
         return try {
-            if (messageRef.get().await().exists()) return true
-            val batch = db.batch()
-            batch.set(
-                threadRef,
-                mapOf(
-                    "participants" to listOf(me, otherUid).sorted(),
-                    "lastMessage" to trimmed,
-                    "lastSenderId" to me,
-                    "updatedAt" to FieldValue.serverTimestamp()
-                ),
-                SetOptions.merge()
-            )
-            batch.set(
-                messageRef,
-                mapOf(
-                    "senderId" to me,
-                    "text" to trimmed,
-                    "clientMessageId" to clientMessageId,
-                    "createdAt" to FieldValue.serverTimestamp()
+            db.collection("dmThreads").document(threadId)
+                .update(
+                    FieldPath.of("hiddenAtBy", me), FieldValue.serverTimestamp(),
+                    FieldPath.of("unreadBy", me), 0
                 )
-            )
-            batch.commit().await()
+                .await()
+            if (openThreadId == threadId) closeThread()
             true
         } catch (error: Exception) {
-            Log.w(TAG, "send failed", error)
+            Log.w(TAG, "hide failed", error)
             false
         }
     }
@@ -255,7 +287,10 @@ object PoplurDirectMessages {
         if (threadId != openThreadId) return
         try {
             db.collection("dmThreads").document(threadId)
-                .update(FieldPath.of("readAtBy", me), FieldValue.serverTimestamp())
+                .update(
+                    FieldPath.of("readAtBy", me), FieldValue.serverTimestamp(),
+                    FieldPath.of("unreadBy", me), 0
+                )
                 .await()
         } catch (error: Exception) {
             Log.w(TAG, "read receipt failed", error)
@@ -264,6 +299,43 @@ object PoplurDirectMessages {
 
     private fun validMessageId(value: String): Boolean =
         value.length in 20..100 && value.matches(Regex("^msg-[A-Za-z0-9-]{16,96}$"))
+
+    private suspend fun commitMessage(
+        otherUid: String,
+        clientMessageId: String,
+        preview: String,
+        fields: Map<String, Any>
+    ): Boolean {
+        val me = uid ?: return false
+        val threadRef = db.collection("dmThreads").document(threadId(me, otherUid))
+        val messageRef = threadRef.collection("messages").document(clientMessageId)
+        return try {
+            if (messageRef.get().await().exists()) return true
+            val batch = db.batch()
+            batch.set(
+                threadRef,
+                mapOf(
+                    "participants" to listOf(me, otherUid).sorted(),
+                    "lastMessage" to preview,
+                    "lastSenderId" to me,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                    "unreadBy" to mapOf(me to 0, otherUid to FieldValue.increment(1))
+                ),
+                SetOptions.merge()
+            )
+            val message = fields.toMutableMap().apply {
+                put("senderId", me)
+                put("clientMessageId", clientMessageId)
+                put("createdAt", FieldValue.serverTimestamp())
+            }
+            batch.set(messageRef, message)
+            batch.commit().await()
+            true
+        } catch (error: Exception) {
+            Log.w(TAG, "send failed", error)
+            false
+        }
+    }
 
     // ---- Names -------------------------------------------------------------
 
