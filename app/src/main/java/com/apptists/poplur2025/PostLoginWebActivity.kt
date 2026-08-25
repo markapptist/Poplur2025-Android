@@ -76,6 +76,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.Query
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
 import com.google.firebase.storage.StorageReference
@@ -95,6 +96,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 /**
  * Post-login host for the approved web flow.
@@ -1210,49 +1212,99 @@ class PostLoginWebActivity : ComponentActivity() {
             return
         }
         sendUploadProgress(requestId, 0.94, "SAVING POST")
-        val post = hashMapOf<String, Any>(
-            "userID" to user.uid,
-            "username" to (user.displayName ?: user.email ?: "Poplur user"),
-            "mediaURL" to mediaUrl,
-            "playbackURL" to mediaUrl,
-            "mediaStoragePath" to mediaStoragePath,
-            "mediaType" to kind,
-            "viewCount" to 0,
-            "radius" to (body.optDouble("radiusKm", 5.0) * 1000).toInt(),
-            "audience" to "public",
-            "locationVisibility" to if (body.optString("locationVisibility") == "exact") "exact" else "approximate",
-            "processingStatus" to "ready",
-            "status" to "published",
-            "schemaVersion" to 2,
-            "createdAt" to FieldValue.serverTimestamp(),
-            "createdAtMillis" to System.currentTimeMillis(),
-        )
-        if (body.has("latitude") && body.has("longitude")) {
-            post["latitude"] = body.optDouble("latitude")
-            post["longitude"] = body.optDouble("longitude")
-        }
-        posterUrl?.let { post["posterURL"] = it }
-        posterStoragePath?.let { post["posterStoragePath"] = it }
-        body.optString("caption").takeIf { it.isNotBlank() }?.let { post["caption"] = it }
-        body.optString("channelId").takeIf { it.isNotBlank() }?.let { post["channelId"] = it }
-        body.optString("filterId").takeIf { it.isNotBlank() }?.let { post["filterId"] = it }
-        body.optString("rightsAttestationVersion").takeIf { it.isNotBlank() }?.let {
-            post["rightsAttestationVersion"] = it
-            post["rightsAttestedAtMillis"] = System.currentTimeMillis()
-        }
-        if (body.optBoolean("usedAI")) post["usedAI"] = true
+        val targetLatitude = body.optDouble("targetLatitude", Double.NaN)
+        val targetLongitude = body.optDouble("targetLongitude", Double.NaN)
+        val hasTarget = targetLatitude.isFinite() && targetLongitude.isFinite()
+            && kotlin.math.abs(targetLatitude) <= 90
+            && kotlin.math.abs(targetLongitude) <= 180
+        val database = FirebaseFirestore.getInstance()
+        val userReference = database.collection("users").document(user.uid)
 
-        FirebaseFirestore.getInstance().collection("posts").document(postId).set(post)
-            .addOnSuccessListener {
-                sendUploadProgress(requestId, 1.0, "POSTED")
-                sendUploadResult(requestId, true)
+        fun commitPost(accountHidesOrigin: Boolean) {
+            val locationVisibility = if (
+                hasTarget
+                && !accountHidesOrigin
+                && body.optString("locationVisibility") != "hidden"
+            ) "approximate" else "hidden"
+            val post = hashMapOf<String, Any>(
+                "userID" to user.uid,
+                "username" to (user.displayName ?: user.email ?: "Poplur user"),
+                "mediaURL" to mediaUrl,
+                "playbackURL" to mediaUrl,
+                "mediaStoragePath" to mediaStoragePath,
+                "mediaType" to kind,
+                "viewCount" to 0,
+                "radius" to (body.optDouble("radiusKm", 5.0) * 1000).toInt(),
+                "audience" to "public",
+                "locationVisibility" to locationVisibility,
+                "processingStatus" to "ready",
+                "status" to "published",
+                "schemaVersion" to 2,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "createdAtMillis" to System.currentTimeMillis(),
+            )
+            if (locationVisibility == "approximate") {
+                val latitudeCell = (targetLatitude * 1_000).roundToInt()
+                val longitudeCell = (targetLongitude * 1_000).roundToInt()
+                post["latitude"] = latitudeCell / 1_000.0
+                post["longitude"] = longitudeCell / 1_000.0
+                post["latitudeCell"] = latitudeCell
+                post["longitudeCell"] = longitudeCell
+            }
+            posterUrl?.let { post["posterURL"] = it }
+            posterStoragePath?.let { post["posterStoragePath"] = it }
+            body.optString("caption").takeIf { it.isNotBlank() }?.let { post["caption"] = it }
+            body.optString("channelId").takeIf { it.isNotBlank() }?.let { post["channelId"] = it }
+            body.optString("filterId").takeIf { it.isNotBlank() }?.let { post["filterId"] = it }
+            body.optString("rightsAttestationVersion").takeIf { it.isNotBlank() }?.let {
+                post["rightsAttestationVersion"] = it
+                post["rightsAttestedAtMillis"] = System.currentTimeMillis()
+            }
+            if (body.optBoolean("usedAI")) post["usedAI"] = true
+
+            val batch = database.batch()
+            batch.set(database.collection("posts").document(postId), post)
+            if (hasTarget) {
+                batch.set(
+                    userReference.collection("postLocations").document(postId),
+                    mapOf(
+                        "latitude" to targetLatitude,
+                        "longitude" to targetLongitude,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "source" to "post-upload",
+                    ),
+                    SetOptions.merge(),
+                )
+            }
+            batch.commit()
+                .addOnSuccessListener {
+                    sendUploadProgress(requestId, 1.0, "POSTED")
+                    sendUploadResult(requestId, true)
+                }
+                .addOnFailureListener { error ->
+                    // Do not leave paid Storage occupied by a post nobody can
+                    // discover or delete from the product.
+                    mediaReference.delete()
+                    posterReference?.delete()
+                    sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be saved.")
+                }
+        }
+
+        userReference.get()
+            .addOnSuccessListener { account ->
+                commitPost(
+                    account.getBoolean("privateAccount") == true
+                        || account.getBoolean("ghostMode") == true,
+                )
             }
             .addOnFailureListener { error ->
-                // Do not leave paid Storage occupied by a post nobody can
-                // discover or delete from the product.
                 mediaReference.delete()
                 posterReference?.delete()
-                sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be saved.")
+                sendUploadResult(
+                    requestId,
+                    false,
+                    error.localizedMessage ?: "Privacy could not be confirmed before posting.",
+                )
             }
     }
 
@@ -1326,6 +1378,103 @@ class PostLoginWebActivity : ComponentActivity() {
         homeWebView.postDelayed(hideVolumeRunnable!!, VOLUME_HIDE_MS)
     }
 
+    private fun requestNotificationsForWeb() {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: run {
+            deliverNotificationsToWeb(JSONArray())
+            return
+        }
+        FirebaseFirestore.getInstance().collection("users").document(uid)
+            .collection("notifications")
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(80)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val rows = JSONArray()
+                snapshot.documents.forEach { document ->
+                    if (document.getBoolean("isDismissed") == true) return@forEach
+                    val row = JSONObject()
+                        .put("id", document.getString("id") ?: document.id)
+                        .put("kind", document.getString("kind") ?: "engagement")
+                        .put("title", document.getString("title") ?: "Poplur")
+                        .put("detail", document.getString("detail") ?: "New activity on Poplur")
+                        .put("createdAtMillis", document.getTimestamp("createdAt")?.toDate()?.time
+                            ?: System.currentTimeMillis())
+                        .put("unread", document.getBoolean("isUnread") != false)
+                    document.getString("actorHandle")?.let { row.put("actorHandle", it) }
+                    document.getString("postId")?.let { row.put("postId", it) }
+                    document.getString("threadId")?.let { row.put("threadId", it) }
+                    rows.put(row)
+                }
+                deliverNotificationsToWeb(rows)
+            }
+            .addOnFailureListener { error ->
+                Log.w(TAG, "notification inbox refresh failed", error)
+                deliverNotificationsToWeb(JSONArray())
+            }
+    }
+
+    private fun deliverNotificationsToWeb(rows: JSONArray) {
+        val payload = JSONObject()
+            .put("type", "poplurNotifications")
+            .put("notifications", rows)
+            .toString()
+        homeWebView.post {
+            homeWebView.evaluateJavascript("window.postMessage($payload,'*');true;", null)
+        }
+    }
+
+    private fun updateNotificationInbox(
+        ids: List<String>? = null,
+        markRead: Boolean = false,
+        dismiss: Boolean = false,
+    ) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val inbox = FirebaseFirestore.getInstance().collection("users").document(uid)
+            .collection("notifications")
+        val selected = ids?.filter { it.isNotBlank() }?.distinct()
+        if (selected != null) {
+            if (selected.isEmpty()) return
+            val batch = FirebaseFirestore.getInstance().batch()
+            selected.forEach { id ->
+                val fields = mutableMapOf<String, Any>()
+                if (markRead) {
+                    fields["isUnread"] = false
+                    fields["readAt"] = FieldValue.serverTimestamp()
+                }
+                if (dismiss) {
+                    fields["isDismissed"] = true
+                    fields["dismissedAt"] = FieldValue.serverTimestamp()
+                }
+                batch.update(inbox.document(id), fields)
+            }
+            batch.commit()
+                .addOnSuccessListener { requestNotificationsForWeb() }
+                .addOnFailureListener { error -> Log.w(TAG, "notification inbox update failed", error) }
+            return
+        }
+
+        inbox.orderBy("createdAt", Query.Direction.DESCENDING).limit(80).get()
+            .addOnSuccessListener { snapshot ->
+                val batch = FirebaseFirestore.getInstance().batch()
+                snapshot.documents.forEach { document ->
+                    val fields = mutableMapOf<String, Any>()
+                    if (markRead && document.getBoolean("isUnread") != false) {
+                        fields["isUnread"] = false
+                        fields["readAt"] = FieldValue.serverTimestamp()
+                    }
+                    if (dismiss && document.getBoolean("isDismissed") != true) {
+                        fields["isDismissed"] = true
+                        fields["dismissedAt"] = FieldValue.serverTimestamp()
+                    }
+                    if (fields.isNotEmpty()) batch.update(document.reference, fields)
+                }
+                batch.commit()
+                    .addOnSuccessListener { requestNotificationsForWeb() }
+                    .addOnFailureListener { error -> Log.w(TAG, "notification inbox batch failed", error) }
+            }
+            .addOnFailureListener { error -> Log.w(TAG, "notification inbox query failed", error) }
+    }
+
     inner class Bridge {
         @JavascriptInterface
         fun onEvent(json: String) {
@@ -1379,6 +1528,23 @@ class PostLoginWebActivity : ComponentActivity() {
                 runOnUiThread {
                     NotificationManagerCompat.from(this@PostLoginWebActivity).cancelAll()
                 }
+                updateNotificationInbox(markRead = true)
+            }
+            if (type == "notificationsRequested") {
+                requestNotificationsForWeb()
+            }
+            if (type == "notificationDismissed") {
+                val id = body.optString("id")
+                if (id.isNotBlank()) updateNotificationInbox(ids = listOf(id), dismiss = true)
+            }
+            if (type == "notificationsCleared") {
+                val rows = body.optJSONArray("ids")
+                val ids = buildList {
+                    if (rows != null) for (index in 0 until rows.length()) {
+                        rows.optString(index).takeIf { it.isNotBlank() }?.let(::add)
+                    }
+                }
+                updateNotificationInbox(ids = ids, dismiss = true)
             }
             // The bundled WebView cannot use Firebase directly. Hand it a
             // short-lived ID token on demand for authenticated Poplur tools;
@@ -1399,6 +1565,15 @@ class PostLoginWebActivity : ComponentActivity() {
             }
             if (type == "requestProfile") {
                 deliverWebProfile()
+            }
+            if (type == "requestAccountPrivacy") {
+                deliverAccountPrivacy()
+            }
+            if (type == "accountPrivacyChanged") {
+                changeAccountPrivacy(
+                    privateAccount = body.optBoolean("privateAccount", false),
+                    ghostMode = body.optBoolean("ghostMode", false),
+                )
             }
             if (type == "saveProfilePhoto") {
                 val payload = body.optJSONObject("detail") ?: body
@@ -2217,6 +2392,8 @@ class PostLoginWebActivity : ComponentActivity() {
                 val payload = JSONObject().apply {
                     put("username", storedUsername ?: fallbackUsername)
                     put("business", business)
+                    put("privateAccount", document?.getBoolean("privateAccount") == true)
+                    put("ghostMode", document?.getBoolean("ghostMode") == true)
                     // `profilePictureURL` is what EditProfile actually writes (iOS
                     // EditProfileView.swift:276 and the same document here), so it has to
                     // lead. Reading only avatarUrl/photoURL is why a fresh sign-in on
@@ -2243,6 +2420,74 @@ class PostLoginWebActivity : ComponentActivity() {
                     )
                 }
             }
+    }
+
+    private fun deliverAccountPrivacy() {
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            pushAccountPrivacy(false, false, false, "Sign in to load privacy.")
+            return
+        }
+        FirebaseFirestore.getInstance().collection("users").document(user.uid).get()
+            .addOnSuccessListener { document ->
+                changeAccountPrivacy(
+                    privateAccount = document.getBoolean("privateAccount") == true,
+                    ghostMode = document.getBoolean("ghostMode") == true,
+                )
+            }
+            .addOnFailureListener { error ->
+                pushAccountPrivacy(
+                    false,
+                    false,
+                    false,
+                    error.localizedMessage ?: "Privacy could not be loaded.",
+                )
+            }
+    }
+
+    private fun changeAccountPrivacy(privateAccount: Boolean, ghostMode: Boolean) {
+        if (FirebaseAuth.getInstance().currentUser == null) {
+            pushAccountPrivacy(privateAccount, ghostMode, false, "Sign in to change privacy.")
+            return
+        }
+        FirebaseFunctions.getInstance("us-central1")
+            .getHttpsCallable("setAccountLocationPrivacy")
+            .call(mapOf("privateAccount" to privateAccount, "ghostMode" to ghostMode))
+            .addOnSuccessListener { result ->
+                @Suppress("UNCHECKED_CAST")
+                val data = result.getData() as? Map<String, Any>
+                pushAccountPrivacy(
+                    privateAccount = data?.get("privateAccount") as? Boolean ?: privateAccount,
+                    ghostMode = data?.get("ghostMode") as? Boolean ?: ghostMode,
+                )
+            }
+            .addOnFailureListener { error ->
+                pushAccountPrivacy(
+                    privateAccount,
+                    ghostMode,
+                    false,
+                    error.localizedMessage ?: "Privacy could not be saved.",
+                )
+            }
+    }
+
+    private fun pushAccountPrivacy(
+        privateAccount: Boolean,
+        ghostMode: Boolean,
+        ok: Boolean = true,
+        message: String? = null,
+    ) {
+        val payload = JSONObject()
+            .put("privateAccount", privateAccount)
+            .put("ghostMode", ghostMode)
+            .put("ok", ok)
+        if (!message.isNullOrBlank()) payload.put("message", message)
+        homeWebView.post {
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-native-account-privacy',{detail:$payload}));true;",
+                null,
+            )
+        }
     }
 
     /**

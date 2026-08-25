@@ -1400,7 +1400,7 @@ fun MapScreenContent(
             Surface(Modifier.align(Alignment.BottomCenter).padding(bottom = 158.dp, start = 20.dp, end = 20.dp).zIndex(2f), color = Color.Black.copy(alpha = .72f), shape = MaterialTheme.shapes.large) {
                 Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(if (isSelectingPostLocation) "Confirm location" else "Post here", color = Color.White, fontWeight = FontWeight.Black)
-                    Text("${"%.5f".format(point.latitude())}, ${"%.5f".format(point.longitude())}", color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
+                    Text("Selected map point", color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
                     Button(
                         onClick = {
                             if (isSelectingPostLocation) {

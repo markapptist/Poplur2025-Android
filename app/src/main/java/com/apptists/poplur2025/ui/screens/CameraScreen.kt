@@ -1844,9 +1844,9 @@ fun DescribeAdScreen(
                 Spacer(Modifier.width(14.dp))
                 Column {
                     PoplurText("Describe Poplur AI", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
-                    coordinate?.let {
+                    if (coordinate != null) {
                         PoplurText(
-                            String.format("%.4f, %.4f", it.first, it.second),
+                            "Selected map point",
                             color = Color.White.copy(alpha = 0.5f),
                             fontSize = 11.sp
                         )
