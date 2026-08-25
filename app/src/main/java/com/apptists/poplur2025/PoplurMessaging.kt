@@ -114,10 +114,28 @@ class PoplurMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         val data = message.data
+        val kind = data["kind"].orEmpty()
         val postId = data["postId"].orEmpty()
+        val threadId = data["threadId"].orEmpty()
         val title = message.notification?.title ?: data["title"].orEmpty()
         val body = message.notification?.body ?: data["body"].orEmpty()
         if (title.isBlank() && body.isBlank()) return
+
+        if (kind == "dm") {
+            if (!PoplurNotifications.messagesPushEnabled(applicationContext)
+                || PoplurNotifications.appInForeground
+            ) return
+            val id = if (threadId.isNotEmpty()) threadId.hashCode() else message.messageId.hashCode()
+            PoplurNotifications.post(
+                applicationContext,
+                id,
+                title,
+                body,
+                destinationThreadId = threadId,
+            )
+            Log.i(TAG, "onMessageReceived: posted DM notification for thread=$threadId")
+            return
+        }
 
         // One notification per POST rather than per engagement: id is derived
         // from postId so a second like on the same post replaces the first

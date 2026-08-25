@@ -2,9 +2,12 @@ package com.apptists.poplur2025
 
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.CoroutineScope
@@ -42,7 +45,9 @@ object PoplurDirectMessages {
      * receiving messages for conversations it had already closed.
      */
     private var threadListener: ListenerRegistration? = null
+    private var threadStateListener: ListenerRegistration? = null
     private var listListener: ListenerRegistration? = null
+    private var openThreadId: String? = null
 
     private val uid: String? get() = FirebaseAuth.getInstance().currentUser?.uid
 
@@ -76,6 +81,18 @@ object PoplurDirectMessages {
                     val participants = document.get("participants") as? List<String> ?: emptyList()
                     val other = participants.firstOrNull { it != me } ?: ""
                     val title = displayName(other, document.get("participantNames"))
+                    val updatedAt = document.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+                    @Suppress("UNCHECKED_CAST")
+                    val readAtBy = document.get("readAtBy") as? Map<String, Timestamp>
+                    val readAt = readAtBy?.get(me)?.toDate()?.time ?: 0L
+                    @Suppress("UNCHECKED_CAST")
+                    val hiddenAtBy = document.get("hiddenAtBy") as? Map<String, Timestamp>
+                    val hiddenAt = hiddenAtBy?.get(me)?.toDate()?.time ?: 0L
+                    if (hiddenAt >= updatedAt) return@forEach
+                    @Suppress("UNCHECKED_CAST")
+                    val unreadBy = document.get("unreadBy") as? Map<String, Number>
+                    val unread = unreadBy?.get(me)?.toInt()
+                        ?: if (document.getString("lastSenderId") != me && updatedAt > readAt) 1 else 0
                     threads.put(JSONObject().apply {
                         put("id", document.id)
                         put("otherId", other)
@@ -86,7 +103,8 @@ object PoplurDirectMessages {
                             document.getString("lastMessage")?.takeIf { it.isNotBlank() }
                                 ?: "No messages yet"
                         )
-                        put("unread", 0)
+                        put("unread", unread.coerceAtLeast(0))
+                        put("updatedAtMillis", updatedAt)
                     })
                 }
                 onChange(threads)
@@ -94,15 +112,22 @@ object PoplurDirectMessages {
     }
 
     /** Live messages for one thread, oldest first (the order a chat reads in). */
-    fun observeThread(threadId: String, onChange: (JSONArray) -> Unit) {
+    fun observeThread(
+        threadId: String,
+        onChange: (JSONArray) -> Unit,
+        onState: (JSONObject) -> Unit
+    ) {
         val me = uid
         if (me == null) { onChange(JSONArray()); return }
         threadListener?.remove()
-        threadListener = db.collection("dmThreads").document(threadId)
+        threadStateListener?.remove()
+        openThreadId = threadId
+        val threadRef = db.collection("dmThreads").document(threadId)
+        threadListener = threadRef
             .collection("messages")
             .orderBy("createdAt")
             .limit(200)
-            .addSnapshotListener { snapshot, error ->
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
                 if (error != null) {
                     Log.w(TAG, "thread failed", error)
                     onChange(JSONArray())
@@ -115,15 +140,59 @@ object PoplurDirectMessages {
                         // The page only needs to know which side to draw it on.
                         put("from", if (document.getString("senderId") == me) "me" else "them")
                         put("text", document.getString("text").orEmpty())
+                        put("createdAtMillis", document.getTimestamp("createdAt")?.toDate()?.time ?: 0L)
+                        put("pending", document.metadata.hasPendingWrites())
+                        document.getString("kind")?.let { put("kind", it) }
+                        document.getString("mediaURL")?.let { put("mediaURL", it) }
+                        document.getString("mimeType")?.let { put("mimeType", it) }
+                        document.getLong("durationMillis")?.let { put("durationMillis", it) }
                     })
                 }
                 onChange(messages)
             }
+        threadStateListener = threadRef.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.w(TAG, "thread state failed", error)
+                return@addSnapshotListener
+            }
+            val document = snapshot ?: return@addSnapshotListener
+            @Suppress("UNCHECKED_CAST")
+            val participants = document.get("participants") as? List<String> ?: return@addSnapshotListener
+            if (!participants.contains(me)) return@addSnapshotListener
+            val other = participants.firstOrNull { it != me }
+            @Suppress("UNCHECKED_CAST")
+            val typingBy = document.get("typingBy") as? Map<String, Timestamp>
+            @Suppress("UNCHECKED_CAST")
+            val readAtBy = document.get("readAtBy") as? Map<String, Timestamp>
+            onState(JSONObject().apply {
+                put("threadId", threadId)
+                other?.let { otherUid ->
+                    typingBy?.get(otherUid)?.toDate()?.time?.let { put("typingAtMillis", it) }
+                    readAtBy?.get(otherUid)?.toDate()?.time?.let { put("otherReadAtMillis", it) }
+                }
+            })
+
+            val updatedAt = document.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+            val ownReadAt = readAtBy?.get(me)?.toDate()?.time ?: 0L
+            if (document.getString("lastSenderId") != me && updatedAt > ownReadAt) {
+                scope.launch { markRead(threadId) }
+            }
+        }
     }
 
     fun closeThread() {
+        val closingThreadId = openThreadId
+        val me = uid
+        if (closingThreadId != null && me != null) {
+            db.collection("dmThreads").document(closingThreadId)
+                .update(FieldPath.of("typingBy", me), FieldValue.delete())
+                .addOnFailureListener { Log.w(TAG, "typing cleanup failed", it) }
+        }
         threadListener?.remove()
         threadListener = null
+        threadStateListener?.remove()
+        threadStateListener = null
+        openThreadId = null
     }
 
     fun stop() {
@@ -137,35 +206,130 @@ object PoplurDirectMessages {
     /**
      * Sends into a thread, creating it if this is the first message.
      *
-     * The thread doc is written with merge BEFORE the message so the rules can
-     * see `participants` when the message create is evaluated — a message into
-     * a thread that does not exist yet is denied, because the rule reads the
-     * parent.
+     * The parent and message are one atomic batch. Its deterministic message
+     * id makes a retry safe: an uncertain network result cannot create a
+     * duplicate bubble, and rules can inspect the post-batch parent.
      */
-    suspend fun send(otherUid: String, text: String): Boolean {
+    suspend fun send(otherUid: String, text: String, clientMessageId: String): Boolean {
         val me = uid ?: return false
-        if (otherUid.isEmpty()) return false
+        if (otherUid.isEmpty() || otherUid == me || !validMessageId(clientMessageId)) return false
         val trimmed = text.trim()
         if (trimmed.isEmpty() || trimmed.length > 2000) return false
 
-        val threadRef = db.collection("dmThreads").document(threadId(me, otherUid))
+        return commitMessage(
+            otherUid,
+            clientMessageId,
+            trimmed,
+            mapOf("text" to trimmed, "kind" to "text")
+        )
+    }
+
+    suspend fun sendAttachment(
+        otherUid: String,
+        requestedThreadId: String,
+        mediaUrl: String,
+        mimeType: String,
+        kind: String,
+        durationMillis: Long?,
+        clientMessageId: String
+    ): Boolean {
+        val me = uid ?: return false
+        if (otherUid == me || requestedThreadId != threadId(me, otherUid)
+            || !validMessageId(clientMessageId) || kind !in setOf("image", "video", "audio")
+            || !mediaUrl.startsWith("https://") || !mimeType.lowercase().startsWith("$kind/")
+        ) return false
+        val label = when (kind) { "image" -> "Photo"; "video" -> "Video"; else -> "Voice message" }
+        val fields = mutableMapOf<String, Any>(
+            "text" to label,
+            "kind" to kind,
+            "mediaURL" to mediaUrl,
+            "mimeType" to mimeType.lowercase()
+        )
+        if (kind == "audio" && durationMillis != null) {
+            fields["durationMillis"] = durationMillis.coerceIn(0L, 60_000L)
+        }
+        return commitMessage(otherUid, clientMessageId, label, fields)
+    }
+
+    suspend fun hideThread(threadId: String): Boolean {
+        val me = uid ?: return false
+        if (threadId.isEmpty() || threadId.length > 200) return false
         return try {
-            threadRef.set(
+            db.collection("dmThreads").document(threadId)
+                .update(
+                    FieldPath.of("hiddenAtBy", me), FieldValue.serverTimestamp(),
+                    FieldPath.of("unreadBy", me), 0
+                )
+                .await()
+            if (openThreadId == threadId) closeThread()
+            true
+        } catch (error: Exception) {
+            Log.w(TAG, "hide failed", error)
+            false
+        }
+    }
+
+    suspend fun setTyping(threadId: String, typing: Boolean) {
+        val me = uid ?: return
+        if (threadId != openThreadId) return
+        val value: Any = if (typing) FieldValue.serverTimestamp() else FieldValue.delete()
+        try {
+            db.collection("dmThreads").document(threadId)
+                .update(FieldPath.of("typingBy", me), value)
+                .await()
+        } catch (error: Exception) {
+            Log.w(TAG, "typing update failed", error)
+        }
+    }
+
+    private suspend fun markRead(threadId: String) {
+        val me = uid ?: return
+        if (threadId != openThreadId) return
+        try {
+            db.collection("dmThreads").document(threadId)
+                .update(
+                    FieldPath.of("readAtBy", me), FieldValue.serverTimestamp(),
+                    FieldPath.of("unreadBy", me), 0
+                )
+                .await()
+        } catch (error: Exception) {
+            Log.w(TAG, "read receipt failed", error)
+        }
+    }
+
+    private fun validMessageId(value: String): Boolean =
+        value.length in 20..100 && value.matches(Regex("^msg-[A-Za-z0-9-]{16,96}$"))
+
+    private suspend fun commitMessage(
+        otherUid: String,
+        clientMessageId: String,
+        preview: String,
+        fields: Map<String, Any>
+    ): Boolean {
+        val me = uid ?: return false
+        val threadRef = db.collection("dmThreads").document(threadId(me, otherUid))
+        val messageRef = threadRef.collection("messages").document(clientMessageId)
+        return try {
+            if (messageRef.get().await().exists()) return true
+            val batch = db.batch()
+            batch.set(
+                threadRef,
                 mapOf(
                     "participants" to listOf(me, otherUid).sorted(),
-                    "lastMessage" to trimmed,
+                    "lastMessage" to preview,
                     "lastSenderId" to me,
-                    "updatedAt" to FieldValue.serverTimestamp()
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                    "unreadBy" to mapOf(me to 0, otherUid to FieldValue.increment(1))
                 ),
                 SetOptions.merge()
-            ).await()
-            threadRef.collection("messages").add(
-                mapOf(
-                    "senderId" to me,
-                    "text" to trimmed,
-                    "createdAt" to FieldValue.serverTimestamp()
-                )
-            ).await()
+            )
+            val message = fields.toMutableMap().apply {
+                put("senderId", me)
+                put("clientMessageId", clientMessageId)
+                put("createdAt", FieldValue.serverTimestamp())
+            }
+            batch.set(messageRef, message)
+            batch.commit().await()
             true
         } catch (error: Exception) {
             Log.w(TAG, "send failed", error)

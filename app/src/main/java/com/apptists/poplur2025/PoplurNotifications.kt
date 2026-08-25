@@ -3,7 +3,9 @@ package com.apptists.poplur2025
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -53,14 +55,21 @@ object PoplurNotifications {
      * runtime POST_NOTIFICATIONS grant is missing on Android 13+.
      */
     @JvmOverloads
-    fun post(context: Context, id: Int, title: String, body: String, silent: Boolean = false) {
+    fun post(
+        context: Context,
+        id: Int,
+        title: String,
+        body: String,
+        silent: Boolean = false,
+        destinationThreadId: String? = null,
+    ) {
         ensureChannel(context)
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
             != PackageManager.PERMISSION_GRANTED
         ) {
             return
         }
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_poplur)
             .setLargeIcon(appIconBitmap(context))
             .setColor(ACCENT)
@@ -70,8 +79,22 @@ object PoplurNotifications {
             .setAutoCancel(true)
             .setSilent(silent)
             .setPriority(if (silent) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
-            .build()
-        NotificationManagerCompat.from(context).notify(id, notification)
+        if (!destinationThreadId.isNullOrBlank()) {
+            val destination = Intent(context, PostLoginWebActivity::class.java).apply {
+                action = "com.apptists.poplur2025.OPEN_DM"
+                putExtra("threadId", destinationThreadId)
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            builder.setContentIntent(
+                PendingIntent.getActivity(
+                    context,
+                    destinationThreadId.hashCode(),
+                    destination,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+            )
+        }
+        NotificationManagerCompat.from(context).notify(id, builder.build())
     }
 
     /**

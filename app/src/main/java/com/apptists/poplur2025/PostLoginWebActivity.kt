@@ -11,7 +11,9 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.graphics.BitmapFactory
+import android.graphics.Bitmap
 import android.media.AudioManager
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
@@ -73,8 +75,11 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.Query
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.StorageMetadata
+import com.google.firebase.storage.StorageReference
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetectorOptions
@@ -82,13 +87,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.LinkedHashMap
 import java.util.UUID
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 /**
  * Post-login host for the approved web flow.
@@ -154,6 +162,7 @@ class PostLoginWebActivity : ComponentActivity() {
     private var pendingWebMediaPermissionRequest: PermissionRequest? = null
     private var hideVolumeRunnable: Runnable? = null
     private var revealRunnable: Runnable? = null
+    private var pendingDMThreadId: String? = null
 
     private val darkHome = 0xFF050407.toInt()
     private val darkLoading = 0xFF0A0709.toInt()
@@ -239,6 +248,8 @@ class PostLoginWebActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingDMThreadId = intent.getStringExtra("threadId")
+            ?.takeIf { it.isNotBlank() && it.length <= 200 }
 
         // With MainActivity routing straight to the web surfaces (USE_WEB_SURFACES),
         // PoplurRoot no longer runs to start this — keep incoming calls working.
@@ -981,6 +992,15 @@ class PostLoginWebActivity : ComponentActivity() {
     private fun uploadClayPost(body: JSONObject) {
         val requestId = body.optString("requestId")
         if (requestId.isBlank()) return
+        val postId = boundedBridgeId(body.opt("postId"))
+        if (postId == null || !postId.startsWith("post-") || postId.length < 21) {
+            sendUploadResult(requestId, false, "That post identity was invalid.")
+            return
+        }
+        if (!body.optBoolean("rightsAttested", false)) {
+            sendUploadResult(requestId, false, "Confirm that you have permission to share this media and music.")
+            return
+        }
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
             sendUploadResult(requestId, false, "You must be signed in before posting.")
@@ -993,21 +1013,28 @@ class PostLoginWebActivity : ComponentActivity() {
             return
         }
 
-        val storageRef = FirebaseStorage.getInstance().reference
-            .child("posts/${user.uid}/${System.currentTimeMillis()}.${if (kind == "video") "mp4" else "jpg"}")
+        val mediaStoragePath = "posts/${user.uid}/$postId.${if (kind == "video") "mp4" else "jpg"}"
+        val storageRef = FirebaseStorage.getInstance().reference.child(mediaStoragePath)
         val captureKey = Uri.parse(data).lastPathSegment
         val storedCapture = captureKey?.let { key ->
             synchronized(webCapturesLock) { webCaptures[key] }
         }
+        val mediaMetadata = StorageMetadata.Builder()
+            .setContentType(if (kind == "video") "video/mp4" else "image/jpeg")
+            .setCustomMetadata("ownerUID", user.uid)
+            .build()
         val upload = when {
-            storedCapture != null -> storageRef.putFile(storedCapture.uri)
+            storedCapture != null -> storageRef.putFile(storedCapture.uri, mediaMetadata)
             data.startsWith("data:") -> {
                 val encoded = data.substringAfter(',', "")
                 if (encoded.isBlank()) {
                     sendUploadResult(requestId, false, "That media could not be prepared.")
                     return
                 }
-                storageRef.putBytes(android.util.Base64.decode(encoded, android.util.Base64.DEFAULT))
+                storageRef.putBytes(
+                    android.util.Base64.decode(encoded, android.util.Base64.DEFAULT),
+                    mediaMetadata,
+                )
             }
             else -> {
                 sendUploadResult(requestId, false, "That media is no longer available on this device.")
@@ -1015,51 +1042,308 @@ class PostLoginWebActivity : ComponentActivity() {
             }
         }
 
-        upload.addOnFailureListener { error ->
+        sendUploadProgress(requestId, 0.04, "PREPARING")
+        upload.addOnProgressListener { snapshot ->
+            if (snapshot.totalByteCount > 0) {
+                val transferred = snapshot.bytesTransferred.toDouble() / snapshot.totalByteCount.toDouble()
+                sendUploadProgress(requestId, 0.08 + transferred.coerceIn(0.0, 1.0) * 0.72, "UPLOADING")
+            }
+        }.addOnFailureListener { error ->
             sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be uploaded.")
         }.addOnSuccessListener {
             storageRef.downloadUrl.addOnFailureListener { error ->
+                storageRef.delete()
                 sendUploadResult(requestId, false, error.localizedMessage ?: "Your uploaded media could not be read.")
             }.addOnSuccessListener { mediaUrl ->
-                val post = hashMapOf<String, Any>(
-                    "userID" to user.uid,
-                    "username" to (user.displayName ?: user.email ?: "Poplur user"),
-                    "mediaURL" to mediaUrl.toString(),
-                    "mediaType" to kind,
-                    "viewCount" to 0,
-                    "radius" to (body.optDouble("radiusKm", 5.0) * 1000).toInt(),
-                    "createdAt" to FieldValue.serverTimestamp()
-                )
-                if (body.has("latitude") && body.has("longitude")) {
-                    post["latitude"] = body.optDouble("latitude")
-                    post["longitude"] = body.optDouble("longitude")
+                val posterBytes = if (kind == "video" && storedCapture != null) {
+                    videoPosterJpeg(storedCapture.uri)
+                } else null
+                if (posterBytes == null) {
+                    saveClayPost(
+                        body = body,
+                        requestId = requestId,
+                        postId = postId,
+                        mediaUrl = mediaUrl.toString(),
+                        mediaStoragePath = mediaStoragePath,
+                        mediaReference = storageRef,
+                        posterUrl = null,
+                        posterStoragePath = null,
+                        posterReference = null,
+                        kind = kind,
+                    )
+                    return@addOnSuccessListener
                 }
-                body.optString("caption").takeIf { it.isNotBlank() }?.let { post["caption"] = it }
-                body.optString("channelId").takeIf { it.isNotBlank() }?.let { post["channelId"] = it }
-                body.optString("filterId").takeIf { it.isNotBlank() }?.let { post["filterId"] = it }
-                if (body.optBoolean("usedAI")) post["usedAI"] = true
 
-                FirebaseFirestore.getInstance().collection("posts").add(post)
-                    .addOnSuccessListener { sendUploadResult(requestId, true) }
-                    .addOnFailureListener { error ->
-                        sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be saved.")
+                val posterStoragePath = "posts/${user.uid}/$postId-poster.jpg"
+                val posterRef = FirebaseStorage.getInstance().reference.child(posterStoragePath)
+                val posterMetadata = StorageMetadata.Builder().setContentType("image/jpeg").build()
+                sendUploadProgress(requestId, 0.84, "MAKING PREVIEW")
+                posterRef.putBytes(posterBytes, posterMetadata)
+                    .addOnFailureListener {
+                        // A poster improves startup, but failure to make one
+                        // must not throw away an otherwise valid recording.
+                        saveClayPost(
+                            body, requestId, postId, mediaUrl.toString(), mediaStoragePath,
+                            storageRef, null, null, null, kind,
+                        )
+                    }
+                    .addOnSuccessListener {
+                        posterRef.downloadUrl
+                            .addOnFailureListener {
+                                posterRef.delete()
+                                saveClayPost(
+                                    body, requestId, postId, mediaUrl.toString(), mediaStoragePath,
+                                    storageRef, null, null, null, kind,
+                                )
+                            }
+                            .addOnSuccessListener { posterUrl ->
+                                saveClayPost(
+                                    body, requestId, postId, mediaUrl.toString(), mediaStoragePath,
+                                    storageRef, posterUrl.toString(), posterStoragePath, posterRef, kind,
+                                )
+                            }
                     }
             }
         }
     }
 
+    private suspend fun uploadDMAttachment(body: JSONObject) {
+        val user = FirebaseAuth.getInstance().currentUser
+        val otherId = body.optString("otherId")
+        val threadId = body.optString("threadId")
+        val clientMessageId = body.optString("clientMessageId")
+        val kind = body.optString("kind")
+        val source = body.optString("source")
+        val label = when (kind) { "image" -> "Photo"; "video" -> "Video"; else -> "Voice message" }
+        suspend fun finish(ok: Boolean) {
+            pushWebMessage(
+                JSONObject()
+                    .put("type", if (ok) "poplurDMSent" else "poplurDMSendFailed")
+                    .put("clientMessageId", clientMessageId)
+                    .apply { if (!ok) put("text", label) }
+            )
+        }
+        if (user == null || otherId.isBlank() || otherId == user.uid
+            || threadId != PoplurDirectMessages.threadId(user.uid, otherId)
+            || clientMessageId.length !in 20..100
+            || kind !in setOf("image", "video", "audio")
+        ) {
+            finish(false)
+            return
+        }
+
+        val capture = Uri.parse(source).lastPathSegment?.let { key ->
+            synchronized(webCapturesLock) { webCaptures[key] }
+        }
+        val inlineHeader = source.substringBefore(',', "")
+        val inlineBytes = if (source.startsWith("data:") && inlineHeader.endsWith(";base64")) {
+            runCatching { Base64.decode(source.substringAfter(','), Base64.DEFAULT) }.getOrNull()
+        } else null
+        val mimeType = capture?.mimeType
+            ?: inlineHeader.removePrefix("data:").removeSuffix(";base64")
+        if (!mimeType.lowercase().startsWith("$kind/")) {
+            finish(false)
+            return
+        }
+        val limit = when (kind) {
+            "image" -> 12L * 1024L * 1024L
+            "audio" -> 8L * 1024L * 1024L
+            else -> 40L * 1024L * 1024L
+        }
+        val size = capture?.let {
+            runCatching { contentResolver.openAssetFileDescriptor(it.uri, "r")?.use { fd -> fd.length } }
+                .getOrNull()
+        } ?: inlineBytes?.size?.toLong()
+        if (size == null || size <= 0 || size >= limit || (capture == null && inlineBytes == null)) {
+            finish(false)
+            return
+        }
+
+        val extension = when {
+            mimeType.contains("png") -> "png"
+            mimeType.contains("webm") -> "webm"
+            mimeType.contains("quicktime") -> "mov"
+            kind == "audio" -> "m4a"
+            kind == "video" -> "mp4"
+            else -> "jpg"
+        }
+        val reference = FirebaseStorage.getInstance().reference
+            .child("dmMedia/$threadId/${user.uid}/$clientMessageId.$extension")
+        val metadata = StorageMetadata.Builder().setContentType(mimeType.lowercase()).build()
+        try {
+            if (capture != null) reference.putFile(capture.uri, metadata).await()
+            else reference.putBytes(inlineBytes!!, metadata).await()
+            val mediaUrl = reference.downloadUrl.await().toString()
+            val ok = PoplurDirectMessages.sendAttachment(
+                otherUid = otherId,
+                requestedThreadId = threadId,
+                mediaUrl = mediaUrl,
+                mimeType = mimeType,
+                kind = kind,
+                durationMillis = body.optLong("durationMillis").takeIf { body.has("durationMillis") },
+                clientMessageId = clientMessageId
+            )
+            if (!ok) runCatching { reference.delete().await() }
+            finish(ok)
+        } catch (error: Exception) {
+            Log.w(TAG, "DM attachment upload failed", error)
+            runCatching { reference.delete().await() }
+            finish(false)
+        }
+    }
+
+    private fun saveClayPost(
+        body: JSONObject,
+        requestId: String,
+        postId: String,
+        mediaUrl: String,
+        mediaStoragePath: String,
+        mediaReference: StorageReference,
+        posterUrl: String?,
+        posterStoragePath: String?,
+        posterReference: StorageReference?,
+        kind: String,
+    ) {
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            mediaReference.delete()
+            posterReference?.delete()
+            sendUploadResult(requestId, false, "Your sign-in expired before the post was saved.")
+            return
+        }
+        sendUploadProgress(requestId, 0.94, "SAVING POST")
+        val targetLatitude = body.optDouble("targetLatitude", Double.NaN)
+        val targetLongitude = body.optDouble("targetLongitude", Double.NaN)
+        val hasTarget = targetLatitude.isFinite() && targetLongitude.isFinite()
+            && kotlin.math.abs(targetLatitude) <= 90
+            && kotlin.math.abs(targetLongitude) <= 180
+        val database = FirebaseFirestore.getInstance()
+        val userReference = database.collection("users").document(user.uid)
+
+        fun commitPost(accountHidesOrigin: Boolean) {
+            val locationVisibility = if (
+                hasTarget
+                && !accountHidesOrigin
+                && body.optString("locationVisibility") != "hidden"
+            ) "approximate" else "hidden"
+            val post = hashMapOf<String, Any>(
+                "userID" to user.uid,
+                "username" to (user.displayName ?: user.email ?: "Poplur user"),
+                "mediaURL" to mediaUrl,
+                "playbackURL" to mediaUrl,
+                "mediaStoragePath" to mediaStoragePath,
+                "mediaType" to kind,
+                "viewCount" to 0,
+                "radius" to (body.optDouble("radiusKm", 5.0) * 1000).toInt(),
+                "audience" to "public",
+                "locationVisibility" to locationVisibility,
+                "processingStatus" to "ready",
+                "status" to "published",
+                "schemaVersion" to 2,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "createdAtMillis" to System.currentTimeMillis(),
+            )
+            if (locationVisibility == "approximate") {
+                val latitudeCell = (targetLatitude * 1_000).roundToInt()
+                val longitudeCell = (targetLongitude * 1_000).roundToInt()
+                post["latitude"] = latitudeCell / 1_000.0
+                post["longitude"] = longitudeCell / 1_000.0
+                post["latitudeCell"] = latitudeCell
+                post["longitudeCell"] = longitudeCell
+            }
+            posterUrl?.let { post["posterURL"] = it }
+            posterStoragePath?.let { post["posterStoragePath"] = it }
+            body.optString("caption").takeIf { it.isNotBlank() }?.let { post["caption"] = it }
+            body.optString("channelId").takeIf { it.isNotBlank() }?.let { post["channelId"] = it }
+            body.optString("filterId").takeIf { it.isNotBlank() }?.let { post["filterId"] = it }
+            body.optString("rightsAttestationVersion").takeIf { it.isNotBlank() }?.let {
+                post["rightsAttestationVersion"] = it
+                post["rightsAttestedAtMillis"] = System.currentTimeMillis()
+            }
+            if (body.optBoolean("usedAI")) post["usedAI"] = true
+
+            val batch = database.batch()
+            batch.set(database.collection("posts").document(postId), post)
+            if (hasTarget) {
+                batch.set(
+                    userReference.collection("postLocations").document(postId),
+                    mapOf(
+                        "latitude" to targetLatitude,
+                        "longitude" to targetLongitude,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                        "source" to "post-upload",
+                    ),
+                    SetOptions.merge(),
+                )
+            }
+            batch.commit()
+                .addOnSuccessListener {
+                    sendUploadProgress(requestId, 1.0, "POSTED")
+                    sendUploadResult(requestId, true)
+                }
+                .addOnFailureListener { error ->
+                    // Do not leave paid Storage occupied by a post nobody can
+                    // discover or delete from the product.
+                    mediaReference.delete()
+                    posterReference?.delete()
+                    sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be saved.")
+                }
+        }
+
+        userReference.get()
+            .addOnSuccessListener { account ->
+                commitPost(
+                    account.getBoolean("privateAccount") == true
+                        || account.getBoolean("ghostMode") == true,
+                )
+            }
+            .addOnFailureListener { error ->
+                mediaReference.delete()
+                posterReference?.delete()
+                sendUploadResult(
+                    requestId,
+                    false,
+                    error.localizedMessage ?: "Privacy could not be confirmed before posting.",
+                )
+            }
+    }
+
+    private fun videoPosterJpeg(uri: Uri): ByteArray? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(this, uri)
+            val bitmap = retriever.getFrameAtTime(100_000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: return null
+            val output = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, output)
+            bitmap.recycle()
+            output.toByteArray()
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "Could not create video poster", error)
+            null
+        } finally {
+            try { retriever.release() } catch (_: RuntimeException) { }
+        }
+    }
+
     private fun revealIfReady() {
         if (!minimumElapsed.value || !homeReady.value || isFinishing) return
+        // Home can become ready before the splash WebView commits its first
+        // frame. In that race `onPageCommitVisible` never retires the native
+        // first-frame cover, because the loading WebView is dismantled below.
+        // Home readiness is now the owner of the handoff, so remove that cheap
+        // Compose cover synchronously as reveal begins.
+        splashWebPainted.value = true
         window.statusBarColor = darkHome
         window.navigationBarColor = darkHome
         loadingWebView.animate()
             .alpha(0f)
             .setDuration(REVEAL_DURATION_MS)
             .withEndAction {
-                // DESTROY the loading WebView, don't just hide it: a whole second
-                // WebView (loading page + three.js globe) kept resident is real
-                // memory on a 3GB device that is already swapping — freeing it
-                // gives the home WebView room to run smoothly.
+                // DESTROY the loading WebView, don't just hide it: even though
+                // this splash is video/CSS rather than Three/WebGL, its decoder,
+                // compositor surface, and WebView are real memory on a 3GB
+                // device. Free them as soon as Home owns the screen.
                 (loadingWebView.parent as? android.view.ViewGroup)?.removeView(loadingWebView)
                 performanceController.detach(loadingWebView)
                 loadingWebView.destroy()
@@ -1094,6 +1378,103 @@ class PostLoginWebActivity : ComponentActivity() {
         homeWebView.postDelayed(hideVolumeRunnable!!, VOLUME_HIDE_MS)
     }
 
+    private fun requestNotificationsForWeb() {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: run {
+            deliverNotificationsToWeb(JSONArray())
+            return
+        }
+        FirebaseFirestore.getInstance().collection("users").document(uid)
+            .collection("notifications")
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(80)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val rows = JSONArray()
+                snapshot.documents.forEach { document ->
+                    if (document.getBoolean("isDismissed") == true) return@forEach
+                    val row = JSONObject()
+                        .put("id", document.getString("id") ?: document.id)
+                        .put("kind", document.getString("kind") ?: "engagement")
+                        .put("title", document.getString("title") ?: "Poplur")
+                        .put("detail", document.getString("detail") ?: "New activity on Poplur")
+                        .put("createdAtMillis", document.getTimestamp("createdAt")?.toDate()?.time
+                            ?: System.currentTimeMillis())
+                        .put("unread", document.getBoolean("isUnread") != false)
+                    document.getString("actorHandle")?.let { row.put("actorHandle", it) }
+                    document.getString("postId")?.let { row.put("postId", it) }
+                    document.getString("threadId")?.let { row.put("threadId", it) }
+                    rows.put(row)
+                }
+                deliverNotificationsToWeb(rows)
+            }
+            .addOnFailureListener { error ->
+                Log.w(TAG, "notification inbox refresh failed", error)
+                deliverNotificationsToWeb(JSONArray())
+            }
+    }
+
+    private fun deliverNotificationsToWeb(rows: JSONArray) {
+        val payload = JSONObject()
+            .put("type", "poplurNotifications")
+            .put("notifications", rows)
+            .toString()
+        homeWebView.post {
+            homeWebView.evaluateJavascript("window.postMessage($payload,'*');true;", null)
+        }
+    }
+
+    private fun updateNotificationInbox(
+        ids: List<String>? = null,
+        markRead: Boolean = false,
+        dismiss: Boolean = false,
+    ) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val inbox = FirebaseFirestore.getInstance().collection("users").document(uid)
+            .collection("notifications")
+        val selected = ids?.filter { it.isNotBlank() }?.distinct()
+        if (selected != null) {
+            if (selected.isEmpty()) return
+            val batch = FirebaseFirestore.getInstance().batch()
+            selected.forEach { id ->
+                val fields = mutableMapOf<String, Any>()
+                if (markRead) {
+                    fields["isUnread"] = false
+                    fields["readAt"] = FieldValue.serverTimestamp()
+                }
+                if (dismiss) {
+                    fields["isDismissed"] = true
+                    fields["dismissedAt"] = FieldValue.serverTimestamp()
+                }
+                batch.update(inbox.document(id), fields)
+            }
+            batch.commit()
+                .addOnSuccessListener { requestNotificationsForWeb() }
+                .addOnFailureListener { error -> Log.w(TAG, "notification inbox update failed", error) }
+            return
+        }
+
+        inbox.orderBy("createdAt", Query.Direction.DESCENDING).limit(80).get()
+            .addOnSuccessListener { snapshot ->
+                val batch = FirebaseFirestore.getInstance().batch()
+                snapshot.documents.forEach { document ->
+                    val fields = mutableMapOf<String, Any>()
+                    if (markRead && document.getBoolean("isUnread") != false) {
+                        fields["isUnread"] = false
+                        fields["readAt"] = FieldValue.serverTimestamp()
+                    }
+                    if (dismiss && document.getBoolean("isDismissed") != true) {
+                        fields["isDismissed"] = true
+                        fields["dismissedAt"] = FieldValue.serverTimestamp()
+                    }
+                    if (fields.isNotEmpty()) batch.update(document.reference, fields)
+                }
+                batch.commit()
+                    .addOnSuccessListener { requestNotificationsForWeb() }
+                    .addOnFailureListener { error -> Log.w(TAG, "notification inbox batch failed", error) }
+            }
+            .addOnFailureListener { error -> Log.w(TAG, "notification inbox query failed", error) }
+    }
+
     inner class Bridge {
         @JavascriptInterface
         fun onEvent(json: String) {
@@ -1102,6 +1483,7 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "homeReady" || type == "mapReady") {
                 runOnUiThread {
                     homeReady.value = true
+                    deliverPendingDMDeepLink()
                     revealIfReady()
                 }
             }
@@ -1146,6 +1528,23 @@ class PostLoginWebActivity : ComponentActivity() {
                 runOnUiThread {
                     NotificationManagerCompat.from(this@PostLoginWebActivity).cancelAll()
                 }
+                updateNotificationInbox(markRead = true)
+            }
+            if (type == "notificationsRequested") {
+                requestNotificationsForWeb()
+            }
+            if (type == "notificationDismissed") {
+                val id = body.optString("id")
+                if (id.isNotBlank()) updateNotificationInbox(ids = listOf(id), dismiss = true)
+            }
+            if (type == "notificationsCleared") {
+                val rows = body.optJSONArray("ids")
+                val ids = buildList {
+                    if (rows != null) for (index in 0 until rows.length()) {
+                        rows.optString(index).takeIf { it.isNotBlank() }?.let(::add)
+                    }
+                }
+                updateNotificationInbox(ids = ids, dismiss = true)
             }
             // The bundled WebView cannot use Firebase directly. Hand it a
             // short-lived ID token on demand for authenticated Poplur tools;
@@ -1166,6 +1565,15 @@ class PostLoginWebActivity : ComponentActivity() {
             }
             if (type == "requestProfile") {
                 deliverWebProfile()
+            }
+            if (type == "requestAccountPrivacy") {
+                deliverAccountPrivacy()
+            }
+            if (type == "accountPrivacyChanged") {
+                changeAccountPrivacy(
+                    privateAccount = body.optBoolean("privateAccount", false),
+                    ghostMode = body.optBoolean("ghostMode", false),
+                )
             }
             if (type == "saveProfilePhoto") {
                 val payload = body.optJSONObject("detail") ?: body
@@ -1196,6 +1604,12 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "requestProfilePosts") {
                 deliverWebProfilePosts()
             }
+            if (type == "requestFeedPosts") {
+                deliverWebFeedPosts()
+            }
+            if (type == "deleteProfilePost") {
+                deleteWebProfilePost(body)
+            }
             if (type == "requestProfileTracks") {
                 deliverWebProfileTracks()
             }
@@ -1214,6 +1628,7 @@ class PostLoginWebActivity : ComponentActivity() {
                 val otherUid = body.optString("otherId")
                 val callerName = body.optString("callerName").takeIf { it.isNotBlank() }
                 val video = body.optBoolean("video", false)
+                val requestId = body.optString("requestId")
                 com.apptists.poplur2025.call.PoplurWebCallSignalling.startCall(
                     otherUid = otherUid,
                     callerName = callerName,
@@ -1224,6 +1639,7 @@ class PostLoginWebActivity : ComponentActivity() {
                             .put("type", "poplurCallStarted")
                             .put("callId", callId ?: "")
                             .put("ok", callId != null)
+                            .put("requestId", requestId)
                     )
                 }
                 return
@@ -1316,34 +1732,61 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "openDMThread") {
                 val threadId = body.optString("threadId")
                 if (threadId.isNotEmpty() && threadId.length <= 200) {
-                    PoplurDirectMessages.observeThread(threadId) { messages ->
-                        pushWebMessage(
-                            JSONObject()
-                                .put("type", "poplurDMMessages")
-                                .put("threadId", threadId)
-                                .put("messages", messages)
-                        )
-                    }
+                    PoplurDirectMessages.observeThread(
+                        threadId,
+                        onChange = { messages ->
+                            pushWebMessage(
+                                JSONObject()
+                                    .put("type", "poplurDMMessages")
+                                    .put("threadId", threadId)
+                                    .put("messages", messages)
+                            )
+                        },
+                        onState = { state ->
+                            pushWebMessage(state.put("type", "poplurDMThreadState"))
+                        }
+                    )
                 }
             }
             if (type == "closeDMThread") {
                 PoplurDirectMessages.closeThread()
             }
+            if (type == "setDMTyping") {
+                val threadId = body.optString("threadId")
+                val typing = body.optBoolean("typing", false)
+                if (threadId.isNotEmpty() && threadId.length <= 200) {
+                    lifecycleScope.launch {
+                        PoplurDirectMessages.setTyping(threadId, typing)
+                    }
+                }
+            }
+            if (type == "deleteDMThread") {
+                val threadId = body.optString("threadId")
+                lifecycleScope.launch {
+                    val ok = PoplurDirectMessages.hideThread(threadId)
+                    pushWebMessage(
+                        JSONObject()
+                            .put("type", "poplurDMThreadHidden")
+                            .put("threadId", threadId)
+                            .put("ok", ok)
+                    )
+                }
+            }
+            if (type == "sendDMAttachment") {
+                lifecycleScope.launch { uploadDMAttachment(body) }
+            }
             if (type == "sendDM") {
                 val otherId = body.optString("otherId")
                 val text = body.optString("text")
+                val clientMessageId = body.optString("clientMessageId")
                 lifecycleScope.launch {
-                    val ok = PoplurDirectMessages.send(otherId, text)
-                    // The live listener delivers the message itself; this only
-                    // reports a FAILURE, so the composer can put the text back
-                    // rather than swallowing it.
-                    if (!ok) {
-                        pushWebMessage(
-                            JSONObject()
-                                .put("type", "poplurDMSendFailed")
-                                .put("text", text)
-                        )
-                    }
+                    val ok = PoplurDirectMessages.send(otherId, text, clientMessageId)
+                    pushWebMessage(
+                        JSONObject()
+                            .put("type", if (ok) "poplurDMSent" else "poplurDMSendFailed")
+                            .put("clientMessageId", clientMessageId)
+                            .apply { if (!ok) put("text", text) }
+                    )
                 }
             }
             if (type == "profileThemeChanged") {
@@ -1807,6 +2250,27 @@ class PostLoginWebActivity : ComponentActivity() {
         }
     }
 
+    private fun deliverPendingDMDeepLink() {
+        if (!homeReady.value) return
+        val threadId = pendingDMThreadId
+            ?.takeIf { it.isNotBlank() && it.length <= 200 }
+            ?: return
+        pendingDMThreadId = null
+        pushWebMessage(
+            JSONObject()
+                .put("type", "poplurOpenDM")
+                .put("threadId", threadId)
+        )
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingDMThreadId = intent.getStringExtra("threadId")
+            ?.takeIf { it.isNotBlank() && it.length <= 200 }
+        deliverPendingDMDeepLink()
+    }
+
     private fun deliverProfileTheme(
         theme: ProfileTheme,
         accepted: Boolean,
@@ -1928,6 +2392,8 @@ class PostLoginWebActivity : ComponentActivity() {
                 val payload = JSONObject().apply {
                     put("username", storedUsername ?: fallbackUsername)
                     put("business", business)
+                    put("privateAccount", document?.getBoolean("privateAccount") == true)
+                    put("ghostMode", document?.getBoolean("ghostMode") == true)
                     // `profilePictureURL` is what EditProfile actually writes (iOS
                     // EditProfileView.swift:276 and the same document here), so it has to
                     // lead. Reading only avatarUrl/photoURL is why a fresh sign-in on
@@ -1954,6 +2420,74 @@ class PostLoginWebActivity : ComponentActivity() {
                     )
                 }
             }
+    }
+
+    private fun deliverAccountPrivacy() {
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            pushAccountPrivacy(false, false, false, "Sign in to load privacy.")
+            return
+        }
+        FirebaseFirestore.getInstance().collection("users").document(user.uid).get()
+            .addOnSuccessListener { document ->
+                changeAccountPrivacy(
+                    privateAccount = document.getBoolean("privateAccount") == true,
+                    ghostMode = document.getBoolean("ghostMode") == true,
+                )
+            }
+            .addOnFailureListener { error ->
+                pushAccountPrivacy(
+                    false,
+                    false,
+                    false,
+                    error.localizedMessage ?: "Privacy could not be loaded.",
+                )
+            }
+    }
+
+    private fun changeAccountPrivacy(privateAccount: Boolean, ghostMode: Boolean) {
+        if (FirebaseAuth.getInstance().currentUser == null) {
+            pushAccountPrivacy(privateAccount, ghostMode, false, "Sign in to change privacy.")
+            return
+        }
+        FirebaseFunctions.getInstance("us-central1")
+            .getHttpsCallable("setAccountLocationPrivacy")
+            .call(mapOf("privateAccount" to privateAccount, "ghostMode" to ghostMode))
+            .addOnSuccessListener { result ->
+                @Suppress("UNCHECKED_CAST")
+                val data = result.getData() as? Map<String, Any>
+                pushAccountPrivacy(
+                    privateAccount = data?.get("privateAccount") as? Boolean ?: privateAccount,
+                    ghostMode = data?.get("ghostMode") as? Boolean ?: ghostMode,
+                )
+            }
+            .addOnFailureListener { error ->
+                pushAccountPrivacy(
+                    privateAccount,
+                    ghostMode,
+                    false,
+                    error.localizedMessage ?: "Privacy could not be saved.",
+                )
+            }
+    }
+
+    private fun pushAccountPrivacy(
+        privateAccount: Boolean,
+        ghostMode: Boolean,
+        ok: Boolean = true,
+        message: String? = null,
+    ) {
+        val payload = JSONObject()
+            .put("privateAccount", privateAccount)
+            .put("ghostMode", ghostMode)
+            .put("ok", ok)
+        if (!message.isNullOrBlank()) payload.put("message", message)
+        homeWebView.post {
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-native-account-privacy',{detail:$payload}));true;",
+                null,
+            )
+        }
     }
 
     /**
@@ -2072,6 +2606,146 @@ class PostLoginWebActivity : ComponentActivity() {
             .addOnFailureListener { error ->
                 Log.w(TAG, "deliverWebProfilePosts failed", error)
             }
+    }
+
+    private fun deliverWebFeedPosts() {
+        if (FirebaseAuth.getInstance().currentUser == null) return
+        FirebaseFirestore.getInstance().collection("posts")
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(96)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val posts = JSONArray()
+                snapshot.documents
+                    .sortedByDescending { document ->
+                        document.getLong("createdAtMillis")
+                            ?: document.getTimestamp("createdAt")?.toDate()?.time
+                            ?: 0L
+                    }
+                    .forEach { document ->
+                        if ((document.getString("audience") ?: "public") != "public") return@forEach
+                        if ((document.getString("status") ?: "published") != "published") return@forEach
+                        val mediaURL = (document.getString("playbackURL")
+                            ?: document.getString("mediaURL"))?.trim().orEmpty()
+                        if (mediaURL.isBlank()) return@forEach
+                        posts.put(JSONObject().apply {
+                            put("id", document.id)
+                            put("mediaURL", mediaURL)
+                            put("mediaType", document.getString("mediaType") ?: "video")
+                            put("username", document.getString("username") ?: "Poplur user")
+                            put("channelId", document.getString("channelId") ?: "live")
+                            put(
+                                "createdAtMillis",
+                                document.getLong("createdAtMillis")
+                                    ?: document.getTimestamp("createdAt")?.toDate()?.time
+                                    ?: 0L,
+                            )
+                            document.getString("posterURL")?.takeIf { it.isNotBlank() }
+                                ?.let { put("posterURL", it) }
+                            document.getString("caption")?.takeIf { it.isNotBlank() }
+                                ?.let { put("caption", it) }
+                            document.getLong("radius")?.let { put("radiusMeters", it) }
+                        })
+                    }
+                val payload = JSONObject().put("posts", posts)
+                homeWebView.post {
+                    homeWebView.evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('poplur-native-feed-posts',{detail:$payload}));true;",
+                        null,
+                    )
+                }
+            }
+            .addOnFailureListener { error -> Log.w(TAG, "deliverWebFeedPosts failed", error) }
+    }
+
+    /**
+     * Deletes only a post owned by the currently authenticated account.
+     * JavaScript is an untrusted caller, so identifiers are bounded before
+     * becoming Firestore paths and ownership comes from the fetched document.
+     */
+    private fun deleteWebProfilePost(body: JSONObject) {
+        val requestId = boundedBridgeId(body.opt("requestId"))
+        val postId = boundedBridgeId(body.opt("postId"))
+        if (requestId == null || postId == null) {
+            deliverProfilePostDeleteResult(
+                requestId = requestId.orEmpty(),
+                postId = postId.orEmpty(),
+                ok = false,
+                error = "invalid_request",
+            )
+            return
+        }
+
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid == null) {
+            deliverProfilePostDeleteResult(requestId, postId, false, "signed_out")
+            return
+        }
+
+        val reference = FirebaseFirestore.getInstance().collection("posts").document(postId)
+        reference.get()
+            .addOnFailureListener {
+                deliverProfilePostDeleteResult(requestId, postId, false, "delete_failed")
+            }
+            .addOnSuccessListener { snapshot ->
+                if (!snapshot.exists()) {
+                    deliverProfilePostDeleteResult(requestId, postId, false, "not_found")
+                    return@addOnSuccessListener
+                }
+                if ((snapshot.getString("userID") ?: snapshot.getString("userId")) != uid) {
+                    deliverProfilePostDeleteResult(requestId, postId, false, "forbidden")
+                    return@addOnSuccessListener
+                }
+
+                listOf("mediaStoragePath", "posterStoragePath")
+                    .mapNotNull { key -> ownedPostStoragePath(snapshot.getString(key), uid) }
+                    .forEach { path -> FirebaseStorage.getInstance().reference.child(path).delete() }
+                reference.delete()
+                    .addOnSuccessListener {
+                        deliverProfilePostDeleteResult(requestId, postId, true)
+                    }
+                    .addOnFailureListener {
+                        deliverProfilePostDeleteResult(requestId, postId, false, "delete_failed")
+                    }
+            }
+    }
+
+    private fun boundedBridgeId(value: Any?): String? {
+        val id = value as? String ?: return null
+        if (id.isEmpty() || id.toByteArray(Charsets.UTF_8).size > 128) return null
+        if (id.any { character ->
+                character.code !in 0x21..0x7E || character == '/' || character == '\\'
+            }
+        ) return null
+        return id
+    }
+
+    private fun ownedPostStoragePath(value: String?, uid: String): String? {
+        val path = value ?: return null
+        val prefix = "posts/$uid/"
+        if (path.length > 240 || !path.startsWith(prefix) || path.contains("..")) return null
+        val basename = path.removePrefix(prefix)
+        return path.takeIf { basename.isNotEmpty() && !basename.contains('/') }
+    }
+
+    private fun deliverProfilePostDeleteResult(
+        requestId: String,
+        postId: String,
+        ok: Boolean,
+        error: String? = null,
+    ) {
+        val payload = JSONObject()
+            .put("requestId", requestId)
+            .put("postId", postId)
+            .put("ok", ok)
+            .apply { if (error != null) put("error", error) }
+            .toString()
+        homeWebView.post {
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-native-profile-post-delete-result',{detail:$payload}));true;",
+                null,
+            )
+        }
     }
 
     /**
