@@ -1467,34 +1467,46 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "openDMThread") {
                 val threadId = body.optString("threadId")
                 if (threadId.isNotEmpty() && threadId.length <= 200) {
-                    PoplurDirectMessages.observeThread(threadId) { messages ->
-                        pushWebMessage(
-                            JSONObject()
-                                .put("type", "poplurDMMessages")
-                                .put("threadId", threadId)
-                                .put("messages", messages)
-                        )
-                    }
+                    PoplurDirectMessages.observeThread(
+                        threadId,
+                        onChange = { messages ->
+                            pushWebMessage(
+                                JSONObject()
+                                    .put("type", "poplurDMMessages")
+                                    .put("threadId", threadId)
+                                    .put("messages", messages)
+                            )
+                        },
+                        onState = { state ->
+                            pushWebMessage(state.put("type", "poplurDMThreadState"))
+                        }
+                    )
                 }
             }
             if (type == "closeDMThread") {
                 PoplurDirectMessages.closeThread()
             }
+            if (type == "setDMTyping") {
+                val threadId = body.optString("threadId")
+                val typing = body.optBoolean("typing", false)
+                if (threadId.isNotEmpty() && threadId.length <= 200) {
+                    lifecycleScope.launch {
+                        PoplurDirectMessages.setTyping(threadId, typing)
+                    }
+                }
+            }
             if (type == "sendDM") {
                 val otherId = body.optString("otherId")
                 val text = body.optString("text")
+                val clientMessageId = body.optString("clientMessageId")
                 lifecycleScope.launch {
-                    val ok = PoplurDirectMessages.send(otherId, text)
-                    // The live listener delivers the message itself; this only
-                    // reports a FAILURE, so the composer can put the text back
-                    // rather than swallowing it.
-                    if (!ok) {
-                        pushWebMessage(
-                            JSONObject()
-                                .put("type", "poplurDMSendFailed")
-                                .put("text", text)
-                        )
-                    }
+                    val ok = PoplurDirectMessages.send(otherId, text, clientMessageId)
+                    pushWebMessage(
+                        JSONObject()
+                            .put("type", if (ok) "poplurDMSent" else "poplurDMSendFailed")
+                            .put("clientMessageId", clientMessageId)
+                            .apply { if (!ok) put("text", text) }
+                    )
                 }
             }
             if (type == "profileThemeChanged") {
