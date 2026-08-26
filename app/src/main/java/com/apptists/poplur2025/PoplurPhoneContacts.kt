@@ -155,15 +155,21 @@ object PoplurPhoneContacts {
             // the distance it is at the equator. Clamped so the cosine cannot
             // approach zero near the poles and open the box to the whole world.
             val lngDelta = radiusKm / max(1.0, 111.32 * cos(latitude * Math.PI / 180))
+            // Only the modern, explicitly-public origin contract participates
+            // in live discovery. The old lat/lng pair had no trustworthy
+            // privacy marker, so using it as a fallback could expose a private
+            // account through a pre-migration post.
             runCatching {
                 db.collection("posts")
-                    .whereGreaterThan("lat", latitude - latDelta)
-                    .whereLessThan("lat", latitude + latDelta)
+                    .whereGreaterThan("latitude", latitude - latDelta)
+                    .whereLessThan("latitude", latitude + latDelta)
                     .limit(200)
                     .get().await()
             }.getOrNull()?.documents?.forEach { document ->
-                val postLat = document.getDouble("lat") ?: return@forEach
-                val postLng = document.getDouble("lng") ?: return@forEach
+                val data = document.data ?: return@forEach
+                if (!hasDiscoverableOrigin(data)) return@forEach
+                val postLat = document.getDouble("latitude") ?: return@forEach
+                val postLng = document.getDouble("longitude") ?: return@forEach
                 if (abs(postLng - longitude) > lngDelta) return@forEach
                 val km = haversineKm(latitude, longitude, postLat, postLng)
                 if (km > radiusKm) return@forEach
@@ -244,6 +250,25 @@ object PoplurPhoneContacts {
         val a = sin(dLat / 2) * sin(dLat / 2) +
             cos(lat1 * Math.PI / 180) * cos(lat2 * Math.PI / 180) * sin(dLng / 2) * sin(dLng / 2)
         return radius * 2 * atan2(sqrt(a), sqrt(1 - a))
+    }
+
+    /**
+     * Reach fails closed: only the current explicitly-public origin contract
+     * may make an account discoverable. Missing fields are fine for older
+     * public posts, but a present malformed privacy marker is not permission.
+     */
+    private fun hasDiscoverableOrigin(data: Map<String, Any>): Boolean {
+        if (data["locationVisibility"] != "approximate") return false
+        for (key in listOf(
+            "privateAccount",
+            "ghostMode",
+            "originHiddenByPrivateAccount",
+            "originHiddenByGhostMode"
+        )) {
+            val value = data[key] ?: continue
+            if (value !is Boolean || value) return false
+        }
+        return true
     }
 
     /**

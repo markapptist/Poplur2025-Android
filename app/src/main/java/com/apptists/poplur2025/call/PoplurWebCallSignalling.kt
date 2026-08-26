@@ -35,6 +35,7 @@ object PoplurWebCallSignalling {
         otherUid: String,
         callerName: String?,
         video: Boolean,
+        context: String? = null,
         completion: (String?) -> Unit,
     ) {
         val authenticatedUid = auth.currentUser?.uid
@@ -62,6 +63,9 @@ object PoplurWebCallSignalling {
             "createdAt" to FieldValue.serverTimestamp(),
             "provider" to WEBRTC_PROVIDER,
         )
+        // Keep legacy call documents unchanged; only the known House owner is
+        // persisted so the recipient can suppress duplicate global controls.
+        if (context == "house") payload["context"] = "house"
         ref.set(payload)
             .addOnSuccessListener {
                 observe(ref.id)
@@ -197,6 +201,7 @@ object PoplurWebCallSignalling {
                             put("callerId", data["callerId"] as? String ?: "")
                             put("callerName", data["callerName"] as? String ?: "Unknown")
                             put("video", data["video"] as? Boolean ?: false)
+                            put("context", data["context"] as? String ?: "default")
                         }
                     }
             }

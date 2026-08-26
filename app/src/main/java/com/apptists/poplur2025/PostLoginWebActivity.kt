@@ -1628,11 +1628,13 @@ class PostLoginWebActivity : ComponentActivity() {
                 val otherUid = body.optString("otherId")
                 val callerName = body.optString("callerName").takeIf { it.isNotBlank() }
                 val video = body.optBoolean("video", false)
+                val context = body.optString("context").takeIf { it == "house" }
                 val requestId = body.optString("requestId")
                 com.apptists.poplur2025.call.PoplurWebCallSignalling.startCall(
                     otherUid = otherUid,
                     callerName = callerName,
                     video = video,
+                    context = context,
                 ) { callId ->
                     pushWebMessage(
                         JSONObject()
@@ -1686,17 +1688,18 @@ class PostLoginWebActivity : ComponentActivity() {
                 val radiusKm = if (body.has("radiusKm")) body.optDouble("radiusKm") else null
                 val latitude = if (body.has("latitude")) body.optDouble("latitude") else null
                 val longitude = if (body.has("longitude")) body.optDouble("longitude") else null
+                val requestId = body.opt("requestId") as? String
                 lifecycleScope.launch {
                     val contacts = PoplurPhoneContacts.contacts(
                         radiusKm = radiusKm?.takeIf { !it.isNaN() },
                         latitude = latitude?.takeIf { !it.isNaN() },
                         longitude = longitude?.takeIf { !it.isNaN() }
                     )
-                    pushWebMessage(
-                        JSONObject()
-                            .put("type", "poplurPhoneContacts")
-                            .put("contacts", contacts)
-                    )
+                    val response = JSONObject()
+                        .put("type", "poplurPhoneContacts")
+                        .put("contacts", contacts)
+                    requestId?.let { response.put("requestId", it) }
+                    pushWebMessage(response)
                 }
             }
             if (type == "togglePhoneFavourite") {
@@ -2579,14 +2582,12 @@ class PostLoginWebActivity : ComponentActivity() {
                     .forEach { document ->
                         val mediaURL = document.getString("mediaURL")?.trim().orEmpty()
                         if (mediaURL.isBlank()) return@forEach
+                        val lowerURL = mediaURL.lowercase()
+                        val inferredType = if (lowerURL.contains(".mp4") || lowerURL.contains(".mov") || lowerURL.contains(".m4v") || lowerURL.contains(".webm")) "video" else "photo"
                         posts.put(JSONObject().apply {
                             put("id", document.id)
                             put("mediaURL", mediaURL)
-                            put("mediaType", document.getString("mediaType") ?: if (
-                                mediaURL.contains(".mp4", ignoreCase = true)
-                                    || mediaURL.contains(".mov", ignoreCase = true)
-                                    || mediaURL.contains(".webm", ignoreCase = true)
-                            ) "video" else "photo")
+                            put("mediaType", document.getString("mediaType") ?: inferredType)
                             document.getString("posterURL")?.takeIf { it.isNotBlank() }
                                 ?.let { put("posterURL", it) }
                             document.getString("caption")?.takeIf { it.isNotBlank() }
@@ -2628,10 +2629,12 @@ class PostLoginWebActivity : ComponentActivity() {
                         val mediaURL = (document.getString("playbackURL")
                             ?: document.getString("mediaURL"))?.trim().orEmpty()
                         if (mediaURL.isBlank()) return@forEach
+                        val lowerURL = mediaURL.lowercase()
+                        val inferredType = if (lowerURL.contains(".mp4") || lowerURL.contains(".mov") || lowerURL.contains(".m4v") || lowerURL.contains(".webm")) "video" else "photo"
                         posts.put(JSONObject().apply {
                             put("id", document.id)
                             put("mediaURL", mediaURL)
-                            put("mediaType", document.getString("mediaType") ?: "video")
+                            put("mediaType", document.getString("mediaType") ?: inferredType)
                             put("username", document.getString("username") ?: "Poplur user")
                             put("channelId", document.getString("channelId") ?: "live")
                             put(
