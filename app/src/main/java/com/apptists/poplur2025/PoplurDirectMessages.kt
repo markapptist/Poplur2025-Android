@@ -57,7 +57,9 @@ object PoplurDirectMessages {
 
     /**
      * Live list of this account's threads, newest first. [onChange] fires again
-     * on every update, so the page never has to poll.
+     * on every update, so the page never has to poll. Participation is the
+     * whole inbox boundary: radius may discover a person, but an existing
+     * thread remains here after either participant moves away.
      */
     fun observeThreads(onChange: (JSONArray) -> Unit) {
         val me = uid
