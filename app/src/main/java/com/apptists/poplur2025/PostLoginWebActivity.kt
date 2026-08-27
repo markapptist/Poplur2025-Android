@@ -37,8 +37,6 @@ import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
-import androidx.browser.customtabs.CustomTabColorSchemeParams
-import androidx.browser.customtabs.CustomTabsIntent
 import com.apptists.poplur2025.ads.AdManager
 import com.apptists.poplur2025.data.FeedAdPlacementKind
 import com.apptists.poplur2025.data.FeedAdProbability
@@ -163,6 +161,10 @@ class PostLoginWebActivity : ComponentActivity() {
     private var hideVolumeRunnable: Runnable? = null
     private var revealRunnable: Runnable? = null
     private var pendingDMThreadId: String? = null
+    private var inAppBrowserDialog: PoplurInAppBrowserDialog? = null
+    private var homeParkedForInAppBrowser = false
+    private var activityStarted = false
+    private var activityResumed = false
 
     private val darkHome = 0xFF050407.toInt()
     private val darkLoading = 0xFF0A0709.toInt()
@@ -541,25 +543,33 @@ class PostLoginWebActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        activityResumed = true
+        // The advertiser WebView is separate from signed-in Home, so resume
+        // only that isolated controller when it actually exists.
+        val externalBrowser = inAppBrowserDialog
+        if (externalBrowser != null) externalBrowser.hostOnResume()
+        else if (!restoreHomeAfterInAppBrowserIfVisible()) startCubeMotion()
         // A push banner on top of the screen the user is already reading is
         // redundant: the web list already has the row.
         PoplurNotifications.appInForeground = true
-        // Sensor delivery is foreground-only: an unregistered listener is the
-        // difference between a cube that moves and a background wake-up budget
-        // this app has already been burned by.
-        startCubeMotion()
+        // Cube sensors are resumed above only when Home, rather than the
+        // isolated external browser, is the visible heavy surface.
     }
 
     override fun onStart() {
         super.onStart()
+        activityStarted = true
         com.apptists.poplur2025.util.PoplurEQSync.noteActivityStarted()
         // Process-global and idempotent; undoes a pauseTimers() from a full
         // app-hide. WebView.onPause() alone never stops JS timers.
         if (::homeWebView.isInitialized) homeWebView.resumeTimers()
-        if (::performanceController.isInitialized) performanceController.setVisible(true)
+        if (::performanceController.isInitialized && !homeParkedForInAppBrowser) {
+            performanceController.setVisible(true)
+        }
     }
 
     override fun onStop() {
+        activityStarted = false
         if (::performanceController.isInitialized) performanceController.setVisible(false)
         if (com.apptists.poplur2025.util.PoplurEQSync.noteActivityStopped() &&
             ::homeWebView.isInitialized
@@ -573,8 +583,12 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        activityResumed = false
         PoplurNotifications.appInForeground = false
         stopCubeMotion()
+        // Park media/JS owned by the external destination without touching
+        // the signed-in Home WebView's lifecycle.
+        inAppBrowserDialog?.hostOnPause()
         super.onPause()
     }
 
@@ -2947,28 +2961,59 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     private fun openInAppBrowser(rawUrl: String) {
-        val uri = runCatching { Uri.parse(rawUrl.trim()) }.getOrNull()
-        if (uri == null || !uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank()) {
+        val destination = normalizePoplurInAppBrowserUrl(rawUrl)
+        if (destination == null) {
             Log.w(TAG, "Ignoring invalid in-app browser URL")
             return
         }
 
         runOnUiThread {
             runCatching {
-                val colors = CustomTabColorSchemeParams.Builder()
-                    .setToolbarColor(0xFF1A0C17.toInt())
-                    .setNavigationBarColor(darkHome)
-                    .build()
-                CustomTabsIntent.Builder()
-                    .setShowTitle(true)
-                    .setUrlBarHidingEnabled(false)
-                    .setDefaultColorSchemeParams(colors)
-                    .build()
-                    .launchUrl(this@PostLoginWebActivity, uri)
+                // One external page means one isolated WebView. A second ad
+                // replaces the first controller rather than stacking another
+                // GPU-backed browser surface behind it.
+                inAppBrowserDialog?.let { previous ->
+                    inAppBrowserDialog = null
+                    previous.setOnDismissListener(null)
+                    previous.dismiss()
+                }
+                parkHomeForInAppBrowser()
+                val dialog = PoplurInAppBrowserDialog(this@PostLoginWebActivity, destination)
+                inAppBrowserDialog = dialog
+                dialog.setOnDismissListener {
+                    if (inAppBrowserDialog === dialog) {
+                        inAppBrowserDialog = null
+                        restoreHomeAfterInAppBrowserIfVisible()
+                    }
+                }
+                dialog.show()
             }.onFailure { error ->
+                inAppBrowserDialog?.let { failed ->
+                    inAppBrowserDialog = null
+                    failed.setOnDismissListener(null)
+                    failed.dismiss()
+                }
+                restoreHomeAfterInAppBrowserIfVisible()
                 Log.e(TAG, "Unable to open the in-app browser", error)
             }
         }
+    }
+
+    private fun parkHomeForInAppBrowser() {
+        if (homeParkedForInAppBrowser) return
+        homeParkedForInAppBrowser = true
+        stopCubeMotion()
+        // The controller owns Home's onPause/onResume calls. Marking it hidden
+        // parks that one heavy renderer while the external WebView is visible.
+        if (::performanceController.isInitialized) performanceController.setVisible(false)
+    }
+
+    private fun restoreHomeAfterInAppBrowserIfVisible(): Boolean {
+        if (!homeParkedForInAppBrowser || !activityStarted || !activityResumed) return false
+        homeParkedForInAppBrowser = false
+        if (::performanceController.isInitialized) performanceController.setVisible(true)
+        startCubeMotion()
+        return true
     }
 
     /**
@@ -3075,6 +3120,12 @@ class PostLoginWebActivity : ComponentActivity() {
         com.apptists.poplur2025.call.PoplurWebCallSignalling.stopAll()
         pendingWebMediaPermissionRequest?.deny()
         pendingWebMediaPermissionRequest = null
+        activityResumed = false
+        activityStarted = false
+        inAppBrowserDialog?.setOnDismissListener(null)
+        inAppBrowserDialog?.dismiss()
+        inAppBrowserDialog = null
+        homeParkedForInAppBrowser = false
         // Same reasoning for the DM streams: a thread listener that outlives
         // the activity keeps pushing into a WebView that is being destroyed.
         PoplurDirectMessages.stop()
