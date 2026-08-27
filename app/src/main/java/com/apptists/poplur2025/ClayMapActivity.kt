@@ -1,6 +1,7 @@
 package com.apptists.poplur2025
 
 import android.annotation.SuppressLint
+import android.media.MediaPlayer
 import android.os.Bundle
 import android.view.HapticFeedbackConstants
 import android.webkit.JavascriptInterface
@@ -11,6 +12,7 @@ import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.webkit.WebViewAssetLoader
 import com.apptists.poplur2025.performance.PoplurWebViewPerformanceController
+import com.apptists.poplur2025.util.PoplurEQSync
 import org.json.JSONObject
 
 /**
@@ -26,13 +28,15 @@ import org.json.JSONObject
  * (Mirrors the iOS custom-scheme fix in PoplurClayMapView.swift.)
  *
  * Bridge:
- *   JS → Android: window.PoplurNative.onEvent('{"type":"pop"}') → haptic
+ *   JS → Android: window.PoplurNative.onEvent('{"type":"pop"}') → haptic + pop sound
  *   Android → JS: webView.evaluateJavascript("window.__poplurNative.flyTo(...)")
  */
 class ClayMapActivity : ComponentActivity() {
 
     private lateinit var webView: WebView
     private lateinit var performanceController: PoplurWebViewPerformanceController
+    private var popPlayer: MediaPlayer? = null
+    private var isPopPlayerReady = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -63,16 +67,51 @@ class ClayMapActivity : ComponentActivity() {
         performanceController = PoplurWebViewPerformanceController(this, "PoplurClayMapWeb")
         performanceController.attach(webView)
         setContentView(webView)
+        preparePopPlayer()
     }
 
     override fun onStart() {
         super.onStart()
+        PoplurEQSync.noteActivityStarted()
         performanceController.setVisible(true)
     }
 
     override fun onStop() {
         performanceController.setVisible(false)
+        PoplurEQSync.noteActivityStopped()
         super.onStop()
+    }
+
+    private fun preparePopPlayer() {
+        val player = MediaPlayer()
+        runCatching {
+            assets.openFd("pop.mp3").use { asset ->
+                player.setDataSource(asset.fileDescriptor, asset.startOffset, asset.length)
+            }
+            player.setOnPreparedListener { prepared ->
+                if (popPlayer === prepared) isPopPlayerReady = true
+            }
+            player.setOnErrorListener { failed, _, _ ->
+                if (popPlayer === failed) isPopPlayerReady = false
+                true
+            }
+            popPlayer = player
+            player.prepareAsync()
+        }.onFailure {
+            if (popPlayer === player) popPlayer = null
+            isPopPlayerReady = false
+            player.release()
+        }
+    }
+
+    private fun playPopSound() {
+        if (!PoplurEQSync.shouldPlayTransientSound(minimumIntervalMs = 160L)) return
+        val player = popPlayer?.takeIf { isPopPlayerReady } ?: return
+        runCatching {
+            if (player.isPlaying) player.pause()
+            player.seekTo(0)
+            player.start()
+        }
     }
 
     inner class BridgeInterface {
@@ -82,6 +121,7 @@ class ClayMapActivity : ComponentActivity() {
             when (type) {
                 "pop" -> runOnUiThread {
                     webView.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                    playPopSound()
                 }
                 "poiTap" -> Unit // Phase 1.5: route to channel/post
             }
@@ -90,6 +130,9 @@ class ClayMapActivity : ComponentActivity() {
 
     override fun onDestroy() {
         performanceController.close()
+        isPopPlayerReady = false
+        popPlayer?.release()
+        popPlayer = null
         webView.destroy()
         super.onDestroy()
     }
