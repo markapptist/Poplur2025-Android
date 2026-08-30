@@ -72,6 +72,7 @@ import androidx.compose.ui.graphics.toArgb
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.Query
 import com.google.firebase.functions.FirebaseFunctions
@@ -165,6 +166,11 @@ class PostLoginWebActivity : ComponentActivity() {
     private var homeParkedForInAppBrowser = false
     private var activityStarted = false
     private var activityResumed = false
+    private var notificationAuthListener: FirebaseAuth.AuthStateListener? = null
+    private var notificationRegistration: ListenerRegistration? = null
+    private var notificationObservedUid: String? = null
+    private var notificationDocumentIds: Map<String, String> = emptyMap()
+    private val notificationGeneration = NotificationListenerGeneration()
 
     private val darkHome = 0xFF050407.toInt()
     private val darkLoading = 0xFF0A0709.toInt()
@@ -1392,22 +1398,51 @@ class PostLoginWebActivity : ComponentActivity() {
         homeWebView.postDelayed(hideVolumeRunnable!!, VOLUME_HIDE_MS)
     }
 
-    private fun requestNotificationsForWeb() {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: run {
-            deliverNotificationsToWeb(JSONArray())
-            return
+    private fun reconnectNotificationsForWeb() {
+        stopNotificationsForWeb(clearIdentity = false)
+        val generation = notificationGeneration.replace()
+        val auth = FirebaseAuth.getInstance()
+        val authListener = FirebaseAuth.AuthStateListener { state ->
+            if (!notificationGeneration.isCurrent(generation)) return@AuthStateListener
+            bindNotificationsForWeb(state.currentUser?.uid, generation)
         }
-        FirebaseFirestore.getInstance().collection("users").document(uid)
+        notificationAuthListener = authListener
+        auth.addAuthStateListener(authListener)
+    }
+
+    private fun bindNotificationsForWeb(uid: String?, generation: Long) {
+        if (!notificationGeneration.isCurrent(generation)) return
+        notificationRegistration?.remove()
+        notificationRegistration = null
+        if (notificationObservedUid != uid) {
+            notificationDocumentIds = emptyMap()
+            deliverNotificationsToWeb(JSONArray())
+        }
+        notificationObservedUid = uid
+        if (uid == null) return
+
+        notificationRegistration = FirebaseFirestore.getInstance()
+            .collection("users").document(uid)
             .collection("notifications")
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .limit(80)
-            .get()
-            .addOnSuccessListener { snapshot ->
+            .addSnapshotListener { snapshot, error ->
+                if (!notificationGeneration.isCurrent(generation)
+                    || notificationObservedUid != uid
+                ) return@addSnapshotListener
+                if (error != null) {
+                    Log.w(TAG, "notification inbox listener failed", error)
+                    return@addSnapshotListener
+                }
                 val rows = JSONArray()
-                snapshot.documents.forEach { document ->
+                val documentIds = mutableMapOf<String, String>()
+                snapshot?.documents.orEmpty().forEach { document ->
+                    val id = document.getString("id")?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: document.id
+                    documentIds[id] = document.id
                     if (document.getBoolean("isDismissed") == true) return@forEach
                     val row = JSONObject()
-                        .put("id", document.getString("id") ?: document.id)
+                        .put("id", id)
                         .put("kind", document.getString("kind") ?: "engagement")
                         .put("title", document.getString("title") ?: "Poplur")
                         .put("detail", document.getString("detail") ?: "New activity on Poplur")
@@ -1419,12 +1454,21 @@ class PostLoginWebActivity : ComponentActivity() {
                     document.getString("threadId")?.let { row.put("threadId", it) }
                     rows.put(row)
                 }
+                notificationDocumentIds = documentIds
                 deliverNotificationsToWeb(rows)
             }
-            .addOnFailureListener { error ->
-                Log.w(TAG, "notification inbox refresh failed", error)
-                deliverNotificationsToWeb(JSONArray())
-            }
+    }
+
+    private fun stopNotificationsForWeb(clearIdentity: Boolean = true) {
+        notificationGeneration.replace()
+        notificationRegistration?.remove()
+        notificationRegistration = null
+        notificationAuthListener?.let { FirebaseAuth.getInstance().removeAuthStateListener(it) }
+        notificationAuthListener = null
+        if (clearIdentity) {
+            notificationObservedUid = null
+            notificationDocumentIds = emptyMap()
+        }
     }
 
     private fun deliverNotificationsToWeb(rows: JSONArray) {
@@ -1443,50 +1487,34 @@ class PostLoginWebActivity : ComponentActivity() {
         dismiss: Boolean = false,
     ) {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        if (notificationObservedUid != uid) return
         val inbox = FirebaseFirestore.getInstance().collection("users").document(uid)
             .collection("notifications")
-        val selected = ids?.filter { it.isNotBlank() }?.distinct()
-        if (selected != null) {
-            if (selected.isEmpty()) return
-            val batch = FirebaseFirestore.getInstance().batch()
-            selected.forEach { id ->
-                val fields = mutableMapOf<String, Any>()
-                if (markRead) {
-                    fields["isUnread"] = false
-                    fields["readAt"] = FieldValue.serverTimestamp()
-                }
-                if (dismiss) {
-                    fields["isDismissed"] = true
-                    fields["dismissedAt"] = FieldValue.serverTimestamp()
-                }
-                batch.update(inbox.document(id), fields)
+        val selected = (ids ?: notificationDocumentIds.keys.toList())
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (selected.isEmpty()) return
+        val batch = FirebaseFirestore.getInstance().batch()
+        var hasWrites = false
+        selected.forEach { id ->
+            val documentId = notificationDocumentIds[id] ?: return@forEach
+            val fields = mutableMapOf<String, Any>()
+            if (markRead) {
+                fields["isUnread"] = false
+                fields["readAt"] = FieldValue.serverTimestamp()
             }
-            batch.commit()
-                .addOnSuccessListener { requestNotificationsForWeb() }
-                .addOnFailureListener { error -> Log.w(TAG, "notification inbox update failed", error) }
-            return
+            if (dismiss) {
+                fields["isDismissed"] = true
+                fields["dismissedAt"] = FieldValue.serverTimestamp()
+            }
+            if (fields.isNotEmpty()) {
+                batch.update(inbox.document(documentId), fields)
+                hasWrites = true
+            }
         }
-
-        inbox.orderBy("createdAt", Query.Direction.DESCENDING).limit(80).get()
-            .addOnSuccessListener { snapshot ->
-                val batch = FirebaseFirestore.getInstance().batch()
-                snapshot.documents.forEach { document ->
-                    val fields = mutableMapOf<String, Any>()
-                    if (markRead && document.getBoolean("isUnread") != false) {
-                        fields["isUnread"] = false
-                        fields["readAt"] = FieldValue.serverTimestamp()
-                    }
-                    if (dismiss && document.getBoolean("isDismissed") != true) {
-                        fields["isDismissed"] = true
-                        fields["dismissedAt"] = FieldValue.serverTimestamp()
-                    }
-                    if (fields.isNotEmpty()) batch.update(document.reference, fields)
-                }
-                batch.commit()
-                    .addOnSuccessListener { requestNotificationsForWeb() }
-                    .addOnFailureListener { error -> Log.w(TAG, "notification inbox batch failed", error) }
-            }
-            .addOnFailureListener { error -> Log.w(TAG, "notification inbox query failed", error) }
+        if (!hasWrites) return
+        batch.commit()
+            .addOnFailureListener { error -> Log.w(TAG, "notification inbox update failed", error) }
     }
 
     inner class Bridge {
@@ -1539,17 +1567,30 @@ class PostLoginWebActivity : ComponentActivity() {
                 // channel), so cancelling them IS clearing the badge. Leaving
                 // them posted keeps a count on the icon for notifications the
                 // user has already read inside the app.
+                val rows = body.optJSONArray("ids")
+                val ids = rows?.let {
+                    buildList {
+                        for (index in 0 until it.length()) {
+                            it.optString(index).takeIf { id -> id.isNotBlank() }?.let(::add)
+                        }
+                    }
+                }
                 runOnUiThread {
                     NotificationManagerCompat.from(this@PostLoginWebActivity).cancelAll()
+                    updateNotificationInbox(ids = ids, markRead = true)
                 }
-                updateNotificationInbox(markRead = true)
             }
             if (type == "notificationsRequested") {
-                requestNotificationsForWeb()
+                runOnUiThread { reconnectNotificationsForWeb() }
+            }
+            if (type == "notificationsStopped") {
+                runOnUiThread { stopNotificationsForWeb() }
             }
             if (type == "notificationDismissed") {
                 val id = body.optString("id")
-                if (id.isNotBlank()) updateNotificationInbox(ids = listOf(id), dismiss = true)
+                if (id.isNotBlank()) {
+                    runOnUiThread { updateNotificationInbox(ids = listOf(id), dismiss = true) }
+                }
             }
             if (type == "notificationsCleared") {
                 val rows = body.optJSONArray("ids")
@@ -1558,7 +1599,7 @@ class PostLoginWebActivity : ComponentActivity() {
                         rows.optString(index).takeIf { it.isNotBlank() }?.let(::add)
                     }
                 }
-                updateNotificationInbox(ids = ids, dismiss = true)
+                runOnUiThread { updateNotificationInbox(ids = ids, dismiss = true) }
             }
             // The bundled WebView cannot use Firebase directly. Hand it a
             // short-lived ID token on demand for authenticated Poplur tools;
@@ -3129,6 +3170,7 @@ class PostLoginWebActivity : ComponentActivity() {
         // Same reasoning for the DM streams: a thread listener that outlives
         // the activity keeps pushing into a WebView that is being destroyed.
         PoplurDirectMessages.stop()
+        stopNotificationsForWeb()
         phoneBootPlayer?.stop()
         phoneBootPlayer?.release()
         phoneBootPlayer = null
