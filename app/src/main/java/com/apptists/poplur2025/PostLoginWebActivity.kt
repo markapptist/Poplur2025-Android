@@ -1874,6 +1874,40 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "poplurStoreCheckoutRequested") {
                 runOnUiThread { requestStoreCheckout(body) }
             }
+            if (type == "sharePost") {
+                val title = body.optString("title").trim().ifEmpty { "Poplur" }
+                val user = body.optString("user").trim()
+                val line = if (user.isEmpty()) title else "$title — $user"
+                val rawShareLink = body.optString("link").trim()
+                    .ifEmpty { body.optString("url").trim() }
+                val suppliedLink = rawShareLink.takeIf { raw ->
+                    val uri = runCatching { Uri.parse(raw) }.getOrNull()
+                    uri?.scheme.equals("https", ignoreCase = true) &&
+                        !uri?.host.isNullOrBlank() && uri?.userInfo.isNullOrBlank()
+                }
+                val postLink = body.optString("postId").trim().takeIf { it.isNotEmpty() }?.let { postId ->
+                    Uri.Builder()
+                        .scheme("https")
+                        .authority("poplur.com")
+                        .appendPath("p")
+                        .appendPath(postId)
+                        .build()
+                        .toString()
+                }
+                // postId is the immutable identity. Prefer its canonical URL
+                // over any generic/channel link supplied by the web caller.
+                // Link-only surfaces such as Radio still use suppliedLink.
+                val link = postLink ?: suppliedLink
+                val text = if (link == null) line else "$line\n$link"
+                runOnUiThread {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        this.type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                        putExtra(Intent.EXTRA_SUBJECT, "Poplur")
+                    }
+                    startActivity(Intent.createChooser(intent, "Share this pop"))
+                }
+            }
             if (type == "shareReferral") {
                 val code = body.optString("code", "")
                 val link = body.optString("link", "https://poplur.com")
@@ -1900,6 +1934,23 @@ class PostLoginWebActivity : ComponentActivity() {
                         // Defer the Android system sheet until the user actually
                         // opens Camera Roll.
                         PoplurWebCameraRoll.deliverDenied(homeWebView)
+                    }
+                }
+            }
+            if (type == "requestProfileCameraRoll") {
+                PoplurPermissionPrimer.markHandled(
+                    this@PostLoginWebActivity,
+                    PoplurPermissionPrimer.PHOTOS
+                )
+                // Profile/Mail invokes this from an explicit Camera Roll tap,
+                // so this is the correct gesture for the Android system sheet.
+                // The permission callback below publishes only real MediaStore
+                // items; the web shell never substitutes bundled fixtures.
+                runOnUiThread {
+                    if (PoplurWebCameraRoll.hasPermission(this@PostLoginWebActivity)) {
+                        PoplurWebCameraRoll.push(homeWebView, ::registerWebCapture)
+                    } else {
+                        PoplurWebCameraRoll.requestPermission(this@PostLoginWebActivity)
                     }
                 }
             }
