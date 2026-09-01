@@ -2499,6 +2499,7 @@ class PostLoginWebActivity : ComponentActivity() {
                         .addOnFailureListener { Log.w(TAG, "[PoplurProfile] username seed FAILED", it) }
                 }
                 val payload = JSONObject().apply {
+                    put("uid", user.uid)
                     put("username", storedUsername ?: fallbackUsername)
                     put("business", business)
                     put("privateAccount", document?.getBoolean("privateAccount") == true)
@@ -2743,6 +2744,12 @@ class PostLoginWebActivity : ComponentActivity() {
                             put("mediaType", document.getString("mediaType") ?: inferredType)
                             put("username", document.getString("username") ?: "Poplur user")
                             put("channelId", document.getString("channelId") ?: "live")
+                            val ownerId = (document.getString("userID")
+                                ?: document.getString("userId")
+                                ?: document.getString("ownerId"))
+                                ?.trim()
+                                ?.takeIf { it.isNotEmpty() }
+                            if (ownerId != null) put("ownerId", ownerId)
                             put(
                                 "createdAtMillis",
                                 document.getLong("createdAtMillis")
