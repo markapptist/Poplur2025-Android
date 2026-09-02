@@ -40,6 +40,7 @@ import androidx.lifecycle.lifecycleScope
 import com.apptists.poplur2025.ads.AdManager
 import com.apptists.poplur2025.data.FeedAdPlacementKind
 import com.apptists.poplur2025.data.FeedAdProbability
+import com.apptists.poplur2025.data.FeedAdProbabilityConfig
 import com.apptists.poplur2025.ui.screens.bindFullScreenNativeAd
 import com.apptists.poplur2025.ui.screens.createFullScreenNativeAdView
 import com.google.android.gms.ads.nativead.NativeAd
@@ -1999,6 +2000,30 @@ class PostLoginWebActivity : ComponentActivity() {
                     body.optString("dataUrl"),
                     body.optBoolean("mirrored", false)
                 )
+            }
+            if (type == "feedAdProbabilityChanged") {
+                // The web feed mixer sets the blend now. SettingsScreen sits
+                // behind USE_WEB_SURFACES, so on a shipped build the split
+                // could otherwise only ever be its stored default.
+                //
+                // saveConfig normalizes, and every placement decision below
+                // still reads FeedAdProbability rather than anything the page
+                // sent, so the shell remains the source of truth. Photo cards
+                // and video creatives are both Poplur creative from here and
+                // arrive collapsed into one share.
+                val poplur = body.optDouble("poplurAdPercent", Double.NaN)
+                val google = body.optDouble("googleMobileAdPercent", Double.NaN)
+                if (poplur.isNaN() || google.isNaN()) {
+                    Log.w(TAG, "feed ad mix update missing percentages")
+                } else {
+                    FeedAdProbability.saveConfig(
+                        this@PostLoginWebActivity,
+                        FeedAdProbabilityConfig(
+                            poplurAdPercent = poplur.toFloat(),
+                            googleMobileAdPercent = google.toFloat()
+                        )
+                    )
+                }
             }
             if (type == "feedChannelChanged" || type == "feedContentAdvanced") {
                 // Real inventory follows a post change as well as a channel
