@@ -169,6 +169,8 @@ class PostLoginWebActivity : ComponentActivity() {
     private var activityResumed = false
     private var notificationAuthListener: FirebaseAuth.AuthStateListener? = null
     private var notificationRegistration: ListenerRegistration? = null
+    /** The live feed-posts forward. See deliverWebFeedPosts. */
+    private var feedPostsRegistration: ListenerRegistration? = null
     private var notificationObservedUid: String? = null
     private var notificationDocumentIds: Map<String, String> = emptyMap()
     private val notificationGeneration = NotificationListenerGeneration()
@@ -1661,7 +1663,9 @@ class PostLoginWebActivity : ComponentActivity() {
                 deliverWebProfilePosts()
             }
             if (type == "requestFeedPosts") {
-                deliverWebFeedPosts()
+                // Arm on the main thread, where onDestroy also runs, so the
+                // isDestroyed check and the remove()/assign cannot interleave.
+                runOnUiThread { deliverWebFeedPosts() }
             }
             if (type == "deleteProfilePost") {
                 deleteWebProfilePost(body)
@@ -2743,13 +2747,23 @@ class PostLoginWebActivity : ComponentActivity() {
 
     private fun deliverWebFeedPosts() {
         if (FirebaseAuth.getInstance().currentUser == null) return
-        FirebaseFirestore.getInstance().collection("posts")
+        if (isDestroyed || isFinishing) return
+        // Live, not one-shot. Inside the shell the Map is fed only by this
+        // forward, so a single get() meant a post published after launch never
+        // reached the phone's map until the next cold start. A listener
+        // re-forwards on every change; a repeat request simply re-arms it.
+        feedPostsRegistration?.remove()
+        feedPostsRegistration = FirebaseFirestore.getInstance().collection("posts")
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .limit(96)
-            .get()
-            .addOnSuccessListener { snapshot ->
+            .addSnapshotListener { snapshot, error ->
+                if (isDestroyed || isFinishing) return@addSnapshotListener
+                if (error != null) {
+                    Log.w(TAG, "deliverWebFeedPosts listener failed", error)
+                    return@addSnapshotListener
+                }
                 val posts = JSONArray()
-                snapshot.documents
+                snapshot?.documents.orEmpty()
                     .sortedByDescending { document ->
                         document.getLong("createdAtMillis")
                             ?: document.getTimestamp("createdAt")?.toDate()?.time
@@ -2785,7 +2799,10 @@ class PostLoginWebActivity : ComponentActivity() {
                                 ?.let { put("posterURL", it) }
                             document.getString("caption")?.takeIf { it.isNotBlank() }
                                 ?.let { put("caption", it) }
-                            document.getLong("radius")?.let { put("radiusMeters", it) }
+                            // radiusMeters first: a post carrying only that field used to
+                            // cross with no radius, and every reach check fails closed on 0.
+                            (document.getLong("radiusMeters") ?: document.getLong("radius") ?: document.getLong("organicRadiusMeters"))
+                                ?.let { put("radiusMeters", it) }
                             document.getLong("viewCount")?.let { put("viewCount", it.coerceAtLeast(0)) }
                             document.getLong("likeCount")?.let { put("likeCount", it.coerceAtLeast(0)) }
                             document.getLong("commentCount")?.let { put("commentCount", it.coerceAtLeast(0)) }
@@ -2815,7 +2832,6 @@ class PostLoginWebActivity : ComponentActivity() {
                     )
                 }
             }
-            .addOnFailureListener { error -> Log.w(TAG, "deliverWebFeedPosts failed", error) }
     }
 
     /**
@@ -3235,6 +3251,8 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        feedPostsRegistration?.remove()
+        feedPostsRegistration = null
         // The incoming-calls Firestore stream was process-lifetime before:
         // registered in onCreate, removed by nobody, streaming through
         // backgrounding and sign-out alike.
