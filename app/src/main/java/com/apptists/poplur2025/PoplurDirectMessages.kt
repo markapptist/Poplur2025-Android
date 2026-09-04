@@ -312,7 +312,16 @@ object PoplurDirectMessages {
         val threadRef = db.collection("dmThreads").document(threadId(me, otherUid))
         val messageRef = threadRef.collection("messages").document(clientMessageId)
         return try {
-            if (messageRef.get().await().exists()) return true
+            // Idempotency check that must never BLOCK the send. The messages
+            // read rule is inThread(threadId), and dmParticipants returns [] for
+            // a thread that does not exist — so on the FIRST message to anyone
+            // this read is denied and threw, and the catch below reported it as
+            // a send failure. The thread it asks about is the one this batch is
+            // about to create. A failure here means "no duplicate to skip",
+            // never "do not send"; the message is written at a client-chosen id,
+            // so a real retry overwrites rather than duplicates.
+            val alreadySent = runCatching { messageRef.get().await().exists() }.getOrDefault(false)
+            if (alreadySent) return true
             val batch = db.batch()
             batch.set(
                 threadRef,
