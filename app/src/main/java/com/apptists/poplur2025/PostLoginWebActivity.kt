@@ -2823,6 +2823,11 @@ class PostLoginWebActivity : ComponentActivity() {
                                 ?.let { put("posterURL", it) }
                             document.getString("caption")?.takeIf { it.isNotBlank() }
                                 ?.let { put("caption", it) }
+                            // Provenance for test mode: the web's reach rule lets the synthetic
+                            // beta cohort's pops reach every viewer while the simulation switch is on.
+                            document.getString("syntheticJourney")?.takeIf { it.isNotBlank() }
+                                ?.let { put("syntheticJourney", it) }
+                            if (document.getBoolean("syntheticBeta") == true) put("syntheticBeta", true)
                             // radiusMeters first: a post carrying only that field used to
                             // cross with no radius, and every reach check fails closed on 0.
                             (document.getLong("radiusMeters") ?: document.getLong("radius") ?: document.getLong("organicRadiusMeters"))
