@@ -182,7 +182,12 @@ object PoplurWebCallSignalling {
         val uid = auth.currentUser?.uid ?: return
         incomingListener?.remove()
         incomingListener = db.collection("calls")
-            .whereEqualTo("calleeId", uid)
+            // participants, not calleeId. The read rule is
+            // `uid in resource.data.participants`, and Firestore must prove a
+            // query satisfies it STATICALLY — a calleeId filter cannot, so this
+            // listener only worked because a duplicate `match /calls` allowed
+            // any signed-in read and nullified the participant scoping.
+            .whereArrayContains("participants", uid)
             .whereEqualTo("status", "ringing")
             .addSnapshotListener { snapshot, _ ->
                 snapshot?.documentChanges
