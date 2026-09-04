@@ -171,6 +171,8 @@ class PostLoginWebActivity : ComponentActivity() {
     private var notificationRegistration: ListenerRegistration? = null
     /** The live feed-posts forward. See deliverWebFeedPosts. */
     private var feedPostsRegistration: ListenerRegistration? = null
+    private var ownFeedDocuments: List<com.google.firebase.firestore.DocumentSnapshot> = emptyList()
+    private var ownFeedDocumentsUid: String? = null
     private var notificationObservedUid: String? = null
     private var notificationDocumentIds: Map<String, String> = emptyMap()
     private val notificationGeneration = NotificationListenerGeneration()
@@ -2753,6 +2755,27 @@ class PostLoginWebActivity : ComponentActivity() {
         // reached the phone's map until the next cold start. A listener
         // re-forwards on every change; a repeat request simply re-arms it.
         feedPostsRegistration?.remove()
+        run {
+            // Fetch what this account wrote, whatever its age, OUTSIDE the listener
+            // and cache it; each forward merges the cache synchronously so the
+            // forward's timing never changes (a fetch inside the listener delayed
+            // and reordered forwards). When the cache first fills, re-arm once so
+            // the next forward carries it.
+            val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            if (uid != null && ownFeedDocumentsUid != uid) {
+                ownFeedDocumentsUid = uid
+                ownFeedDocuments = emptyList()
+                FirebaseFirestore.getInstance().collection("posts")
+                    .whereEqualTo("userID", uid)
+                    .limit(64)
+                    .get()
+                    .addOnSuccessListener { own ->
+                        if (isDestroyed || isFinishing || ownFeedDocumentsUid != uid) return@addOnSuccessListener
+                        ownFeedDocuments = own.documents
+                        if (own.documents.isNotEmpty()) deliverWebFeedPosts()
+                    }
+            }
+        }
         feedPostsRegistration = FirebaseFirestore.getInstance().collection("posts")
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .limit(96)
@@ -2839,21 +2862,8 @@ class PostLoginWebActivity : ComponentActivity() {
                 // wrote, whatever its age. One-shot per forward: the window
                 // listener already re-arms on change.
                 val base = snapshot?.documents.orEmpty()
-                val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
-                if (uid == null) {
-                    forward(base)
-                    return@addSnapshotListener
-                }
-                FirebaseFirestore.getInstance().collection("posts")
-                    .whereEqualTo("userID", uid)
-                    .limit(64)
-                    .get()
-                    .addOnSuccessListener { own ->
-                        if (isDestroyed || isFinishing) return@addOnSuccessListener
-                        val seen = base.map { it.id }.toSet()
-                        forward(base + own.documents.filter { it.id !in seen })
-                    }
-                    .addOnFailureListener { forward(base) }
+                val seen = base.map { it.id }.toSet()
+                forward(base + ownFeedDocuments.filter { it.id !in seen })
             }
     }
 
