@@ -2762,8 +2762,9 @@ class PostLoginWebActivity : ComponentActivity() {
                     Log.w(TAG, "deliverWebFeedPosts listener failed", error)
                     return@addSnapshotListener
                 }
+                fun forward(documents: List<com.google.firebase.firestore.DocumentSnapshot>) {
                 val posts = JSONArray()
-                snapshot?.documents.orEmpty()
+                documents
                     .sortedByDescending { document ->
                         document.getLong("createdAtMillis")
                             ?: document.getTimestamp("createdAt")?.toDate()?.time
@@ -2831,6 +2832,28 @@ class PostLoginWebActivity : ComponentActivity() {
                         null,
                     )
                 }
+                }
+                // The newest 96 alone lose this account's own posts once the board
+                // outpaces them — and the Profile's map button, the Map's own claims
+                // and the Feed all read this forward. Fold in what this account
+                // wrote, whatever its age. One-shot per forward: the window
+                // listener already re-arms on change.
+                val base = snapshot?.documents.orEmpty()
+                val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                if (uid == null) {
+                    forward(base)
+                    return@addSnapshotListener
+                }
+                FirebaseFirestore.getInstance().collection("posts")
+                    .whereEqualTo("userID", uid)
+                    .limit(64)
+                    .get()
+                    .addOnSuccessListener { own ->
+                        if (isDestroyed || isFinishing) return@addOnSuccessListener
+                        val seen = base.map { it.id }.toSet()
+                        forward(base + own.documents.filter { it.id !in seen })
+                    }
+                    .addOnFailureListener { forward(base) }
             }
     }
 
