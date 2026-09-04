@@ -7,6 +7,23 @@ import kotlinx.coroutines.flow.update
 
 object PoplurEQSync {
     @Volatile var isAppVisible: Boolean = true
+    private var startedActivities = 0
+
+    @Synchronized
+    fun noteActivityStarted() {
+        startedActivities++
+        isAppVisible = true
+    }
+
+    @Synchronized
+    fun noteActivityStopped(): Boolean {
+        startedActivities = (startedActivities - 1).coerceAtLeast(0)
+        if (startedActivities == 0) {
+            isAppVisible = false
+            return true
+        }
+        return false
+    }
 
     enum class Lane {
         MapRadio,

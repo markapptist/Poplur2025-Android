@@ -1,5 +1,6 @@
 package com.apptists.poplur2025.map
 
+import android.content.Context
 import android.graphics.Color
 import android.util.Log
 import com.mapbox.bindgen.Value
@@ -59,9 +60,12 @@ class MapAnimationController {
         liveStyle = null
     }
 
-    /** Called by [PoplurMapThemeManager.onMapIdle] — suspends layer writes to save battery. */
+    fun initialize(context: Context) { /* reserved for future preload work */ }
+
+    fun setRenderingActive(active: Boolean) { if (active) resume() else pause() }
+
     fun pause()  { isPaused = true  }
-    /** Called by [PoplurMapThemeManager.onMapMoving] — resumes layer writes. */
+
     fun resume() { isPaused = false }
 
     // ── Animation loops ───────────────────────────────────────────────────────
