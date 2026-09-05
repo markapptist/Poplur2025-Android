@@ -1260,6 +1260,12 @@ class PostLoginWebActivity : ComponentActivity() {
                 "mediaType" to kind,
                 "viewCount" to 0,
                 "radius" to (body.optDouble("radiusKm", 5.0) * 1000).toInt(),
+                // The creation radius is all seed (spent reach, never earned):
+                // declared, with the earned pool at zero, exactly as iOS and
+                // React Native declare it, so the engagement functions never
+                // read a claim as radius earned from nowhere.
+                "seedRadiusMeters" to (body.optDouble("radiusKm", 5.0) * 1000).toInt(),
+                "organicRadiusMeters" to 0,
                 "audience" to "public",
                 "locationVisibility" to locationVisibility,
                 "processingStatus" to "ready",
