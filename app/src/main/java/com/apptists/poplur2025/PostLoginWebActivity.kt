@@ -1276,6 +1276,10 @@ class PostLoginWebActivity : ComponentActivity() {
                 post["latitudeCell"] = latitudeCell
                 post["longitudeCell"] = longitudeCell
             }
+            val photoSeconds = body.optDouble("photoViewSeconds", Double.NaN)
+            if (kind == "photo" && photoSeconds.isFinite() && photoSeconds > 0) {
+                post["photoViewSeconds"] = kotlin.math.round(photoSeconds).toInt().coerceIn(1, 60)
+            }
             posterUrl?.let { post["posterURL"] = it }
             posterStoragePath?.let { post["posterStoragePath"] = it }
             body.optString("caption").takeIf { it.isNotBlank() }?.let { post["caption"] = it }
@@ -2749,6 +2753,7 @@ class PostLoginWebActivity : ComponentActivity() {
                             put("id", document.id)
                             put("mediaURL", mediaURL)
                             put("mediaType", document.getString("mediaType") ?: inferredType)
+                            document.getDouble("photoViewSeconds")?.let { put("photoViewSeconds", it) }
                             document.getString("posterURL")?.takeIf { it.isNotBlank() }
                                 ?.let { put("posterURL", it) }
                             document.getString("caption")?.takeIf { it.isNotBlank() }
@@ -2828,6 +2833,7 @@ class PostLoginWebActivity : ComponentActivity() {
                             put("id", document.id)
                             put("mediaURL", mediaURL)
                             put("mediaType", document.getString("mediaType") ?: inferredType)
+                            document.getDouble("photoViewSeconds")?.let { put("photoViewSeconds", it) }
                             put("username", document.getString("username") ?: "Poplur user")
                             put("channelId", document.getString("channelId") ?: "live")
                             val ownerId = (document.getString("userID")
