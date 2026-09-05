@@ -2,6 +2,7 @@ package com.apptists.poplur2025.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.apptists.poplur2025.analytics.AnalyticsRelay
 import com.apptists.poplur2025.data.AccountType
 import com.apptists.poplur2025.data.BusinessAccountService
 import com.apptists.poplur2025.data.BusinessProfile
@@ -46,6 +47,12 @@ class AuthViewModel : ViewModel() {
                         // restored session is covered without a separate call.
                         if (signedIn) {
                             com.apptists.poplur2025.PoplurMessaging.syncTokenForCurrentUser()
+                        } else {
+                            // PostLoginWebActivity's signOut calls FirebaseAuth.signOut()
+                            // directly, bypassing signOut() below; the pre-login
+                            // AuthViewModel that follows sees the null user here, so the
+                            // analytics identity is cleared on that path too.
+                            AnalyticsRelay.setUserId(null)
                         }
                     }.also(firebaseAuth::addAuthStateListener)
                 } catch (e: Exception) {
@@ -60,6 +67,11 @@ class AuthViewModel : ViewModel() {
         firebaseAuth.signInWithEmailAndPassword(email.trim(), password)
             .addOnCompleteListener { task ->
                 _isSignedIn.value = task.isSuccessful
+                if (task.isSuccessful) {
+                    // Native owns login / sign_up (and the analytics user id); the web
+                    // page owns screen_view and every other in-app event.
+                    AnalyticsRelay.logLogin(firebaseAuth.currentUser?.uid ?: task.result?.user?.uid)
+                }
                 onResult(task.isSuccessful, task.exception?.localizedMessage)
             }
     }
@@ -86,6 +98,8 @@ class AuthViewModel : ViewModel() {
                     onResult(false, "Could not create your Poplur account.")
                     return@addOnCompleteListener
                 }
+                // The auth account exists from here on, whatever the profile save does.
+                AnalyticsRelay.logSignUp(uid)
 
                 BusinessAccountService.saveAccount(
                     uid = uid,
@@ -101,6 +115,7 @@ class AuthViewModel : ViewModel() {
 
     fun signOut() {
         auth?.signOut()
+        AnalyticsRelay.setUserId(null)
         _isSignedIn.value = false
     }
 

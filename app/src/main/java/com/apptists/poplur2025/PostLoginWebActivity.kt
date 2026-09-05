@@ -2135,6 +2135,7 @@ class PostLoginWebActivity : ComponentActivity() {
                 }
             }
             if (type == "publishPost") runOnUiThread { uploadClayPost(body) }
+            if (type == "analyticsEvent" || type == "analyticsUserProperty") com.apptists.poplur2025.analytics.AnalyticsRelay.handle(this@PostLoginWebActivity, type, body)
         }
     }
 

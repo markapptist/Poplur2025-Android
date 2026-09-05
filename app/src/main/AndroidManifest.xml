@@ -28,6 +28,10 @@
         android:roundIcon="@mipmap/ic_launcher_round">
         <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-2086359936541081~4441297400"/>
         <meta-data android:name="com.mapbox.maps.token" android:value="@string/mapbox_access_token"/>
+        <!-- Firebase Analytics: the web page owns screen_view (relayed over the bridge), so the SDK
+             must not log one per Activity, and the Advertising ID is never collected. -->
+        <meta-data android:name="google_analytics_automatic_screen_reporting_enabled" android:value="false"/>
+        <meta-data android:name="google_analytics_adid_collection_enabled" android:value="false"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"

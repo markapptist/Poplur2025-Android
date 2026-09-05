@@ -139,6 +139,11 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-functions-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
+    // Firebase Analytics. The web page is the source of screen_view and every
+    // in-app action event (relayed through analytics/AnalyticsRelay.kt); native
+    // logs only login / sign_up. Automatic screen reporting and Advertising ID
+    // collection are switched off in AndroidManifest.xml.
+    implementation("com.google.firebase:firebase-analytics")
     // Engagement push notifications. Version comes from the BOM above; the
     // credentials come from google-services.json, so Android needs no equivalent
     // of the APNs key that gates iOS delivery.
