@@ -16,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
+import org.json.JSONObject
 
 /**
  * Poplur system notifications. Parity with the iOS behaviour where the clay
@@ -62,6 +63,7 @@ object PoplurNotifications {
         body: String,
         silent: Boolean = false,
         destinationThreadId: String? = null,
+        destinationPostId: String? = null,
     ) {
         ensureChannel(context)
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
@@ -89,6 +91,22 @@ object PoplurNotifications {
                 PendingIntent.getActivity(
                     context,
                     destinationThreadId.hashCode(),
+                    destination,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+            )
+        } else if (!destinationPostId.isNullOrBlank()) {
+            // An engagement/radius notification opens ON its pin. Without a
+            // content intent a tap did nothing at all.
+            val destination = Intent(context, PostLoginWebActivity::class.java).apply {
+                action = "com.apptists.poplur2025.OPEN_POST"
+                putExtra("postId", destinationPostId)
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            builder.setContentIntent(
+                PendingIntent.getActivity(
+                    context,
+                    destinationPostId.hashCode(),
                     destination,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
@@ -183,6 +201,15 @@ object PoplurNotifications {
      */
     @Volatile
     var appInForeground: Boolean = false
+
+    /**
+     * The in-app banner sink. PostLoginWebActivity installs it while Home is
+     * resumed; a push arriving then is handed to the web layer, which draws its
+     * own tappable banner instead of the system drawing one over the app.
+     * Returns true when the banner was drawn in-app.
+     */
+    @Volatile
+    var foregroundBannerSink: ((JSONObject) -> Boolean)? = null
 
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

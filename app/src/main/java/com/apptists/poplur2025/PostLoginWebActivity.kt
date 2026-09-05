@@ -163,6 +163,7 @@ class PostLoginWebActivity : ComponentActivity() {
     private var hideVolumeRunnable: Runnable? = null
     private var revealRunnable: Runnable? = null
     private var pendingDMThreadId: String? = null
+    private var pendingPostFocusId: String? = null
     private var inAppBrowserDialog: PoplurInAppBrowserDialog? = null
     private var homeParkedForInAppBrowser = false
     private var activityStarted = false
@@ -263,6 +264,8 @@ class PostLoginWebActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         pendingDMThreadId = intent.getStringExtra("threadId")
             ?.takeIf { it.isNotBlank() && it.length <= 200 }
+        pendingPostFocusId = intent.getStringExtra("postId")
+            ?.takeIf { it.isNotBlank() && it.length <= 180 }
 
         // With MainActivity routing straight to the web surfaces (USE_WEB_SURFACES),
         // PoplurRoot no longer runs to start this — keep incoming calls working.
@@ -563,6 +566,16 @@ class PostLoginWebActivity : ComponentActivity() {
         // A push banner on top of the screen the user is already reading is
         // redundant: the web list already has the row.
         PoplurNotifications.appInForeground = true
+        // While Home is on screen a push is drawn by the web layer as its own
+        // banner (tappable, one at a time), never by the system over the app.
+        PoplurNotifications.foregroundBannerSink = { row ->
+            if (homeReady.value && ::homeWebView.isInitialized) {
+                pushWebMessage(JSONObject().put("type", "poplurNotificationBanner").put("notification", row))
+                true
+            } else {
+                false
+            }
+        }
         // Cube sensors are resumed above only when Home, rather than the
         // isolated external browser, is the visible heavy surface.
     }
@@ -596,6 +609,7 @@ class PostLoginWebActivity : ComponentActivity() {
     override fun onPause() {
         activityResumed = false
         PoplurNotifications.appInForeground = false
+        PoplurNotifications.foregroundBannerSink = null
         stopCubeMotion()
         // Park media/JS owned by the external destination without touching
         // the signed-in Home WebView's lifecycle.
@@ -1541,6 +1555,7 @@ class PostLoginWebActivity : ComponentActivity() {
                 runOnUiThread {
                     homeReady.value = true
                     deliverPendingDMDeepLink()
+                    deliverPendingPostFocus()
                     revealIfReady()
                 }
             }
@@ -2441,7 +2456,23 @@ class PostLoginWebActivity : ComponentActivity() {
         setIntent(intent)
         pendingDMThreadId = intent.getStringExtra("threadId")
             ?.takeIf { it.isNotBlank() && it.length <= 200 }
+        pendingPostFocusId = intent.getStringExtra("postId")
+            ?.takeIf { it.isNotBlank() && it.length <= 180 }
         deliverPendingDMDeepLink()
+        deliverPendingPostFocus()
+    }
+
+    /** A tapped engagement/radius notification lands on the post's pin. Held
+     *  until Home is ready, the same way a DM tap is. */
+    private fun deliverPendingPostFocus() {
+        if (!homeReady.value) return
+        val postId = pendingPostFocusId ?: return
+        pendingPostFocusId = null
+        pushWebMessage(
+            JSONObject()
+                .put("type", "poplurOpenPost")
+                .put("postId", postId)
+        )
     }
 
     private fun deliverProfileTheme(

@@ -8,6 +8,7 @@ import com.google.firebase.firestore.SetOptions
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import org.json.JSONObject
 
 /**
  * Phase 1 of engagement push notifications: get this device a token and keep it
@@ -121,10 +122,21 @@ class PoplurMessagingService : FirebaseMessagingService() {
         val body = message.notification?.body ?: data["body"].orEmpty()
         if (title.isBlank() && body.isBlank()) return
 
+        val notificationId = data["notificationId"].orEmpty()
+        val actorHandle = data["actorHandle"].orEmpty()
         if (kind == "dm") {
-            if (!PoplurNotifications.messagesPushEnabled(applicationContext)
-                || PoplurNotifications.appInForeground
-            ) return
+            if (!PoplurNotifications.messagesPushEnabled(applicationContext)) return
+            if (PoplurNotifications.appInForeground) {
+                // On screen: the web layer draws the banner (Instagram-style,
+                // tap opens the thread). The system banner over the app is
+                // exactly the thing this path used to produce.
+                deliverInAppBanner(
+                    id = notificationId.ifEmpty { data["messageId"].orEmpty().ifEmpty { threadId } },
+                    kind = kind, title = title, body = body,
+                    actorHandle = actorHandle, postId = "", threadId = threadId,
+                )
+                return
+            }
             val id = if (threadId.isNotEmpty()) threadId.hashCode() else message.messageId.hashCode()
             PoplurNotifications.post(
                 applicationContext,
@@ -142,9 +154,51 @@ class PoplurMessagingService : FirebaseMessagingService() {
         // instead of stacking a fresh banner for every tap of applause. The
         // Cloud Function's coalescing already limits how often this fires; this
         // is the belt to that braces.
+        if (PoplurNotifications.appInForeground) {
+            val drawn = deliverInAppBanner(
+                id = notificationId.ifEmpty { data["engagementId"].orEmpty().ifEmpty { postId } },
+                kind = kind, title = title, body = body,
+                actorHandle = actorHandle, postId = postId, threadId = "",
+            )
+            if (drawn) {
+                Log.i(TAG, "onMessageReceived: drew in-app banner for post=$postId")
+                return
+            }
+        }
         val id = if (postId.isNotEmpty()) postId.hashCode() else message.messageId.hashCode()
-        PoplurNotifications.post(applicationContext, id, title, body)
+        PoplurNotifications.post(
+            applicationContext,
+            id,
+            title,
+            body,
+            destinationPostId = postId.ifEmpty { null },
+        )
         Log.i(TAG, "onMessageReceived: posted engagement notification for post=$postId")
+    }
+
+    /** The push as the web inbox row shape, so the banner and the Notifications
+     *  screen describe one event one way. False when no web view can draw it. */
+    private fun deliverInAppBanner(
+        id: String,
+        kind: String,
+        title: String,
+        body: String,
+        actorHandle: String,
+        postId: String,
+        threadId: String,
+    ): Boolean {
+        val sink = PoplurNotifications.foregroundBannerSink ?: return false
+        val row = JSONObject()
+            .put("id", id.ifEmpty { "push-${System.currentTimeMillis()}" })
+            .put("kind", kind)
+            .put("title", title)
+            .put("detail", body)
+            .put("createdAtMillis", System.currentTimeMillis())
+            .put("unread", true)
+        if (actorHandle.isNotEmpty()) row.put("actorHandle", actorHandle)
+        if (postId.isNotEmpty()) row.put("postId", postId)
+        if (threadId.isNotEmpty()) row.put("threadId", threadId)
+        return runCatching { sink(row) }.getOrDefault(false)
     }
 
     private companion object {
