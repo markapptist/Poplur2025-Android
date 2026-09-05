@@ -1672,6 +1672,28 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "deleteProfilePost") {
                 deleteWebProfilePost(body)
             }
+            // Block / unblock: the durable record under users/{me}/blocked/{them},
+            // which the Firestore rules enforce as a symmetric boundary on
+            // messages and engagement. The web side already applied the local
+            // consequence (their pops gone, or back) before asking. iOS writes
+            // the same document; this keeps the two shells in step.
+            if (type == "blockUser" || type == "unblockUser") {
+                val otherUid = body.optString("userId").trim()
+                val handle = body.optString("username").take(48)
+                val uid = FirebaseAuth.getInstance().currentUser?.uid
+                if (otherUid.isNotEmpty() && otherUid.length <= 128 && uid != null && uid != otherUid) {
+                    val record = FirebaseFirestore.getInstance()
+                        .collection("users").document(uid)
+                        .collection("blocked").document(otherUid)
+                    if (type == "blockUser") {
+                        record.set(mapOf("blockedAt" to FieldValue.serverTimestamp(), "username" to handle))
+                            .addOnFailureListener { Log.w(TAG, "[PoplurSafety] block write FAILED", it) }
+                    } else {
+                        record.delete()
+                            .addOnFailureListener { Log.w(TAG, "[PoplurSafety] unblock delete FAILED", it) }
+                    }
+                }
+            }
             if (type == "requestProfileTracks") {
                 deliverWebProfileTracks()
             }
