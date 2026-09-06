@@ -1259,6 +1259,16 @@ class PostLoginWebActivity : ComponentActivity() {
         val database = FirebaseFirestore.getInstance()
         val userReference = database.collection("users").document(user.uid)
 
+        // Every drop is born discoverable at the seed, earned or not. This read
+        // the seed as optDouble's DEFAULT, which covered a request that carried
+        // no radiusKm at all but not one carrying a smaller number — a shell on
+        // an older web bundle can still send 2 km, and a post below the seed is
+        // intercepted by fewer people than the account is entitled to reach.
+        // Computed once because the two fields it feeds must agree: the create
+        // rule refuses a seed larger than the radius it is a seed for.
+        val requestedRadiusMeters = (body.optDouble("radiusKm", 0.0) * 1000).toInt()
+        val seedRadiusMeters = maxOf(POST_DISCOVERY_SEED_METERS, requestedRadiusMeters)
+
         fun commitPost(accountHidesOrigin: Boolean) {
             val locationVisibility = if (
                 hasTarget
@@ -1273,12 +1283,12 @@ class PostLoginWebActivity : ComponentActivity() {
                 "mediaStoragePath" to mediaStoragePath,
                 "mediaType" to kind,
                 "viewCount" to 0,
-                "radius" to (body.optDouble("radiusKm", 5.0) * 1000).toInt(),
+                "radius" to seedRadiusMeters,
                 // The creation radius is all seed (spent reach, never earned):
                 // declared, with the earned pool at zero, exactly as iOS and
                 // React Native declare it, so the engagement functions never
                 // read a claim as radius earned from nowhere.
-                "seedRadiusMeters" to (body.optDouble("radiusKm", 5.0) * 1000).toInt(),
+                "seedRadiusMeters" to seedRadiusMeters,
                 "organicRadiusMeters" to 0,
                 "audience" to "public",
                 "locationVisibility" to locationVisibility,
@@ -3505,6 +3515,16 @@ class PostLoginWebActivity : ComponentActivity() {
         const val MAX_STORE_CHECKOUT_ITEMS = 20
         const val STORE_PRODUCT_WAIT_MS = 5_000L
         const val PENDING_STORE_CHECKOUT_KEY = "pending_checkout_json"
+        // The ground every drop is born discoverable on, earned or not. The
+        // same number by the same name in every shell that publishes a post:
+        // POST_DISCOVERY_SEED_METERS in the React Native shell's
+        // services/posts.ts and in the functions' accountRadius.ts,
+        // postDiscoverySeedMeters in iOS's PostUploadService.swift, and
+        // CLAIM_RADIUS_SEED_KM in poplur-clay-map's claimRadius.ts. The
+        // Firestore create rule allows a seed of the account's earned total
+        // plus this, so a post published at exactly the seed is accepted by
+        // every account.
+        const val POST_DISCOVERY_SEED_METERS = 5_000
     }
 }
 
