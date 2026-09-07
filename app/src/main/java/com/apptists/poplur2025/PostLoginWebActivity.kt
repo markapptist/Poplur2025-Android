@@ -1267,9 +1267,9 @@ class PostLoginWebActivity : ComponentActivity() {
         // Computed once because the two fields it feeds must agree: the create
         // rule refuses a seed larger than the radius it is a seed for.
         val requestedRadiusMeters = (body.optDouble("radiusKm", 0.0) * 1000).toInt()
-        val seedRadiusMeters = maxOf(POST_DISCOVERY_SEED_METERS, requestedRadiusMeters)
-
-        fun commitPost(accountHidesOrigin: Boolean) {
+        fun commitPost(accountHidesOrigin: Boolean, allowedRadiusMeters: Int) {
+            val seedRadiusMeters = maxOf(POST_DISCOVERY_SEED_METERS, requestedRadiusMeters)
+                .coerceAtMost(allowedRadiusMeters)
             val locationVisibility = if (
                 hasTarget
                 && !accountHidesOrigin
@@ -1349,11 +1349,14 @@ class PostLoginWebActivity : ComponentActivity() {
                 }
         }
 
-        userReference.get()
+        userReference.get(com.google.firebase.firestore.Source.SERVER)
             .addOnSuccessListener { account ->
                 commitPost(
                     account.getBoolean("privateAccount") == true
                         || account.getBoolean("ghostMode") == true,
+                    (account.getLong("totalPostRadiusMeters")?.coerceAtLeast(5_000)
+                        ?: ((account.getLong("claimRadiusMeters") ?: 0).coerceAtLeast(0) + 5_000))
+                        .coerceAtMost(6_371_000).toInt(),
                 )
             }
             .addOnFailureListener { error ->
