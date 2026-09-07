@@ -173,8 +173,13 @@ class PostLoginWebActivity : ComponentActivity() {
     private var notificationRegistration: ListenerRegistration? = null
     /** The live feed-posts forward. See deliverWebFeedPosts. */
     private var feedPostsRegistration: ListenerRegistration? = null
-    private var ownFeedDocuments: List<com.google.firebase.firestore.DocumentSnapshot> = emptyList()
-    private var ownFeedDocumentsUid: String? = null
+    private var ownFeedRegistration: ListenerRegistration? = null
+    private var feedAuthListener: FirebaseAuth.AuthStateListener? = null
+    private val feedSnapshot = WebFeedSnapshot<com.google.firebase.firestore.DocumentSnapshot>(
+        id = { it.id },
+        owner = { it.getString("userID") ?: it.getString("userId") ?: it.getString("ownerId") },
+    )
+    private var feedGeneration = 0L
     private var notificationObservedUid: String? = null
     private var notificationDocumentIds: Map<String, String> = emptyMap()
     private val notificationGeneration = NotificationListenerGeneration()
@@ -2859,129 +2864,152 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     private fun deliverWebFeedPosts() {
-        if (FirebaseAuth.getInstance().currentUser == null) return
         if (isDestroyed || isFinishing) return
-        // Live, not one-shot. Inside the shell the Map is fed only by this
-        // forward, so a single get() meant a post published after launch never
-        // reached the phone's map until the next cold start. A listener
-        // re-forwards on every change; a repeat request simply re-arms it.
-        feedPostsRegistration?.remove()
-        run {
-            // Fetch what this account wrote, whatever its age, OUTSIDE the listener
-            // and cache it; each forward merges the cache synchronously so the
-            // forward's timing never changes (a fetch inside the listener delayed
-            // and reordered forwards). When the cache first fills, re-arm once so
-            // the next forward carries it.
-            val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
-            if (uid != null && ownFeedDocumentsUid != uid) {
-                ownFeedDocumentsUid = uid
-                ownFeedDocuments = emptyList()
-                FirebaseFirestore.getInstance().collection("posts")
-                    .whereEqualTo("userID", uid)
-                    .limit(64)
-                    .get()
-                    .addOnSuccessListener { own ->
-                        if (isDestroyed || isFinishing || ownFeedDocumentsUid != uid) return@addOnSuccessListener
-                        ownFeedDocuments = own.documents
-                        if (own.documents.isNotEmpty()) deliverWebFeedPosts()
-                    }
-            }
+        val auth = FirebaseAuth.getInstance()
+        if (feedAuthListener == null) {
+            val listener = FirebaseAuth.AuthStateListener { state -> bindWebFeedPosts(state.currentUser?.uid) }
+            feedAuthListener = listener
+            auth.addAuthStateListener(listener)
         }
-        feedPostsRegistration = FirebaseFirestore.getInstance().collection("posts")
-            .orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(96)
+        bindWebFeedPosts(auth.currentUser?.uid)
+    }
+
+    private fun bindWebFeedPosts(uid: String?) {
+        if (isDestroyed || isFinishing) return
+        if (feedSnapshot.uid == uid && feedPostsRegistration != null && ownFeedRegistration != null) {
+            forwardWebAccountRadius()
+            forwardWebFeedPosts()
+            return
+        }
+        feedGeneration += 1
+        val generation = feedGeneration
+        feedPostsRegistration?.remove()
+        ownFeedRegistration?.remove()
+        feedPostsRegistration = null
+        ownFeedRegistration = null
+        feedSnapshot.reset(uid)
+        if (uid == null) return
+        val posts = FirebaseFirestore.getInstance().collection("posts")
+        // Keep all owned posts live, including posts older than the Feed window.
+        // Each stream reuses the other snapshot; an update never re-arms a query.
+        ownFeedRegistration = posts.whereEqualTo("userID", uid)
             .addSnapshotListener { snapshot, error ->
-                if (isDestroyed || isFinishing) return@addSnapshotListener
-                if (error != null) {
-                    Log.w(TAG, "deliverWebFeedPosts listener failed", error)
+                if (isDestroyed || isFinishing || generation != feedGeneration) return@addSnapshotListener
+                if (snapshot == null) {
+                    Log.w(TAG, "Owned post listener failed", error)
                     return@addSnapshotListener
                 }
-                fun forward(documents: List<com.google.firebase.firestore.DocumentSnapshot>) {
-                val posts = JSONArray()
-                documents
-                    .sortedByDescending { document ->
+                feedSnapshot.owned = snapshot.documents
+                forwardWebAccountRadius()
+                forwardWebFeedPosts()
+            }
+        feedPostsRegistration = posts.orderBy("createdAt", Query.Direction.DESCENDING).limit(96)
+            .addSnapshotListener { snapshot, error ->
+                if (isDestroyed || isFinishing || generation != feedGeneration) return@addSnapshotListener
+                if (snapshot == null) {
+                    Log.w(TAG, "Feed post listener failed", error)
+                    return@addSnapshotListener
+                }
+                feedSnapshot.recent = snapshot.documents
+                forwardWebFeedPosts()
+            }
+    }
+
+    private fun forwardWebAccountRadius() {
+        val uid = feedSnapshot.uid ?: return
+        val owned = feedSnapshot.owned ?: return
+        val totals = WebAccountRadius.fromPosts(owned.map { it.data.orEmpty() })
+        val payload = JSONObject().put("uid", uid).put("radiusKm", totals.earnedMeters / 1000)
+            .put("totalReachKm", totals.reachMeters / 1000).put("postCount", owned.size)
+        val generation = feedGeneration
+        homeWebView.post {
+            if (isDestroyed || isFinishing || generation != feedGeneration) return@post
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-native-account-radius',{detail:$payload}));true;", null,
+            )
+        }
+    }
+
+    private fun forwardWebFeedPosts() {
+        if (!feedSnapshot.ready) return
+        val documents = feedSnapshot.merged()
+        val posts = JSONArray()
+        documents
+            .sortedByDescending { document ->
+                document.getLong("createdAtMillis")
+                    ?: document.getTimestamp("createdAt")?.toDate()?.time
+                    ?: 0L
+            }
+            .forEach { document ->
+                if ((document.getString("audience") ?: "public") != "public") return@forEach
+                if ((document.getString("status") ?: "published") != "published") return@forEach
+                val mediaURL = (document.getString("playbackURL")
+                    ?: document.getString("mediaURL"))?.trim().orEmpty()
+                if (mediaURL.isBlank()) return@forEach
+                val lowerURL = mediaURL.lowercase()
+                val inferredType = if (lowerURL.contains(".mp4") || lowerURL.contains(".mov") || lowerURL.contains(".m4v") || lowerURL.contains(".webm")) "video" else "photo"
+                posts.put(JSONObject().apply {
+                    put("id", document.id)
+                    put("mediaURL", mediaURL)
+                    put("mediaType", document.getString("mediaType") ?: inferredType)
+                    document.getDouble("photoViewSeconds")?.let { put("photoViewSeconds", it) }
+                    put("username", document.getString("username") ?: "Poplur user")
+                    put("channelId", document.getString("channelId") ?: "live")
+                    val ownerId = (document.getString("userID")
+                        ?: document.getString("userId")
+                        ?: document.getString("ownerId"))
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                    if (ownerId != null) put("ownerId", ownerId)
+                    put(
+                        "createdAtMillis",
                         document.getLong("createdAtMillis")
                             ?: document.getTimestamp("createdAt")?.toDate()?.time
-                            ?: 0L
-                    }
-                    .forEach { document ->
-                        if ((document.getString("audience") ?: "public") != "public") return@forEach
-                        if ((document.getString("status") ?: "published") != "published") return@forEach
-                        val mediaURL = (document.getString("playbackURL")
-                            ?: document.getString("mediaURL"))?.trim().orEmpty()
-                        if (mediaURL.isBlank()) return@forEach
-                        val lowerURL = mediaURL.lowercase()
-                        val inferredType = if (lowerURL.contains(".mp4") || lowerURL.contains(".mov") || lowerURL.contains(".m4v") || lowerURL.contains(".webm")) "video" else "photo"
-                        posts.put(JSONObject().apply {
-                            put("id", document.id)
-                            put("mediaURL", mediaURL)
-                            put("mediaType", document.getString("mediaType") ?: inferredType)
-                            document.getDouble("photoViewSeconds")?.let { put("photoViewSeconds", it) }
-                            put("username", document.getString("username") ?: "Poplur user")
-                            put("channelId", document.getString("channelId") ?: "live")
-                            val ownerId = (document.getString("userID")
-                                ?: document.getString("userId")
-                                ?: document.getString("ownerId"))
-                                ?.trim()
-                                ?.takeIf { it.isNotEmpty() }
-                            if (ownerId != null) put("ownerId", ownerId)
-                            put(
-                                "createdAtMillis",
-                                document.getLong("createdAtMillis")
-                                    ?: document.getTimestamp("createdAt")?.toDate()?.time
-                                    ?: 0L,
-                            )
-                            document.getString("posterURL")?.takeIf { it.isNotBlank() }
-                                ?.let { put("posterURL", it) }
-                            document.getString("caption")?.takeIf { it.isNotBlank() }
-                                ?.let { put("caption", it) }
-                            // Provenance for test mode: the web's reach rule lets the synthetic
-                            // beta cohort's pops reach every viewer while the simulation switch is on.
-                            document.getString("syntheticJourney")?.takeIf { it.isNotBlank() }
-                                ?.let { put("syntheticJourney", it) }
-                            if (document.getBoolean("syntheticBeta") == true) put("syntheticBeta", true)
-                            // radiusMeters first: a post carrying only that field used to
-                            // cross with no radius, and every reach check fails closed on 0.
-                            (document.getLong("radiusMeters") ?: document.getLong("radius") ?: document.getLong("organicRadiusMeters"))
-                                ?.let { put("radiusMeters", it) }
-                            document.getLong("viewCount")?.let { put("viewCount", it.coerceAtLeast(0)) }
-                            document.getLong("likeCount")?.let { put("likeCount", it.coerceAtLeast(0)) }
-                            document.getLong("commentCount")?.let { put("commentCount", it.coerceAtLeast(0)) }
-                            document.getLong("shareCount")?.let { put("shareCount", it.coerceAtLeast(0)) }
-                            when (document.getString("locationVisibility")) {
-                                "hidden" -> put("locationVisibility", "hidden")
-                                "approximate" -> {
-                                    val latitude = document.getDouble("latitude")
-                                    val longitude = document.getDouble("longitude")
-                                    if (latitude != null && longitude != null &&
-                                        latitude.isFinite() && longitude.isFinite() &&
-                                        kotlin.math.abs(latitude) <= 90 && kotlin.math.abs(longitude) <= 180
-                                    ) {
-                                        put("locationVisibility", "approximate")
-                                        put("originLatitude", latitude)
-                                        put("originLongitude", longitude)
-                                    }
-                                }
-                            }
-                        })
-                    }
-                val payload = JSONObject().put("posts", posts)
-                homeWebView.post {
-                    homeWebView.evaluateJavascript(
-                        "window.dispatchEvent(new CustomEvent('poplur-native-feed-posts',{detail:$payload}));true;",
-                        null,
+                            ?: 0L,
                     )
-                }
-                }
-                // The newest 96 alone lose this account's own posts once the board
-                // outpaces them — and the Profile's map button, the Map's own claims
-                // and the Feed all read this forward. Fold in what this account
-                // wrote, whatever its age. One-shot per forward: the window
-                // listener already re-arms on change.
-                val base = snapshot?.documents.orEmpty()
-                val seen = base.map { it.id }.toSet()
-                forward(base + ownFeedDocuments.filter { it.id !in seen })
+                    document.getString("posterURL")?.takeIf { it.isNotBlank() }
+                        ?.let { put("posterURL", it) }
+                    document.getString("caption")?.takeIf { it.isNotBlank() }
+                        ?.let { put("caption", it) }
+                    // Provenance for test mode: the web's reach rule lets the synthetic
+                    // beta cohort's pops reach every viewer while the simulation switch is on.
+                    document.getString("syntheticJourney")?.takeIf { it.isNotBlank() }
+                        ?.let { put("syntheticJourney", it) }
+                    if (document.getBoolean("syntheticBeta") == true) put("syntheticBeta", true)
+                    // radiusMeters first: a post carrying only that field used to
+                    // cross with no radius, and every reach check fails closed on 0.
+                    (document.getLong("radiusMeters") ?: document.getLong("radius") ?: document.getLong("organicRadiusMeters"))
+                        ?.let { put("radiusMeters", it) }
+                    document.getLong("viewCount")?.let { put("viewCount", it.coerceAtLeast(0)) }
+                    document.getLong("likeCount")?.let { put("likeCount", it.coerceAtLeast(0)) }
+                    document.getLong("commentCount")?.let { put("commentCount", it.coerceAtLeast(0)) }
+                    document.getLong("shareCount")?.let { put("shareCount", it.coerceAtLeast(0)) }
+                    when (document.getString("locationVisibility")) {
+                        "hidden" -> put("locationVisibility", "hidden")
+                        "approximate" -> {
+                            val latitude = document.getDouble("latitude")
+                            val longitude = document.getDouble("longitude")
+                            if (latitude != null && longitude != null &&
+                                latitude.isFinite() && longitude.isFinite() &&
+                                kotlin.math.abs(latitude) <= 90 && kotlin.math.abs(longitude) <= 180
+                            ) {
+                                put("locationVisibility", "approximate")
+                                put("originLatitude", latitude)
+                                put("originLongitude", longitude)
+                            }
+                        }
+                    }
+                })
             }
+        val payload = JSONObject().put("posts", posts)
+        val generation = feedGeneration
+        homeWebView.post {
+            if (isDestroyed || isFinishing || generation != feedGeneration) return@post
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-native-feed-posts',{detail:$payload}));true;",
+                null,
+            )
+        }
     }
 
     /**
@@ -3401,6 +3429,11 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        feedGeneration += 1
+        feedAuthListener?.let { FirebaseAuth.getInstance().removeAuthStateListener(it) }
+        feedAuthListener = null
+        ownFeedRegistration?.remove()
+        ownFeedRegistration = null
         feedPostsRegistration?.remove()
         feedPostsRegistration = null
         // The incoming-calls Firestore stream was process-lifetime before:
