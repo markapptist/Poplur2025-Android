@@ -48,3 +48,28 @@ Device updates use the configured project release certificate, which matches
 the installed app. The default Debug certificate cannot replace it. The local
 release report verifies signing and installed-APK hashes without uninstalling
 or clearing app data.
+
+## Feed content stability correction
+
+Shared web source `cffde7d93cee5a5fb349c509acc94c0ca1dab885` keeps tester mode
+under the server configuration instead of allowing the private event endpoint's
+disabled response to clear it. Native Feed subscriptions also retain the already
+delivered posts when another screen subscribes or an explicit refresh starts.
+
+The two behavioral regressions are covered by three tests that fail before the
+fix and pass after. All 43 focused tests and TypeScript pass. The shared DOM/CSS
+layout and renderer policy are unchanged. Profile has been confirmed working
+on the previous installed correction by the iPhone user and Android screenshot.
+
+Build/install evidence: parent workspace
+`.codex/install-reports/feed-channel-loading-20260907/`. The latest two-minute
+recording was stopped because Feed content was unreliable; it does not count as
+an endurance pass. The user subsequently reported much less warmth from the
+rendering changes already installed on iPhone; objective sustained-use thermal
+verification remains separate.
+
+The same release includes an iOS-only fix for retained AVCapture analysis-output
+demand. Android does not use that controller: its post-login web camera requests
+analysis only while Scan or a filter owns the analysis lease (`Camera.tsx`).
+There is no equivalent AVCapture delegate or native CameraKit change to port.
+The shared Feed bundle remains identical on both native platforms.
