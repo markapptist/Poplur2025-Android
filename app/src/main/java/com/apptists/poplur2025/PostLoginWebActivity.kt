@@ -119,6 +119,7 @@ class PostLoginWebActivity : ComponentActivity() {
         ?.take(30)
         ?.takeIf { it.isNotEmpty() }
 
+    private var mapDiscoveryRequestId = ""
     private lateinit var homeWebView: WebView
     private lateinit var rootLayout: FrameLayout
 
@@ -1664,6 +1665,30 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "requestProfile") {
                 deliverWebProfile()
             }
+            if (type == "mapDiscoveryQuery") {
+                val requestId = body.optString("requestId").take(100)
+                val query = body.optJSONObject("query")
+                val bounds = query?.optJSONObject("bounds")
+                if (requestId.isNotEmpty() && bounds != null) {
+                    mapDiscoveryRequestId = requestId
+                    val input = mutableMapOf<String, Any>(
+                        "bounds" to mapOf("west" to bounds.optDouble("west"), "east" to bounds.optDouble("east"),
+                            "south" to bounds.optDouble("south"), "north" to bounds.optDouble("north")),
+                        "zoom" to query.optDouble("zoom"), "includeTest" to query.optBoolean("includeTest", false),
+                    )
+                    if (!query.isNull("cursor")) input["cursor"] = query.optString("cursor").take(1500)
+                    if (!query.isNull("selectedPostId")) input["selectedPostId"] = query.optString("selectedPostId").take(180)
+                    FirebaseFunctions.getInstance("us-central1").getHttpsCallable("queryMapDiscovery").call(input)
+                        .addOnSuccessListener { result ->
+                            if (mapDiscoveryRequestId == requestId) pushMapDiscovery(JSONObject()
+                                .put("requestId", requestId).put("result", JSONObject.wrap(result.getData())))
+                        }
+                        .addOnFailureListener {
+                            if (mapDiscoveryRequestId == requestId) pushMapDiscovery(JSONObject()
+                                .put("requestId", requestId).put("error", "Could not load this area."))
+                        }
+                }
+            }
             if (type == "requestAccountPrivacy") {
                 deliverAccountPrivacy()
             }
@@ -2661,6 +2686,14 @@ class PostLoginWebActivity : ComponentActivity() {
                     error.localizedMessage ?: "Privacy could not be loaded.",
                 )
             }
+    }
+
+    private fun pushMapDiscovery(payload: JSONObject) {
+        homeWebView.post {
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-map-discovery-result',{detail:$payload}));true;", null,
+            )
+        }
     }
 
     private fun changeAccountPrivacy(privateAccount: Boolean, ghostMode: Boolean) {
