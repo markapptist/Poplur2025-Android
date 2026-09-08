@@ -14,7 +14,6 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.apptists.poplur2025.ui.components.PerformanceSceneView
-import com.google.android.filament.IndirectLight
 import dev.romainguy.kotlin.math.Float3
 import io.github.sceneview.node.ModelNode
 import coil.compose.AsyncImage
@@ -40,7 +39,10 @@ fun PreloginModelArt(asset: String, modifier: Modifier, background: Color, welco
             AndroidView(modifier = modifier, factory = { context ->
                 PerformanceSceneView(context, isOpaque = false).apply {
                     scene.skybox = null
-                    scene.indirectLight = IndirectLight.Builder().irradiance(1, floatArrayOf(1f, 1f, 1.05f)).intensity(55_000f).build(engine)
+                    // Keep SceneView's bundled neutral reflection environment.
+                    // The cube uses metallic materials, which turn black when
+                    // their reflection light is replaced with diffuse-only SH.
+                    scene.indirectLight?.intensity = 55_000f
                     val instance = modelLoader.createModelInstance("login_cube/poplr_login_cube_equal_faces.glb")
                     val model = ModelNode(instance, scaleToUnits = 1.55f, centerOrigin = Float3(0f, 0f, 0f))
                     model.rotation = Float3(-14f, if (welcome) -90f else 112f, 0f)
