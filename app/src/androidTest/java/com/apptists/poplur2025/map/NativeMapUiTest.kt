@@ -45,8 +45,9 @@ class NativeMapUiTest {
                 val latch = CountDownLatch(1)
                 var result = "null"
                 scenario.onActivity { web.evaluateJavascript(expression) { result = it; latch.countDown() } }
-                assertTrue("WebView evaluation completed", latch.await(10, TimeUnit.SECONDS))
-                return result
+                // A navigation may discard evaluations queued for the old
+                // document. The bounded readiness loop retries the new one.
+                return if (latch.await(3, TimeUnit.SECONDS)) result else "null"
             }
             fun waitFor(label: String, condition: () -> Boolean) {
                 val deadline = SystemClock.uptimeMillis() + 90_000
@@ -93,6 +94,12 @@ class NativeMapUiTest {
             UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).takeScreenshot(File(evidence, "android-toronto-landmarks.png"))
             val hold = InstrumentationRegistry.getArguments().getString("mapInspectorHoldSeconds")?.toLongOrNull()?.coerceIn(0, 300) ?: 0
             if (hold > 0) SystemClock.sleep(hold * 1000)
+        } catch (failure: Throwable) {
+            File(evidence, "failure.txt").writeText(failure.stackTraceToString())
+            UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).takeScreenshot(File(evidence, "android-map-failure.png"))
+            val hold = InstrumentationRegistry.getArguments().getString("mapInspectorHoldSeconds")?.toLongOrNull()?.coerceIn(0, 300) ?: 0
+            if (hold > 0) SystemClock.sleep(hold * 1000)
+            throw failure
         } finally {
             scenario.onActivity { WebView.setWebContentsDebuggingEnabled(false) }
             scenario.close()
