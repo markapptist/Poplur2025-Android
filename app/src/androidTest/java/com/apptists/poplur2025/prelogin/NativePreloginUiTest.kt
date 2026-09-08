@@ -64,7 +64,12 @@ class NativePreloginUiTest {
         Assert.assertEquals("Signed-out activity must contain no WebViews", 0, count(activity.window.decorView))
     } }
     private fun screenshot(name: String) {
+        compose.waitForIdle()
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        // Semantics can settle before the native SurfaceView presents its
+        // texture frame; capture the screen after the UI has become idle too.
+        device.waitForIdle(1_000)
         val directory = File(context.getExternalFilesDir(null), "prelogin-test-evidence").apply { mkdirs() }
-        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).takeScreenshot(File(directory, "$name.png"))
+        Assert.assertTrue("Could not capture $name", device.takeScreenshot(File(directory, "$name.png")))
     }
 }
