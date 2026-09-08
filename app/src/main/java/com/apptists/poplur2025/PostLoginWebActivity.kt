@@ -119,6 +119,7 @@ class PostLoginWebActivity : ComponentActivity() {
         ?.take(30)
         ?.takeIf { it.isNotEmpty() }
 
+    private val mapSelfieVideo by lazy { MapSelfieVideo(this, lifecycleScope) }
     private var mapDiscoveryRequestId = ""
     private lateinit var homeWebView: WebView
     private lateinit var rootLayout: FrameLayout
@@ -732,6 +733,7 @@ class PostLoginWebActivity : ComponentActivity() {
         val url = request.url
         if (url.host != "appassets.androidplatform.net") return null
         val path = url.encodedPath ?: return null
+        if (path.startsWith("/assets/map-selfie/")) return mapSelfieVideo.response(request)
         if (path.startsWith("/assets/captures/")) {
             val key = path.substringAfterLast('/')
             val capture = synchronized(webCapturesLock) { webCaptures[key] } ?: return null
@@ -1670,6 +1672,24 @@ class PostLoginWebActivity : ComponentActivity() {
                             )
                         }
                     }
+            }
+            if (type == "cancelMapSelfieVideo") {
+                runOnUiThread { mapSelfieVideo.cancel(body.optString("requestId")) }
+            }
+            if (type == "requestMapSelfieVideo") {
+                val id = body.optString("requestId").take(100)
+                val source = body.optString("source")
+                val sourceUri = Uri.parse(source)
+                val capture = if (sourceUri.host == "appassets.androidplatform.net" && sourceUri.path?.startsWith("/assets/captures/") == true) {
+                    synchronized(webCapturesLock) { webCaptures[sourceUri.lastPathSegment]?.uri }
+                } else null
+                runOnUiThread {
+                    mapSelfieVideo.prepare(source, id, capture) { url ->
+                        val payload = JSONObject().put("requestId", id).put("url", url ?: JSONObject.NULL)
+                        homeWebView.evaluateJavascript(
+                            "window.dispatchEvent(new CustomEvent('poplur-map-selfie-video',{detail:$payload}));true;", null)
+                    }
+                }
             }
             if (type == "requestProfile") {
                 deliverWebProfile()
@@ -3447,6 +3467,7 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        mapSelfieVideo.cancel()
         authoredPostsBridge.stopAll()
         feedGeneration += 1
         feedAuthListener?.let { FirebaseAuth.getInstance().removeAuthStateListener(it) }
