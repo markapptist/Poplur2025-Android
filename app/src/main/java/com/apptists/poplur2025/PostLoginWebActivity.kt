@@ -165,6 +165,7 @@ class PostLoginWebActivity : ComponentActivity() {
     private var revealRunnable: Runnable? = null
     private var pendingDMThreadId: String? = null
     private var pendingPostFocusId: String? = null
+    private var pendingPostFocusDetails: JSONObject? = null
     private var inAppBrowserDialog: PoplurInAppBrowserDialog? = null
     private var homeParkedForInAppBrowser = false
     private var activityStarted = false
@@ -273,8 +274,7 @@ class PostLoginWebActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         pendingDMThreadId = intent.getStringExtra("threadId")
             ?.takeIf { it.isNotBlank() && it.length <= 200 }
-        pendingPostFocusId = intent.getStringExtra("postId")
-            ?.takeIf { it.isNotBlank() && it.length <= 180 }
+        readPendingPostFocus(intent)
 
         // With MainActivity routing straight to the web surfaces (USE_WEB_SURFACES),
         // PoplurRoot no longer runs to start this — keep incoming calls working.
@@ -2506,20 +2506,31 @@ class PostLoginWebActivity : ComponentActivity() {
         setIntent(intent)
         pendingDMThreadId = intent.getStringExtra("threadId")
             ?.takeIf { it.isNotBlank() && it.length <= 200 }
-        pendingPostFocusId = intent.getStringExtra("postId")
-            ?.takeIf { it.isNotBlank() && it.length <= 180 }
+        readPendingPostFocus(intent)
         deliverPendingDMDeepLink()
         deliverPendingPostFocus()
     }
 
     /** A tapped engagement/radius notification lands on the post's pin. Held
      *  until Home is ready, the same way a DM tap is. */
+    private fun readPendingPostFocus(intent: Intent) {
+        pendingPostFocusId = intent.getStringExtra("postId")
+            ?.takeIf { it.isNotBlank() && it.length <= 180 }
+        pendingPostFocusDetails = JSONObject().apply {
+            for (key in listOf("notificationId", "kind", "title", "detail")) {
+                intent.getStringExtra(key)?.take(1000)?.let { put(key, it) }
+            }
+        }
+    }
+
     private fun deliverPendingPostFocus() {
         if (!homeReady.value) return
         val postId = pendingPostFocusId ?: return
         pendingPostFocusId = null
+        val details = pendingPostFocusDetails ?: JSONObject()
+        pendingPostFocusDetails = null
         pushWebMessage(
-            JSONObject()
+            details
                 .put("type", "poplurOpenPost")
                 .put("postId", postId)
         )

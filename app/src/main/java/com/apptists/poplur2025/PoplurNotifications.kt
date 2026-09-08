@@ -64,6 +64,8 @@ object PoplurNotifications {
         silent: Boolean = false,
         destinationThreadId: String? = null,
         destinationPostId: String? = null,
+        notificationId: String? = null,
+        notificationKind: String? = null,
     ) {
         ensureChannel(context)
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
@@ -101,6 +103,10 @@ object PoplurNotifications {
             val destination = Intent(context, PostLoginWebActivity::class.java).apply {
                 action = "com.apptists.poplur2025.OPEN_POST"
                 putExtra("postId", destinationPostId)
+                putExtra("notificationId", notificationId)
+                putExtra("kind", notificationKind)
+                putExtra("title", title)
+                putExtra("detail", body)
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
             builder.setContentIntent(

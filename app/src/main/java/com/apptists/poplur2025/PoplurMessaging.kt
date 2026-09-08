@@ -172,6 +172,8 @@ class PoplurMessagingService : FirebaseMessagingService() {
             title,
             body,
             destinationPostId = postId.ifEmpty { null },
+            notificationId = notificationId.ifEmpty { null },
+            notificationKind = kind,
         )
         Log.i(TAG, "onMessageReceived: posted engagement notification for post=$postId")
     }
