@@ -19,6 +19,7 @@
         <package android:name="com.google.android.gsf" />
     </queries>
 
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <application android:name=".PoplurApp"
         android:allowBackup="true"
         android:usesCleartextTraffic="true"
@@ -99,6 +100,11 @@
             android:name=".MapDemoActivity"
             android:exported="true"
             android:theme="@style/Theme.Poplur"
+            android:screenOrientation="portrait" />
+
+        <!-- Native signed-out flow; no Expo or WebView runtime. -->
+        <activity android:name=".NativePreloginActivity" android:exported="false"
+            android:theme="@style/Theme.Poplur.PreloginWeb" android:windowSoftInputMode="adjustResize"
             android:screenOrientation="portrait" />
 
         <!-- Pre-login web-embed host (Phase 1) — the approved prototype splash + welcome,

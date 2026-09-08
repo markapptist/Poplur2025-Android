@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import com.apptists.poplur2025.data.PoplurAIBackendClient
 import java.io.File
 import java.util.Locale
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -69,6 +70,7 @@ class PreLoginMusicPlayer(context: Context) {
 
     /** Starts (or resumes) the local radio stream. Safe to call repeatedly. */
     fun start() {
+        if (isMuted) return
         if (radioPlayer != null) {
             applyMuteState()
             return
@@ -116,13 +118,17 @@ class PreLoginMusicPlayer(context: Context) {
         hasRequestedVoice = false
     }
 
+    fun dispose() {
+        stop()
+        textToSpeech?.shutdown()
+        textToSpeech = null
+        scope.cancel()
+    }
+
     private fun applyMuteState() {
-        val radio = radioPlayer ?: return
-        if (isMuted) {
-            if (radio.isPlayingCatching()) radio.pause()
-            textToSpeech?.stop()
-            voicePlayer?.pauseCatching()
-        } else {
+        if (isMuted) { stop(); return }
+        val radio = radioPlayer ?: run { start(); return }
+        if (!isMuted) {
             if (!radio.isPlayingCatching()) radio.startCatching()
             if (!hasRequestedVoice) requestAIWelcome()
         }

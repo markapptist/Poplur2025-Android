@@ -27,15 +27,18 @@ object AdManager {
 
     private var interstitial: InterstitialAd? = null
     private var isLoadingInterstitial = false
+    private var initialized = false
     private var pendingActivity: WeakReference<Activity>? = null
     private var pendingVisibilityChanged: ((Boolean) -> Unit)? = null
 
     fun initialize(context: Context) {
+        if (initialized) return
         if (!adsAllowed) {
             Log.i("Ads", "Ads disabled on emulator or because the production unit is invalid")
             return
         }
-        MobileAds.initialize(context)
+        initialized = true
+        MobileAds.initialize(context.applicationContext)
         loadInterstitial(context)
     }
 

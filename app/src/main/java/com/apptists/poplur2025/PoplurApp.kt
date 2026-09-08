@@ -3,7 +3,6 @@ package com.apptists.poplur2025
 import android.app.Application
 import coil.Coil
 import coil.ImageLoader
-import com.apptists.poplur2025.ads.AdManager
 import com.apptists.poplur2025.wear.WearRadiusSync
 import com.apptists.poplur.performance.PoplurPerformanceManager
 import com.google.firebase.FirebaseApp
@@ -26,7 +25,6 @@ class PoplurApp : Application() {
             }
         )
         AppIconManager.ensureValidSelection(this)
-        AdManager.initialize(this)
         WearRadiusSync.start(this)
         PoplurNotifications.ensureChannel(this)
         setupImageLoader()

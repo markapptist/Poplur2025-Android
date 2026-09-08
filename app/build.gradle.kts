@@ -45,7 +45,9 @@ val admobFeedNativeUnitId = productionAdUnitId(
 
 android { namespace = "com.apptists.poplur2025"
     compileSdk = 35;
+    testBuildType = providers.gradleProperty("poplurInstrumentRelease").map { if (it == "true") "release" else "debug" }.getOrElse("debug")
     defaultConfig {
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 2; versionName = "1.0.1"
         buildConfigField("String", "MAPILLARY_ACCESS_TOKEN", "\"$mapillaryAccessToken\"")
         buildConfigField("String", "ADMOB_INTERSTITIAL_UNIT_ID", "\"$admobInterstitialUnitId\"")
@@ -189,6 +191,12 @@ dependencies {
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-x86")
     natives("com.badlogicgames.gdx:gdx-platform:1.13.1:natives-x86_64")
 
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.05.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("io.github.takahirom.roborazzi:roborazzi:1.63.0")

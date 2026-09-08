@@ -107,12 +107,16 @@ object BusinessAccountService {
 
                 val businessDocument = businessProfile.toFirestoreMap().toMutableMap().apply {
                     put("ownerUserID", uid)
+                    put("ownerUserId", uid)
+                    // Verification evidence stays in the owner-only users document.
+                    remove("proofSummary")
+                    remove("rejectionReason")
                     put("email", email.trim())
                     put("accountType", AccountType.Business.wireValue)
                     put("updatedAt", com.google.firebase.firestore.FieldValue.serverTimestamp())
                     put("submittedAt", com.google.firebase.firestore.FieldValue.serverTimestamp())
                 }
-                db.collection("businessProfiles")
+                db.collection("businesses")
                     .document(uid)
                     .set(businessDocument, SetOptions.merge())
                     .addOnSuccessListener { onResult(true, null) }
@@ -145,7 +149,7 @@ fun BusinessProfile.toFirestoreMap(): Map<String, Any> =
         put("proofSummary", proofSummary.trim())
         put("requiresReverification", requiresReverification)
         put("mapVisibility", true)
-        put("markerType", "verified_business_profile")
+        put("markerType", if (isVerified) "verified_business_profile" else "business_profile")
         rejectionReason?.trim()?.takeIf { it.isNotEmpty() }?.let {
             put("rejectionReason", it)
         }

@@ -130,7 +130,7 @@ class PostLoginWebActivity : ComponentActivity() {
     // under it and it reads as the next post rather than an interruption.
     private var feedAdContainer: FrameLayout? = null
     private var feedAd: NativeAd? = null
-    private lateinit var loadingWebView: WebView
+    private lateinit var nativeLoadingView: ComposeView
     private lateinit var performanceController: com.apptists.poplur2025.performance.PoplurWebViewPerformanceController
     private lateinit var audioManager: AudioManager
     private var phoneBootPlayer: MediaPlayer? = null
@@ -154,9 +154,6 @@ class PostLoginWebActivity : ComponentActivity() {
     private val minimumElapsed = mutableStateOf(false)
     private val volumeVisible = mutableStateOf(false)
     private val volumeFraction = mutableStateOf(0f)
-    // False until prelogin/splash.html has actually committed a frame. Until then the
-    // native clay bar covers the WebView/Chromium startup window — see PoplurNativeSplashCover.
-    private val splashWebPainted = mutableStateOf(false)
     @Volatile private var cameraLiveVisible = false
     // WebRTC's WebView permission request arrives after the page asks for
     // getUserMedia. Retain one request while Android shows its normal OS
@@ -218,6 +215,18 @@ class PostLoginWebActivity : ComponentActivity() {
     private fun installBackgroundAudioBootstrap(webView: WebView) {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return
         val payload = backgroundAudioPayload().toString()
+        val onboarding = getSharedPreferences("poplur_native_onboarding", MODE_PRIVATE)
+        val onboardingUid = onboarding.getString("uid", null)
+        val onboardingGender = onboarding.getString("gender", null)
+        if (onboardingUid != null && onboardingUid == FirebaseAuth.getInstance().currentUser?.uid && onboardingGender in listOf("male", "female")) {
+            val profile = JSONObject().put("uid", onboardingUid).put("gender", onboardingGender)
+            WebViewCompat.addDocumentStartJavaScript(webView, """
+                (() => { try { const p = $profile; if (localStorage.getItem('poplur.nativeOnboarding.uid') !== p.uid) {
+                  localStorage.setItem('poplur.profile.gender', p.gender);
+                  localStorage.setItem('poplur.nativeOnboarding.uid', p.uid);
+                } } catch (_) {} })();
+            """.trimIndent(), setOf("https://appassets.androidplatform.net"))
+        }
         val script = """
             (function () {
               var state = $payload;
@@ -273,6 +282,8 @@ class PostLoginWebActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Do not start ad WebViews behind the native signed-out flow.
+        if (FirebaseAuth.getInstance().currentUser != null) AdManager.initialize(this)
         pendingDMThreadId = intent.getStringExtra("threadId")
             ?.takeIf { it.isNotBlank() && it.length <= 200 }
         readPendingPostFocus(intent)
@@ -291,7 +302,9 @@ class PostLoginWebActivity : ComponentActivity() {
             .build()
 
         homeWebView = createWebView(assetLoader, darkHome, receivesNativeEvents = true)
-        loadingWebView = createWebView(assetLoader, darkLoading, receivesNativeEvents = false)
+        nativeLoadingView = ComposeView(this).apply {
+            setContent { com.apptists.poplur2025.prelogin.NativePreloginSplash() }
+        }
         performanceController = com.apptists.poplur2025.performance.PoplurWebViewPerformanceController(
             this,
             "PoplurPostLoginWeb",
@@ -306,20 +319,14 @@ class PostLoginWebActivity : ComponentActivity() {
         val root = FrameLayout(this)
         rootLayout = root
         root.addView(homeWebView, matchParentParams())
-        root.addView(loadingWebView, matchParentParams())
+        root.addView(nativeLoadingView, matchParentParams())
 
         // Keep the app-owned volume bars consistent with the pre-login and native surfaces.
         val volumeOverlay = ComposeView(this).apply {
             setContent {
                 val visible by volumeVisible
                 val fraction by volumeFraction
-                val webSplashPainted by splashWebPainted
                 Box(Modifier.fillMaxSize()) {
-                    // Drawn on the activity's FIRST frame, so the wait is never a bare
-                    // black screen. Retires the moment the web splash can take over.
-                    if (!webSplashPainted) {
-                        PoplurNativeSplashCover(modifier = Modifier.fillMaxSize())
-                    }
                     if (visible) {
                         PoplurVolumeBars(
                             modifier = Modifier
@@ -371,25 +378,6 @@ class PostLoginWebActivity : ComponentActivity() {
                 mapPerformanceQuery +
                 permissionQuery
         )
-        // User rule: the approved globe Loading only after explicit sign-in/up;
-        // an already-signed-in launch loops the splash (its clay bar refills)
-        // while the home warms up behind it.
-        // The cover is ALWAYS the splash now: the approved globe Loading needed
-        // three.js + WebGL + model decode just to appear, delaying the very wait
-        // it was meant to cover. The splash is one hardware-decoded video with the
-        // same clay progress bar. The globe screen remains the approved GCL design
-        // (and is being kept for the watch/wear build).
-        // The APPROVED clay splash is the SHORT VIDEO CLIP — one hardware-decoded
-        // mp4 with the candy-stripe clay bar over it. Not the globe Loading screen:
-        // that is a different approved screen, kept for the watch/wear build, and
-        // swapping it in here was wrong.
-        //
-        // What made this look broken was never the choice of document. It is that
-        // Chromium takes 5-6s to initialise on an A03, so the clip cannot paint
-        // yet and Android's own starting window (logo on black) is what you see.
-        // PoplurNativeSplashCover fills exactly that window with the same clay bar
-        // and hands over the moment the clip commits its first frame.
-        loadingWebView.loadUrl("$origin/prelogin/splash.html")
 
         // Push an existing fix without prompting. Missing permissions are
         // surfaced by Home's custom clay primer; only its Allow action posts
@@ -404,8 +392,8 @@ class PostLoginWebActivity : ComponentActivity() {
             minimumElapsed.value = true
             revealIfReady()
         }
-        loadingWebView.postDelayed(revealRunnable!!, LOADING_HOLD_MS)
-        loadingWebView.postDelayed({
+        nativeLoadingView.postDelayed(revealRunnable!!, LOADING_HOLD_MS)
+        nativeLoadingView.postDelayed({
             if (!isFinishing && !homeReady.value) {
                 homeReady.value = true
                 revealIfReady()
@@ -696,15 +684,6 @@ class PostLoginWebActivity : ComponentActivity() {
                 view: WebView,
                 request: WebResourceRequest
             ): WebResourceResponse? = interceptAssetRequest(assetLoader, request)
-
-            override fun onPageCommitVisible(view: WebView, url: String?) {
-                // First actual paint, not merely "load finished" — onPageFinished can fire
-                // before anything is on screen, which would pull the native cover too early
-                // and put the black gap back.
-                if (url?.contains("/prelogin/splash.html") == true) {
-                    runOnUiThread { splashWebPainted.value = true }
-                }
-            }
 
             override fun onPageFinished(view: WebView, url: String?) {
                 // 3GB-class devices: flatten expensive effects (see PoplurLiteTier).
@@ -1402,27 +1381,12 @@ class PostLoginWebActivity : ComponentActivity() {
 
     private fun revealIfReady() {
         if (!minimumElapsed.value || !homeReady.value || isFinishing) return
-        // Home can become ready before the splash WebView commits its first
-        // frame. In that race `onPageCommitVisible` never retires the native
-        // first-frame cover, because the loading WebView is dismantled below.
-        // Home readiness is now the owner of the handoff, so remove that cheap
-        // Compose cover synchronously as reveal begins.
-        splashWebPainted.value = true
         window.statusBarColor = darkHome
         window.navigationBarColor = darkHome
-        loadingWebView.animate()
-            .alpha(0f)
-            .setDuration(REVEAL_DURATION_MS)
-            .withEndAction {
-                // DESTROY the loading WebView, don't just hide it: even though
-                // this splash is video/CSS rather than Three/WebGL, its decoder,
-                // compositor surface, and WebView are real memory on a 3GB
-                // device. Free them as soon as Home owns the screen.
-                (loadingWebView.parent as? android.view.ViewGroup)?.removeView(loadingWebView)
-                performanceController.detach(loadingWebView)
-                loadingWebView.destroy()
-            }
-            .start()
+        nativeLoadingView.animate().alpha(0f).setDuration(REVEAL_DURATION_MS).withEndAction {
+            nativeLoadingView.disposeComposition()
+            (nativeLoadingView.parent as? android.view.ViewGroup)?.removeView(nativeLoadingView)
+        }.start()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -2206,7 +2170,7 @@ class PostLoginWebActivity : ComponentActivity() {
                 runOnUiThread {
                     FirebaseAuth.getInstance().signOut()
                     startActivity(
-                        Intent(this@PostLoginWebActivity, PreloginWebActivity::class.java)
+                        Intent(this@PostLoginWebActivity, NativePreloginActivity::class.java)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                     )
                     finish()
@@ -3499,7 +3463,7 @@ class PostLoginWebActivity : ComponentActivity() {
         phoneBootPlayer?.release()
         phoneBootPlayer = null
         if (::performanceController.isInitialized) performanceController.close()
-        revealRunnable?.let { loadingWebView.removeCallbacks(it) }
+        revealRunnable?.let { nativeLoadingView.removeCallbacks(it) }
         hideVolumeRunnable?.let { homeWebView.removeCallbacks(it) }
         // An ad outliving its screen keeps a MediaView (and its audio) alive.
         // Drop the view first: the web is going away, so telling it to restore
@@ -3511,9 +3475,8 @@ class PostLoginWebActivity : ComponentActivity() {
         feedAd = null
         synchronized(webCapturesLock) { webCaptures.clear() }
         homeWebView.destroy()
-        // The loading WebView is destroyed at reveal time; only destroy here if
-        // the activity dies before the reveal (destroy() twice throws).
-        if (loadingWebView.parent != null) loadingWebView.destroy()
+        // Dispose is idempotent if the native splash already retired at reveal.
+        nativeLoadingView.disposeComposition()
         cameraFaceDetector.close()
         super.onDestroy()
     }

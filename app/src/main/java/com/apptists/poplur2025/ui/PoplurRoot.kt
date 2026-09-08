@@ -101,7 +101,7 @@ import com.apptists.poplur2025.data.UserProfile
 import com.apptists.poplur2025.data.businessProfileOrNull
 import com.apptists.poplur2025.data.poplurAccountType
 import com.apptists.poplur2025.PoplurVolumeEvents
-import com.apptists.poplur2025.PreloginWebActivity
+import com.apptists.poplur2025.NativePreloginActivity
 import com.apptists.poplur2025.PostLoginWebActivity
 import com.apptists.poplur2025.ui.screens.*
 import com.apptists.poplur2025.ui.components.CubeMenuWheelController
@@ -137,7 +137,7 @@ private const val VOLUME_OVERLAY_FAST_UPDATE_MS = 220L
 private const val VOLUME_CHANGE_EPSILON = 0.005f
 
 /**
- * Pre-login entry: launches the approved prototype web screens (PreloginWebActivity) as a
+ * Pre-login entry: launches the approved prototype web screens (NativePreloginActivity) as a
  * full-screen gate. It finishes itself when auth completes (bridge -> AuthViewModel -> Firebase),
  * at which point PoplurRoot recomposes into the signed-in content. A dark placeholder sits behind
  * it so there is no colour flash while the activity comes up.
@@ -146,7 +146,7 @@ private const val VOLUME_CHANGE_EPSILON = 0.005f
 private fun PreloginWebHost() {
     val context = LocalContext.current
     LaunchedEffect(Unit) {
-        context.startActivity(Intent(context, PreloginWebActivity::class.java))
+        context.startActivity(Intent(context, NativePreloginActivity::class.java))
     }
     Box(Modifier.fillMaxSize().background(Color(0xFF0A0709)))
 }
@@ -1131,7 +1131,7 @@ fun PoplurRoot(
         if (!showAppInitializationCover) {
             if (isSignedIn == false) {
                 // Signed Out — pre-login now renders the approved prototype web screens
-                // (PreloginWebActivity, assets/prelogin) instead of the native remake. The native
+                // (NativePreloginActivity, assets/prelogin) instead of the native remake. The native
                 // WelcomeAuthScreen host is intentionally left in place but unused (removal is a
                 // later cleanup); revert by restoring the WelcomeAuthScreen(...) call here.
                 PreloginWebHost()

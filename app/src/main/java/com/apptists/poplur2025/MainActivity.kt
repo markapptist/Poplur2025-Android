@@ -42,7 +42,7 @@ import com.apptists.poplur2025.ui.GdxNavigationFragment
 import com.apptists.poplur2025.ui.PoplurRoot
 import com.apptists.poplur2025.ui.ConfettiAnimationFragment
 import com.apptists.poplur2025.auth.AuthViewModel
-import com.apptists.poplur2025.ui.components.PoplurClaySplashOverlay
+import com.apptists.poplur2025.prelogin.NativePreloginSplash
 import com.apptists.poplur2025.ui.components.PersistentCubeOverlayConfig
 import com.apptists.poplur2025.ui.components.PersistentCubeOverlayHost
 import com.apptists.poplur2025.wear.WearRadiusSync
@@ -58,7 +58,7 @@ import kotlin.math.roundToInt
 
 /**
  * When true, MainActivity routes straight to the approved web surfaces
- * (PreloginWebActivity / PostLoginWebActivity) and never composes the native
+ * (NativePreloginActivity / PostLoginWebActivity) and never composes the native
  * PoplurRoot. Composing PoplurRoot boots the entire native stack — libGDX cube
  * fragments, Mapbox, ~50 states and their effects — just to sit unseen behind a
  * web screen, which is what made startup slow and the app laggy on Android/iPad.
@@ -166,8 +166,14 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                         var showSplash by remember { mutableStateOf(true) }
                         val authViewModel: AuthViewModel = viewModel()
                         val isSignedIn by authViewModel.isSignedIn.collectAsState()
+                        val routeLifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+                        var routed by remember { mutableStateOf(false) }
 
-                        if (!showSplash) {
+                        // Returning sessions hand directly to Home's native loading
+                        // cover instead of playing the same clip twice in two activities.
+                        val context = LocalContext.current
+                        val returningSession = isSignedIn == true && !com.apptists.poplur2025.prelogin.NativePreloginDraft.isPending(context)
+                        if (!showSplash || (USE_WEB_SURFACES && returningSession)) {
                             if (USE_WEB_SURFACES) {
                                 // PERF: go straight to the approved web surfaces and never
                                 // compose the native PoplurRoot. Composing it spins up the
@@ -175,12 +181,14 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                                 // states + effects) purely to sit behind a web screen —
                                 // that startup cost is what made the app slow and laggy.
                                 val ctx = LocalContext.current
-                                LaunchedEffect(isSignedIn) {
-                                    if (isSignedIn == null) return@LaunchedEffect
+                                LaunchedEffect(isSignedIn, routeLifecycle) {
+                                    if (isSignedIn == null || routed || !routeLifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return@LaunchedEffect
+                                    routed = true
                                     ctx.startActivity(
-                                        if (isSignedIn == true) Intent(ctx, PostLoginWebActivity::class.java)
-                                        else Intent(ctx, PreloginWebActivity::class.java)
+                                        if (isSignedIn == true && !com.apptists.poplur2025.prelogin.NativePreloginDraft.isPending(ctx)) Intent(ctx, PostLoginWebActivity::class.java)
+                                        else Intent(ctx, NativePreloginActivity::class.java)
                                     )
+                                    this@MainActivity.finish()
                                 }
                                 Box(Modifier.fillMaxSize().background(Color(0xFF0A0709)))
                             } else {
@@ -190,8 +198,8 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                             }
                         }
 
-                        if (showSplash) {
-                            PoplurClaySplashOverlay(
+                        if (showSplash && !(USE_WEB_SURFACES && returningSession)) {
+                            NativePreloginSplash(
                                 isReady = isSignedIn != null,
                                 onFinished = { showSplash = false },
                                 modifier = Modifier.fillMaxSize()

@@ -15,7 +15,7 @@ import io.github.sceneview.SceneView
 
 /** SceneView whose Choreographer callback is removed while inactive and whose actual GPU draws
  * are capped to the shared 30/24/15/10 FPS policy while active. */
-class PerformanceSceneView(context: Context) : SceneView(context), PoplurManagedRenderer {
+class PerformanceSceneView(context: Context, isOpaque: Boolean = true) : SceneView(context, isOpaque = isOpaque), PoplurManagedRenderer {
     private val managedLifecycleOwner = object : LifecycleOwner {
         lateinit var registry: LifecycleRegistry
         override val lifecycle: Lifecycle get() = registry
@@ -27,6 +27,15 @@ class PerformanceSceneView(context: Context) : SceneView(context), PoplurManaged
     private val performanceManager = PoplurPerformanceManager.getInstance(context)
     private var registration: PoplurPerformanceManager.RendererRegistration? = null
     private var active = false
+    private var renderingRequested = true
+
+    /** Park an unchanged native scene without retaining a frame callback. */
+    fun setRenderingRequested(value: Boolean) {
+        if (renderingRequested == value) return
+        renderingRequested = value
+        syncVisibility()
+        if (!value) setPerformanceActive(false)
+    }
     private var destroyed = false
     private var targetFrameNanos = performanceManager.currentSnapshot().frameIntervalNanos
     private var lastRenderedFrameNanos = Long.MIN_VALUE
@@ -85,7 +94,7 @@ class PerformanceSceneView(context: Context) : SceneView(context), PoplurManaged
                 Dithering.NONE
             }
         }
-        setPerformanceActive(isActive)
+        setPerformanceActive(isActive && renderingRequested)
     }
 
     override fun destroy() {
@@ -99,7 +108,7 @@ class PerformanceSceneView(context: Context) : SceneView(context), PoplurManaged
 
     private fun syncVisibility() {
         registration?.setVisible(
-            isAttachedToWindow && isShown && windowVisibility == View.VISIBLE && !destroyed
+            isAttachedToWindow && isShown && windowVisibility == View.VISIBLE && !destroyed && renderingRequested
         )
     }
 
