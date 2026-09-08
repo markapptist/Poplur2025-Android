@@ -36,6 +36,10 @@ class NativeMapUiTest {
                 web = descendants(activity.window.decorView).filterIsInstance<WebView>().first()
                 // Inspector access belongs to the test process, never release startup.
                 WebView.setWebContentsDebuggingEnabled(true)
+                // Home intentionally opens Feed. Exercise the shipping Map
+                // route in the same activity/bridge, without relying on a
+                // remembered tab or an advertising interstitial dismissing.
+                web.loadUrl(requireNotNull(web.url).replace("view=home", "view=map"))
             }
             fun js(expression: String): String {
                 val latch = CountDownLatch(1)
