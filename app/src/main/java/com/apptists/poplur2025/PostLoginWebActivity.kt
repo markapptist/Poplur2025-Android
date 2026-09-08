@@ -174,6 +174,9 @@ class PostLoginWebActivity : ComponentActivity() {
     /** The live feed-posts forward. See deliverWebFeedPosts. */
     private var feedPostsRegistration: ListenerRegistration? = null
     private var ownFeedRegistration: ListenerRegistration? = null
+    private val authoredPostsBridge = AuthoredPostsBridge { script ->
+        if (!isDestroyed && ::homeWebView.isInitialized) homeWebView.evaluateJavascript(script, null)
+    }
     private var feedAuthListener: FirebaseAuth.AuthStateListener? = null
     private val feedSnapshot = WebFeedSnapshot<com.google.firebase.firestore.DocumentSnapshot>(
         id = { it.id },
@@ -599,6 +602,7 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        authoredPostsBridge.stopAll()
         activityStarted = false
         if (::performanceController.isInitialized) performanceController.setVisible(false)
         if (com.apptists.poplur2025.util.PoplurEQSync.noteActivityStopped() &&
@@ -1731,6 +1735,9 @@ class PostLoginWebActivity : ComponentActivity() {
             }
             if (type == "requestProfilePosts") {
                 deliverWebProfilePosts()
+            }
+            if (type == "watchAuthoredPosts" || type == "stopAuthoredPosts") {
+                runOnUiThread { if (!isDestroyed) authoredPostsBridge.handle(body) }
             }
             if (type == "requestFeedPosts") {
                 // Arm on the main thread, where onDestroy also runs, so the
@@ -3429,6 +3436,7 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        authoredPostsBridge.stopAll()
         feedGeneration += 1
         feedAuthListener?.let { FirebaseAuth.getInstance().removeAuthStateListener(it) }
         feedAuthListener = null
