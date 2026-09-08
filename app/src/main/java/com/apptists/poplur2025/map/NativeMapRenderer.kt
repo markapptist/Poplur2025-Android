@@ -268,7 +268,12 @@ class NativeMapRenderer(private val context: Context, private val root: NativeMa
         val builder=CameraOptions.Builder()
         options.optJSONArray("center")?.let { builder.center(Point.fromLngLat(it.getDouble(0),it.getDouble(1))) }
         if(options.has("zoom"))builder.zoom(options.getDouble("zoom")); if(options.has("pitch"))builder.pitch(options.getDouble("pitch")); if(options.has("bearing"))builder.bearing(options.getDouble("bearing"))
-        if(options.has("padding"))builder.padding(padding(options.opt("padding")))
+        if(options.has("padding")) {
+            val edges=padding(options.opt("padding"))
+            val sx=(map?.width ?: viewportWidth.toInt())/viewportWidth
+            val sy=(map?.height ?: viewportHeight.toInt())/viewportHeight
+            builder.padding(EdgeInsets(edges.top*sy,edges.left*sx,edges.bottom*sy,edges.right*sx))
+        }
         options.optJSONArray("offset")?.let { offset -> map?.let { view -> builder.anchor(ScreenCoordinate(view.width/2.0+offset.getDouble(0)*view.width/viewportWidth,view.height/2.0+offset.getDouble(1)*view.height/viewportHeight)) } }
         return builder.build()
     }
