@@ -203,7 +203,8 @@ class NativeMapRenderer(private val context: Context, private val root: NativeMa
             }
             "featureState" -> { val target=obj(0); style.setFeatureState(target.optString("source"),target.optString("sourceLayer").takeIf{it.isNotEmpty()},target.opt("id").toString(),value(obj(1))) {} }
             "removeFeatureState" -> { val target=obj(0); style.removeFeatureState(target.optString("source"),target.optString("sourceLayer").takeIf{it.isNotEmpty()},target.opt("id").toString(),str(1).takeIf{it.isNotEmpty()}) {} }
-            "fog" -> check(style.setStyleAtmosphere(value(obj(0))))
+            // JSON null removes atmosphere; {} enables the default white fog.
+            "fog" -> check(style.setStyleAtmosphere(value(if (args.isNull(0)) null else obj(0))))
             "config" -> {} // Classic styles have no Standard import configuration.
             "fov" -> {} // The native projection samples keep existing pins exact.
             "repaint" -> style.triggerRepaint()

@@ -62,6 +62,9 @@ class NativeMapUiTest {
                 val maps = descendants(activity.window.decorView).filterIsInstance<MapView>()
                 assertEquals("Exactly one native map renderer", 1, maps.size)
                 assertTrue("Native map is visible", maps.single().isShown)
+                val style = JSONObject(maps.single().mapboxMap.getStyle()!!.styleJSON)
+                assertTrue("The clay map disables atmosphere instead of enabling white fog",
+                    !style.has("fog") || style.isNull("fog"))
             }
             assertEquals("true", js("(()=>{const w=$mapWindow;return !!w.document.querySelector('[data-map-zoom-rail] [data-zoom-thumb]') && w.document.querySelector('canvas.mapboxgl-canvas').dataset.poplurNativeMap==='true'})()"))
             val initial = js("(()=>{const w=$mapWindow;return JSON.stringify({url:location.href,frameURL:w.location.href,zoom:w.__poplurMap.getZoom(),pitch:w.__poplurMap.getPitch()})})()")
