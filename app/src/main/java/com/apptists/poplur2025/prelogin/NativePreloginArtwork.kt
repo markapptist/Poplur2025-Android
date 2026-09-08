@@ -1,12 +1,7 @@
 package com.apptists.poplur2025.prelogin
 
-import android.graphics.Bitmap
-import android.os.Handler
-import android.os.Looper
 import android.view.MotionEvent
-import android.view.PixelCopy
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
@@ -15,64 +10,49 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.apptists.poplur2025.ui.components.PerformanceSceneView
 import com.google.android.filament.IndirectLight
-import com.google.android.filament.Skybox
 import dev.romainguy.kotlin.math.Float3
 import io.github.sceneview.node.ModelNode
+import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.abs
 import kotlin.math.sin
 
-private data class NativeArtState(val model: ModelNode, var color: Color, var welcome: Boolean)
-
-private object PreloginThumbnailCache { val images = mutableMapOf<String, Bitmap>() }
+private data class NativeArtState(val model: ModelNode, var welcome: Boolean)
 
 @Composable
 fun PreloginModelArt(asset: String, modifier: Modifier, background: Color, welcome: Boolean = false, awake: Boolean = true, thumbnail: Boolean = false, onBack: () -> Unit = {}, onTouch: () -> Unit = {}) {
-    var snapshot by remember(asset) { mutableStateOf(PreloginThumbnailCache.images[asset]) }
     val currentBack by rememberUpdatedState(onBack)
     val currentTouch by rememberUpdatedState(onTouch)
     val currentWelcome by rememberUpdatedState(welcome)
     val currentAwake by rememberUpdatedState(awake)
-    if (thumbnail && snapshot != null) {
-        Image(snapshot!!.asImageBitmap(), contentDescription = null, modifier = modifier.background(background))
+    if (thumbnail) {
+        // The cards are static: render the original models once during asset
+        // preparation, without loading web-compressed textures on the phone.
+        AsyncImage("file:///android_asset/native-prelogin/$asset.png", contentDescription = null, modifier = modifier.background(background))
     } else {
         key(asset) {
             AndroidView(modifier = modifier, factory = { context ->
-                PerformanceSceneView(context, isOpaque = thumbnail).apply {
-                    scene.skybox = if (thumbnail) Skybox.Builder().color(background.red, background.green, background.blue, 1f).build(engine) else null
+                PerformanceSceneView(context, isOpaque = false).apply {
+                    scene.skybox = null
                     scene.indirectLight = IndirectLight.Builder().irradiance(1, floatArrayOf(1f, 1f, 1.05f)).intensity(55_000f).build(engine)
-                    val modelPath = when (asset) {
-                        "MarkHead_TalkingRig" -> "Poplur2025-iOS/Poplur2025/MarkHead_TalkingRig.glb"
-                        "zoom_buildings" -> "signup/zoom_buildings.glb"
-                        else -> "claymap/$asset.glb"
-                    }
-                    val instance = modelLoader.createModelInstance(modelPath)
+                    val instance = modelLoader.createModelInstance("login_cube/poplr_login_cube_equal_faces.glb")
                     val model = ModelNode(instance, scaleToUnits = 1.55f, centerOrigin = Float3(0f, 0f, 0f))
-                    model.rotation = Float3(-14f, if (thumbnail) { if (asset == "zoom_buildings") -32f else 12f } else if (welcome) -90f else 112f, 0f)
+                    model.rotation = Float3(-14f, if (welcome) -90f else 112f, 0f)
                     childNodes = listOf(model); cameraNode.position = Float3(0f, 0f, 3.4f); cameraNode.lookAt(model)
-                    tag = NativeArtState(model, background, welcome)
-                    var previousTime = 0L; var frames = 0; var capturePending = false; var captureAttempts = 0
+                    tag = NativeArtState(model, welcome)
+                    var previousTime = 0L
                     onFrame = { time ->
-                        if (!thumbnail && currentWelcome && currentAwake && previousTime != 0L) model.rotation = model.rotation.copy(y = model.rotation.y + ((time - previousTime) / 1_000_000_000f).coerceAtMost(0.1f) * 12f)
-                        previousTime = time; frames++
-                        if (thumbnail && frames >= 4 && !capturePending && captureAttempts < 5 && width > 0 && height > 0) {
-                            capturePending = true; captureAttempts++
-                            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                            PixelCopy.request(this, bitmap, { result ->
-                                if (result == PixelCopy.SUCCESS && isAttachedToWindow) { PreloginThumbnailCache.images[asset] = bitmap; snapshot = bitmap }
-                                else { bitmap.recycle(); capturePending = false; if (captureAttempts >= 5) setRenderingRequested(false) }
-                            }, Handler(Looper.getMainLooper()))
-                        }
+                        if (currentWelcome && currentAwake && previousTime != 0L) model.rotation = model.rotation.copy(y = model.rotation.y + ((time - previousTime) / 1_000_000_000f).coerceAtMost(0.1f) * 12f)
+                        previousTime = time
                     }
                     var startX = 0f; var startY = 0f; var downX = 0f
-                    if (!thumbnail) setOnTouchListener { view, event ->
+                    setOnTouchListener { view, event ->
                         when (event.actionMasked) {
                             MotionEvent.ACTION_DOWN -> { currentTouch(); setRenderingRequested(true); downX = event.x; startX = event.x; startY = model.rotation.y; true }
                             MotionEvent.ACTION_MOVE -> { model.rotation = model.rotation.copy(y = startY + (event.x - startX) * 0.75f); true }
@@ -86,18 +66,12 @@ fun PreloginModelArt(asset: String, modifier: Modifier, background: Color, welco
                     }
                 }
             }, update = { view ->
-                view.setRenderingRequested(if (thumbnail) snapshot == null else awake)
+                view.setRenderingRequested(awake)
                 val state = view.tag as? NativeArtState
                 if (state != null) {
-                    if (!thumbnail && state.welcome != welcome) {
+                    if (state.welcome != welcome) {
                         state.welcome = welcome
                         state.model.rotation = Float3(-14f, if (welcome) -90f else 112f, 0f)
-                    }
-                    if (thumbnail && state.color != background) {
-                        state.color = background
-                        val oldSky = view.scene.skybox
-                        view.scene.skybox = Skybox.Builder().color(background.red, background.green, background.blue, 1f).build(view.engine)
-                        oldSky?.let { view.engine.destroySkybox(it) }
                     }
                 }
             }, onRelease = { it.destroy() })
