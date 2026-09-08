@@ -155,7 +155,7 @@ dependencies {
     implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.2.0")
 
-    implementation("com.mapbox.maps:android:11.19.0")
+    implementation("com.mapbox.maps:android-ndk27:11.30.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.android.gms:play-services-ads:25.4.0")
     implementation("com.google.android.gms:play-services-wearable:19.0.0")

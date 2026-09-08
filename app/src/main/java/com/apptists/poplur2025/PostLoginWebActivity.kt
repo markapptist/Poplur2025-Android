@@ -123,6 +123,7 @@ class PostLoginWebActivity : ComponentActivity() {
     private var mapDiscoveryRequestId = ""
     private lateinit var homeWebView: WebView
     private lateinit var rootLayout: FrameLayout
+    private var nativeMapRenderer: com.apptists.poplur2025.map.NativeMapRenderer? = null
 
     // The Google slot is a FEED POST, not an interstitial. It uses the same
     // full-screen native card the retired Compose feed used, laid over the web
@@ -316,8 +317,10 @@ class PostLoginWebActivity : ComponentActivity() {
         // The cover is transient and destroyed at reveal; let it just play.
         performanceController.attach(homeWebView)
 
-        val root = FrameLayout(this)
+        val root = com.apptists.poplur2025.map.NativeMapRoot(this)
         rootLayout = root
+        val nativeMapEnabled = !intent.getBooleanExtra("useWebGLMap",false)
+        if(nativeMapEnabled) nativeMapRenderer = com.apptists.poplur2025.map.NativeMapRenderer(this,root,homeWebView)
         root.addView(homeWebView, matchParentParams())
         root.addView(nativeLoadingView, matchParentParams())
 
@@ -376,6 +379,7 @@ class PostLoginWebActivity : ComponentActivity() {
         homeWebView.loadUrl(
             "$origin/claymap/index.html?view=home&tabs=1" +
                 mapPerformanceQuery +
+                (if(nativeMapEnabled) "&nativeMapRenderer=1" else "") +
                 permissionQuery
         )
 
@@ -1540,6 +1544,10 @@ class PostLoginWebActivity : ComponentActivity() {
         fun onEvent(json: String) {
             val body = runCatching { JSONObject(json) }.getOrNull() ?: return
             val type = body.optString("type")
+            if(type == "nativeMapRenderer") { runOnUiThread { nativeMapRenderer?.receive(body) }; return }
+            if(type == "nativeMapPresentation" && body.optString("renderer") == "mapbox") {
+                runOnUiThread { nativeMapRenderer?.presentation(body) }; return
+            }
             if (type == "homeReady" || type == "mapReady") {
                 runOnUiThread {
                     homeReady.value = true
@@ -3431,6 +3439,7 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        nativeMapRenderer?.close(); nativeMapRenderer = null
         mapSelfieVideo.cancel()
         authoredPostsBridge.stopAll()
         feedGeneration += 1
