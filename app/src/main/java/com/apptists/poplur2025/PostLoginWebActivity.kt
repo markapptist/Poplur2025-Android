@@ -585,6 +585,7 @@ class PostLoginWebActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         activityStarted = true
+        if (feedAuthListener != null) bindWebFeedPosts(FirebaseAuth.getInstance().currentUser?.uid)
         com.apptists.poplur2025.util.PoplurEQSync.noteActivityStarted()
         // Process-global and idempotent; undoes a pauseTimers() from a full
         // app-hide. WebView.onPause() alone never stops JS timers.
@@ -597,6 +598,11 @@ class PostLoginWebActivity : ComponentActivity() {
     override fun onStop() {
         authoredPostsBridge.stopAll()
         activityStarted = false
+        feedGeneration += 1
+        feedPostsRegistration?.remove()
+        ownFeedRegistration?.remove()
+        feedPostsRegistration = null
+        ownFeedRegistration = null
         if (::performanceController.isInitialized) performanceController.setVisible(false)
         if (com.apptists.poplur2025.util.PoplurEQSync.noteActivityStopped() &&
             ::homeWebView.isInitialized
@@ -2885,7 +2891,7 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     private fun bindWebFeedPosts(uid: String?) {
-        if (isDestroyed || isFinishing) return
+        if (isDestroyed || isFinishing || !activityStarted) return
         if (feedSnapshot.uid == uid && feedPostsRegistration != null && ownFeedRegistration != null) {
             forwardWebAccountRadius()
             forwardWebFeedPosts()
