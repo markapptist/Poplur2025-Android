@@ -72,13 +72,36 @@ class PoplurWebViewPerformanceController(
                         put("postProcessing", snapshot.postProcessingAllowed)
                         put("expensiveVideo", snapshot.expensiveVideoTexturesAllowed)
                     }.toString()
+                    // Re-announcing a policy the document ALREADY holds is not
+                    // free. The web governor answers every `poplur-performance`
+                    // by re-deciding the map's building layers, and on the
+                    // native map renderer each of those decisions is a style
+                    // write the SDK answers by rebuilding the layer — which
+                    // blanks the 3D buildings for a frame. Measured on the
+                    // iPhone's identical path: one landmark tour carried 124
+                    // identical broadcasts in 20 seconds and the buildings
+                    // blinked.
+                    //
+                    // The guard lives in the DOCUMENT, not in this controller,
+                    // because a WebView navigation replaces the JavaScript
+                    // world: a controller-side memo would suppress the one
+                    // broadcast a fresh document has never received. Media
+                    // suspension below stays unconditional — new <video>
+                    // elements can appear under a policy that has not moved.
+                    val policySignature = JSONObject.quote(
+                        snapshot.mode.name + "|" + snapshot.thermalCondition.name + "|" + detail,
+                    )
                     view.evaluateJavascript(
                         "(function(){" +
+                            "var p=" + policySignature + ";" +
+                            "if(window.__poplurPerformanceLast!==p){" +
+                            "window.__poplurPerformanceLast=p;" +
                             "document.documentElement.dataset.poplurPerformanceMode=" +
                             JSONObject.quote(snapshot.mode.name.lowercase()) + ";" +
                             "document.documentElement.dataset.poplurThermal=" +
                             JSONObject.quote(snapshot.thermalCondition.name.lowercase()) + ";" +
                             "window.dispatchEvent(new CustomEvent('poplur-performance',{detail:$detail}));" +
+                            "}" +
                             if (!viewActive || !snapshot.expensiveVideoTexturesAllowed) {
                                 "document.querySelectorAll('video').forEach(function(v){v.pause();});" +
                                     "window.speechSynthesis&&window.speechSynthesis.cancel();"
