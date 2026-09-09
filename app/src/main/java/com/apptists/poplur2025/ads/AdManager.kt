@@ -3,6 +3,8 @@ package com.apptists.poplur2025.ads
 import android.app.Activity
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import java.lang.ref.WeakReference
 import com.apptists.poplur2025.BuildConfig
@@ -30,6 +32,28 @@ object AdManager {
     private var initialized = false
     private var pendingActivity: WeakReference<Activity>? = null
     private var pendingVisibilityChanged: ((Boolean) -> Unit)? = null
+    /** An interstitial that is already on screen. Without this, a second
+     *  eligible break could stack another AdActivity on top of the first, so
+     *  dismissing one revealed another instead of the app. iOS has carried this
+     *  guard since it shipped (AdManager.swift `isPresenting`). */
+    private var isPresenting = false
+    /** The app is foregrounded. iOS refuses to present unless
+     *  `UIApplication.shared.applicationState == .active`; Android has no
+     *  equivalent global, so the hosting Activity reports it. */
+    private var appActive = true
+    private val pendingHandler = Handler(Looper.getMainLooper())
+    private var pendingExpiry: Runnable? = null
+    /** When the cached interstitial arrived. AdMob expires an unshown ad after
+     *  about an hour; without this, a session that reaches no eligible break
+     *  for that long calls show() on a dead ad and spends the one break that
+     *  DID qualify on a failure callback. iOS discards at the same threshold. */
+    private var loadedAtMs: Long = 0L
+    private const val INTERSTITIAL_MAX_AGE_MS = 3_500_000L
+    /** How long an unfilled break may wait for inventory. Past this the
+     *  opportunity is GONE, not deferred: an ad that arrives thirty seconds
+     *  later lands on whatever screen the user has since moved to - which on
+     *  this app meant a full-screen ad over the map. Matches iOS's 2 seconds. */
+    private const val PENDING_MAX_WAIT_MS = 2_000L
 
     fun initialize(context: Context) {
         if (initialized) return
@@ -55,6 +79,7 @@ object AdManager {
                 override fun onAdLoaded(ad: InterstitialAd) {
                     isLoadingInterstitial = false
                     interstitial = ad
+                    loadedAtMs = android.os.SystemClock.elapsedRealtime()
                     presentPendingInterstitialIfPossible()
                 }
                 override fun onAdFailedToLoad(error: LoadAdError) {
@@ -78,22 +103,48 @@ object AdManager {
             onVisibilityChanged(false)
             return
         }
+        // Backgrounded, or an ad is already up: this break is spent, not saved.
+        if (!appActive || isPresenting || activity.isFinishing || activity.isDestroyed) {
+            onVisibilityChanged(false)
+            cancelPendingPresentation()
+            return
+        }
+        // A stale cached ad must not consume the break: drop it and let the
+        // pending path serve this one from the fresh load.
+        if (interstitial != null &&
+            android.os.SystemClock.elapsedRealtime() - loadedAtMs >= INTERSTITIAL_MAX_AGE_MS
+        ) {
+            interstitial = null
+        }
         val ad = interstitial ?: run {
-            pendingActivity = WeakReference(activity)
-            pendingVisibilityChanged = onVisibilityChanged
+            // Only the FIRST unfilled break starts the clock; a later one must
+            // not keep pushing the deadline out.
+            if (pendingActivity?.get() == null) {
+                pendingActivity = WeakReference(activity)
+                pendingVisibilityChanged = onVisibilityChanged
+                armPendingExpiry()
+            } else {
+                onVisibilityChanged(false)
+            }
             loadInterstitial(activity)
             return
         }
         interstitial = null
+        disarmPendingExpiry()
+        pendingActivity = null
+        pendingVisibilityChanged = null
+        isPresenting = true
         ad.fullScreenContentCallback = object : FullScreenContentCallback() {
             override fun onAdShowedFullScreenContent() = onVisibilityChanged(true)
 
             override fun onAdDismissedFullScreenContent() {
+                isPresenting = false
                 onVisibilityChanged(false)
                 loadInterstitial(activity)
             }
 
             override fun onAdFailedToShowFullScreenContent(error: com.google.android.gms.ads.AdError) {
+                isPresenting = false
                 onVisibilityChanged(false)
                 loadInterstitial(activity)
             }
@@ -114,10 +165,61 @@ object AdManager {
     }
 
     private fun clearPendingPresentation(visible: Boolean) {
+        disarmPendingExpiry()
         val onVisibilityChanged = pendingVisibilityChanged
         pendingActivity = null
         pendingVisibilityChanged = null
         onVisibilityChanged?.invoke(visible)
+    }
+
+    private fun armPendingExpiry() {
+        disarmPendingExpiry()
+        val expiry = Runnable {
+            pendingExpiry = null
+            Log.i("Ads", "feed break waited ${PENDING_MAX_WAIT_MS}ms for inventory - dropped")
+            clearPendingPresentation(visible = false)
+        }
+        pendingExpiry = expiry
+        pendingHandler.postDelayed(expiry, PENDING_MAX_WAIT_MS)
+    }
+
+    private fun disarmPendingExpiry() {
+        pendingExpiry?.let { pendingHandler.removeCallbacks(it) }
+        pendingExpiry = null
+    }
+
+    /**
+     * Abandon a break that is still waiting for inventory.
+     *
+     * The host calls this the moment the user leaves the Feed, and when the app
+     * stops being active. Without it a pending ad waited indefinitely and then
+     * presented over whichever surface the user had reached - which is how a
+     * full-screen interstitial ended up covering the map, taking the native map
+     * and its tile server down with it (the map's mount gate is document
+     * visibility). iOS has cancelled on both edges since it shipped.
+     */
+    fun cancelPendingPresentation() {
+        if (pendingActivity == null && pendingExpiry == null) return
+        clearPendingPresentation(visible = false)
+    }
+
+    /**
+     * The host's foreground state. Going inactive abandons a pending break for
+     * the same reason as leaving the Feed: by the time the app returns, the
+     * moment that earned the ad is gone.
+     */
+    fun setAppActive(active: Boolean) {
+        appActive = active
+        if (!active) {
+            cancelPendingPresentation()
+            return
+        }
+        // The host is in front again, so no interstitial is over it. Normally
+        // onAdDismissedFullScreenContent has already said so; if that callback
+        // is ever lost - a process death behind the ad, an AdActivity torn down
+        // without notifying - a stuck `isPresenting` would refuse every future
+        // ad for the life of the process. Resuming is proof, so trust it.
+        isPresenting = false
     }
 
     fun loadBanner(adView: AdView) {

@@ -124,6 +124,13 @@ class PostLoginWebActivity : ComponentActivity() {
     private lateinit var homeWebView: WebView
     private lateinit var rootLayout: FrameLayout
     private var nativeMapRenderer: com.apptists.poplur2025.map.NativeMapRenderer? = null
+    /** Which web surface is committed, from the web's own `tabChanged`. The
+     *  Feed's ad inventory belongs to the FEED: without this the bridge fired a
+     *  full-screen ad wherever the user happened to be, and because the map's
+     *  mount gate is document visibility, an interstitial over the map tore the
+     *  native map and its tile server down. iOS has gated on this since it
+     *  shipped (PostLoginHomeWebView.currentWebTab). */
+    private var currentWebTab: String = "map"
 
     // The Google slot is a FEED POST, not an interstitial. It uses the same
     // full-screen native card the retired Compose feed used, laid over the web
@@ -560,6 +567,7 @@ class PostLoginWebActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         activityResumed = true
+        AdManager.setAppActive(true)
         // The advertiser WebView is separate from signed-in Home, so resume
         // only that isolated controller when it actually exists.
         val externalBrowser = inAppBrowserDialog
@@ -617,6 +625,7 @@ class PostLoginWebActivity : ComponentActivity() {
 
     override fun onPause() {
         activityResumed = false
+        AdManager.setAppActive(false)
         PoplurNotifications.appInForeground = false
         PoplurNotifications.foregroundBannerSink = null
         stopCubeMotion()
@@ -822,10 +831,24 @@ class PostLoginWebActivity : ComponentActivity() {
             context = this,
             adUnitId = nativeUnitId,
             onLoaded = { ad ->
+                val requestedAtMs = android.os.SystemClock.elapsedRealtime()
                 runOnUiThread {
                     // A slot that arrives after the screen is gone, or after another
                     // already opened, is dropped rather than leaked.
                     if (isFinishing || isDestroyed || feedAdContainer != null) {
+                        ad.destroy()
+                        return@runOnUiThread
+                    }
+                    // ...and one that arrives after the user has LEFT the feed, or
+                    // long after the break that earned it, is dropped too. This
+                    // load has no cancel handle, so arrival is the only place the
+                    // surface can be re-checked; without it a card ordered on the
+                    // feed opens full-screen over the map, exactly as the
+                    // interstitial used to. Same budget as the interstitial's
+                    // pending lease.
+                    if (currentWebTab != "feed" ||
+                        android.os.SystemClock.elapsedRealtime() - requestedAtMs >= 2_000L
+                    ) {
                         ad.destroy()
                         return@runOnUiThread
                     }
@@ -2149,8 +2172,32 @@ class PostLoginWebActivity : ComponentActivity() {
                     FeedAdProbability.placement(index, namespace, config) ==
                         FeedAdPlacementKind.GoogleMobileAd
                 }
-                if (shouldPresent) {
-                    runOnUiThread { showFeedNativeAd() }
+                // Gated twice, exactly as iOS is: once on the decision, and
+                // again on the UI thread, because the hop is long enough for a
+                // tab change to land in between.
+                if (shouldPresent && currentWebTab == "feed") {
+                    runOnUiThread {
+                        if (currentWebTab == "feed") showFeedNativeAd()
+                    }
+                }
+            }
+            if (type == "tabChanged") {
+                val tab = body.optString("tab")
+                if (tab.isNotEmpty()) {
+                    currentWebTab = tab
+                    // Leaving the Feed spends any break still waiting for
+                    // inventory. Otherwise it lands on the surface the user
+                    // moved to, which is how an ad ended up over the map.
+                    if (tab != "feed") {
+                        runOnUiThread {
+                            AdManager.cancelPendingPresentation()
+                            // A native card is an in-Activity view, so nothing
+                            // else would ever take it down: dismissFeedNativeAd
+                            // is otherwise reachable only from a tap on the card
+                            // itself or from onDestroy.
+                            dismissFeedNativeAd()
+                        }
+                    }
                 }
             }
             if (type == "radioScope") {
