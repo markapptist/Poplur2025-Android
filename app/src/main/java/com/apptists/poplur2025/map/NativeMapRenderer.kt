@@ -119,9 +119,6 @@ class NativeMapRenderer(private val context: Context, private val root: NativeMa
             val coordinate=view.mapboxMap.coordinateForPixel(point)
             val type=when(event.actionMasked) { MotionEvent.ACTION_DOWN -> "touchstart"; MotionEvent.ACTION_MOVE -> "touchmove"; else -> "touchend" }
             emit(type,JSONObject().put("gesture",true).put("point",JSONArray(listOf(point.x*viewportWidth/view.width.coerceAtLeast(1),point.y*viewportHeight/view.height.coerceAtLeast(1)))).put("coordinate",JSONArray(listOf(coordinate.longitude(),coordinate.latitude()))))
-            if(event.actionMasked == MotionEvent.ACTION_DOWN) {
-                web.evaluateJavascript("window.dispatchEvent(new CustomEvent('poplur-native-map-tap'));true;",null)
-            }
             false
         }
         view.gestures.addOnMapClickListener { coordinate -> tap(coordinate); true }
@@ -155,7 +152,12 @@ class NativeMapRenderer(private val context: Context, private val root: NativeMa
     private fun emit(event: String, fields: JSONObject = JSONObject()) {
         if (session.isEmpty()) return
         fields.put("type","poplur-native-map-event").put("session",session).put("event",event)
-        web.evaluateJavascript("(()=>{const p=$fields;function send(w){try{w.dispatchEvent(new CustomEvent('poplur-native-map-event',{detail:p}));for(const f of w.document.querySelectorAll('iframe'))send(f.contentWindow)}catch{}}send(window)})();true;",null)
+        // A finger-down used to cost TWO evaluateJavascript calls - this one and
+        // a second that only dispatched the shell's wake event. Each call is an
+        // IPC hop plus a cold parse of a brand-new source string, so the wake
+        // rides along in the script that was already going out.
+        val wake = if (event == "touchstart") "window.dispatchEvent(new CustomEvent('poplur-native-map-tap'));" else ""
+        web.evaluateJavascript("(()=>{const p=$fields;${wake}function send(w){try{w.dispatchEvent(new CustomEvent('poplur-native-map-event',{detail:p}));for(const f of w.document.querySelectorAll('iframe'))send(f.contentWindow)}catch{}}send(window)})();true;",null)
     }
     /** A feature id that is genuinely present. Null (or JSON null) means the
      *  command cannot address anything, so it is dropped rather than aimed at a
