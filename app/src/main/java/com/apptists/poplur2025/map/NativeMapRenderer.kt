@@ -6,6 +6,7 @@ import android.graphics.RectF
 import android.os.SystemClock
 import android.util.Base64
 import android.view.MotionEvent
+import android.util.Log
 import android.view.View
 import android.webkit.WebView
 import android.widget.FrameLayout
@@ -42,6 +43,7 @@ class NativeMapRoot(context: Context) : FrameLayout(context) {
 /** Native Mapbox pixels under the existing MapApp. No preview rail or labels
  * are copied here; their camera/style commands arrive from the unchanged UI. */
 class NativeMapRenderer(private val context: Context, private val root: NativeMapRoot, private val web: WebView) : AutoCloseable {
+    private companion object { private const val TAG = "NativeMapRenderer" }
     private var map: MapView? = null
     private var tiles: NativeMapTileServer? = null
     private var session = ""
@@ -61,7 +63,19 @@ class NativeMapRenderer(private val context: Context, private val root: NativeMa
         for (i in 0 until commands.length()) {
             val command = commands.optJSONObject(i) ?: continue
             try { apply(command,owner) }
-            catch (error: Exception) { emit("error",JSONObject().put("message","${command.optString("op")}: ${error.message}")) }
+            catch (error: Exception) {
+                // Say it out loud. Every sibling renderer in this package logs
+                // its failures; this one did not, so a map that visibly refused
+                // to draw produced ZERO lines under
+                // `adb logcat | grep -i nativemap`, and the only way to find out
+                // why was to disassemble the Mapbox .so. One tag, one warning
+                // per failed command - commands are not per-frame, so this
+                // cannot become a log storm.
+                Log.w(TAG, "command '${command.optString("op")}' failed: ${error.message}", error)
+                emit("error",JSONObject()
+                    .put("message","${command.optString("op")}: ${error.message}")
+                    .put("op",command.optString("op")))
+            }
         }
     }
     fun presentation(body: JSONObject) {
@@ -143,10 +157,26 @@ class NativeMapRenderer(private val context: Context, private val root: NativeMa
         fields.put("type","poplur-native-map-event").put("session",session).put("event",event)
         web.evaluateJavascript("(()=>{const p=$fields;function send(w){try{w.dispatchEvent(new CustomEvent('poplur-native-map-event',{detail:p}));for(const f of w.document.querySelectorAll('iframe'))send(f.contentWindow)}catch{}}send(window)})();true;",null)
     }
+    /** A feature id that is genuinely present. Null (or JSON null) means the
+     *  command cannot address anything, so it is dropped rather than aimed at a
+     *  feature named "null". */
+    private fun featureId(target: JSONObject): String? =
+        target.opt("id")?.takeIf { it != JSONObject.NULL }?.toString()?.takeIf { it.isNotEmpty() }
     private fun value(raw: Any?): Value = Value.fromJson(when(raw) { is String -> JSONObject.quote(raw); null -> "null"; else -> raw.toString() }).value!!
     private fun apply(command: JSONObject, owner: String) {
         val op=command.optString("op"); val args=command.optJSONArray("args") ?: JSONArray()
-        fun str(i:Int)=args.optString(i,"")
+        // Android's org.json is NOT JSON-java here: optString returns the
+        // literal four characters "null" for a JSON null (JSONObject.NULL
+        // stringifies to that and is non-null, so the fallback is unreachable).
+        // The web shim sends `addLayer(layer, before ?? null)` for EVERY layer,
+        // so this read turned every clay layer into "insert below the layer
+        // named null" - Mapbox answered "Cannot find layer with id 'null'" and
+        // refused it. The whole clay world (ground, roads, water, buildings,
+        // labels, claims, discovery, pins) therefore never rendered on Android;
+        // only the landmark models, which take the `model` op's own path, did.
+        // The web could not tell, because the shim mirrors each layer locally
+        // and getLayer() keeps answering truthy.
+        fun str(i:Int)=if(args.isNull(i)) "" else args.optString(i,"")
         fun obj(i:Int)=args.optJSONObject(i) ?: JSONObject()
         if(op=="create") { create(obj(0),owner); return }
         if(owner!=session) return
@@ -194,15 +224,21 @@ class NativeMapRenderer(private val context: Context, private val root: NativeMa
                 check(style.addStyleLayer(value(properties),str(1).takeIf { it.isNotEmpty() }?.let { LayerPosition(null,it,null) }))
             }
             "removeLayer" -> if(style.styleLayerExists(str(0)))check(style.removeStyleLayer(str(0)))
-            "moveLayer" -> check(style.moveStyleLayer(str(0),LayerPosition(null,str(1).takeIf { it.isNotEmpty() },null)))
+            // A null position is the sanctioned "no position" argument
+            // (moveStyleLayer takes @Nullable LayerPosition); an all-null
+            // LayerPosition is rejected as "Invalid LayerPosition".
+            "moveLayer" -> check(style.moveStyleLayer(str(0),str(1).takeIf { it.isNotEmpty() }?.let { LayerPosition(null,it,null) }))
             "paint","layout" -> if(str(1)!="background-pitch-alignment")check(style.setStyleLayerProperty(str(0),str(1),value(args.opt(2))))
             "filter" -> check(style.setStyleLayerProperty(str(0),"filter",value(args.opt(1))))
             "image" -> {
                 val data=Base64.decode(str(1).substringAfter(','),Base64.DEFAULT); val bitmap=BitmapFactory.decodeByteArray(data,0,data.size) ?: return
                 view.mapboxMap.getStyle()?.addImage(str(0),bitmap,obj(2).optBoolean("sdf")); bitmap.recycle()
             }
-            "featureState" -> { val target=obj(0); style.setFeatureState(target.optString("source"),target.optString("sourceLayer").takeIf{it.isNotEmpty()},target.opt("id").toString(),value(obj(1))) {} }
-            "removeFeatureState" -> { val target=obj(0); style.removeFeatureState(target.optString("source"),target.optString("sourceLayer").takeIf{it.isNotEmpty()},target.opt("id").toString(),str(1).takeIf{it.isNotEmpty()}) {} }
+            // `target.opt("id").toString()` is the same trap by a different
+            // route: Kotlin's Any?.toString() renders a null id as "null" too,
+            // so a missing id addressed a feature literally called null.
+            "featureState" -> { val target=obj(0); val id=featureId(target) ?: return; style.setFeatureState(target.optString("source"),target.optString("sourceLayer").takeIf{it.isNotEmpty()},id,value(obj(1))) {} }
+            "removeFeatureState" -> { val target=obj(0); val id=featureId(target) ?: return; style.removeFeatureState(target.optString("source"),target.optString("sourceLayer").takeIf{it.isNotEmpty()},id,str(1).takeIf{it.isNotEmpty()}) {} }
             // JSON null removes atmosphere; {} enables the default white fog.
             "fog" -> check(style.setStyleAtmosphere(value(if (args.isNull(0)) null else obj(0))))
             "config" -> {} // Classic styles have no Standard import configuration.
