@@ -1217,18 +1217,21 @@ class PostLoginWebActivity : ComponentActivity() {
                     videoPosterJpeg(storedCapture.uri)
                 } else null
                 if (posterBytes == null) {
-                    saveClayPost(
-                        body = body,
-                        requestId = requestId,
-                        postId = postId,
-                        mediaUrl = mediaUrl.toString(),
-                        mediaStoragePath = mediaStoragePath,
-                        mediaReference = storageRef,
-                        posterUrl = null,
-                        posterStoragePath = null,
-                        posterReference = null,
-                        kind = kind,
-                    )
+                    uploadCarouselExtras(body, user.uid, postId, requestId, mediaUrl.toString()) { mediaUrls ->
+                        saveClayPost(
+                            body = body,
+                            requestId = requestId,
+                            postId = postId,
+                            mediaUrl = mediaUrl.toString(),
+                            mediaStoragePath = mediaStoragePath,
+                            mediaReference = storageRef,
+                            posterUrl = null,
+                            posterStoragePath = null,
+                            posterReference = null,
+                            kind = kind,
+                            mediaUrls = mediaUrls,
+                        )
+                    }
                     return@addOnSuccessListener
                 }
 
@@ -1350,6 +1353,57 @@ class PostLoginWebActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Carousel slides after the cover, uploaded one at a time.
+     *
+     * Index 0 is the cover: it is already in Storage under the post's original
+     * path and its bytes are the legacy `data` field, so it is skipped here
+     * rather than uploaded twice. Extras land beside it as -1.jpg, -2.jpg and
+     * so on, matching iOS exactly - a carousel written by either platform has
+     * to render on the other.
+     *
+     * Sequential rather than parallel, because progress is one 0..1 track. Any
+     * failure abandons the carousel and continues with the COVER ALONE: a
+     * perfectly good single-photo post is a better outcome than a post with a
+     * hole where slide three should be, and better than losing the post the
+     * user already watched upload.
+     */
+    private fun uploadCarouselExtras(
+        body: JSONObject,
+        uid: String,
+        postId: String,
+        requestId: String,
+        coverUrl: String,
+        done: (List<String>) -> Unit,
+    ) {
+        val items = body.optJSONArray("mediaItems")
+        if (items == null || items.length() < 2) { done(listOf(coverUrl)); return }
+        val payloads = ArrayList<ByteArray>()
+        for (i in 1 until items.length()) {
+            val source = items.optJSONObject(i)?.optString("data").orEmpty()
+            val bytes = runCatching {
+                Base64.decode(source.substringAfter(','), Base64.DEFAULT)
+            }.getOrNull()
+            if (bytes == null || bytes.isEmpty()) { done(listOf(coverUrl)); return }
+            payloads.add(bytes)
+        }
+        val urls = ArrayList<String>().apply { add(coverUrl) }
+        fun step(index: Int) {
+            if (index >= payloads.size) { done(urls); return }
+            val reference = FirebaseStorage.getInstance().reference
+                .child("posts/$uid/$postId-${index + 1}.jpg")
+            reference.putBytes(payloads[index])
+                .addOnSuccessListener {
+                    reference.downloadUrl
+                        .addOnSuccessListener { url -> urls.add(url.toString()); step(index + 1) }
+                        .addOnFailureListener { done(listOf(coverUrl)) }
+                }
+                .addOnFailureListener { done(listOf(coverUrl)) }
+        }
+        sendUploadProgress(requestId, 0.90, "UPLOADING")
+        step(0)
+    }
+
     private fun saveClayPost(
         body: JSONObject,
         requestId: String,
@@ -1361,6 +1415,7 @@ class PostLoginWebActivity : ComponentActivity() {
         posterStoragePath: String?,
         posterReference: StorageReference?,
         kind: String,
+        mediaUrls: List<String> = emptyList(),
     ) {
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
@@ -1439,6 +1494,14 @@ class PostLoginWebActivity : ComponentActivity() {
                 post["rightsAttestedAtMillis"] = System.currentTimeMillis()
             }
             if (body.optBoolean("usedAI")) post["usedAI"] = true
+            // Only a real carousel writes these, and mediaURL above stays the
+            // cover on its original storage path - so a client that knows
+            // nothing about mediaURLs reads it and renders an ordinary
+            // single-photo post rather than an empty one. Matches iOS.
+            if (mediaUrls.size > 1) {
+                post["mediaURLs"] = mediaUrls
+                post["mediaCount"] = mediaUrls.size
+            }
 
             val batch = database.batch()
             batch.set(database.collection("posts").document(postId), post)
