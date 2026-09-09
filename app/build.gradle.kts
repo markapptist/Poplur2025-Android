@@ -32,14 +32,22 @@ fun productionAdUnitId(propertyName: String, fallback: String, required: Boolean
     return value
 }
 
+// Both units belong to the ANDROID AdMob app, ca-app-pub-2086359936541081~8222991945,
+// declared as APPLICATION_ID in the manifest. They used to be the iOS app's:
+// this module shipped ~4441297400 ("Poplur", iOS) and that app's interstitial,
+// so every Android impression was served against an iOS app id. Ad unit ids are
+// public — they ship inside the APK — so they live here rather than in a secret.
 val admobInterstitialUnitId = productionAdUnitId(
     propertyName = "ADMOB_INTERSTITIAL_UNIT_ID",
-    fallback = "ca-app-pub-2086359936541081/6696033455",
+    fallback = "ca-app-pub-2086359936541081/9208770555",
     required = true,
 )
+// Blank here is what made every in-feed ad slot fall back to a FULL-SCREEN
+// interstitial (PostLoginWebActivity.showFeedNativeAd), which is how ads ended
+// up burying the map. A real Native advanced unit keeps the slot in the feed.
 val admobFeedNativeUnitId = productionAdUnitId(
     propertyName = "ADMOB_FEED_NATIVE_UNIT_ID",
-    fallback = "",
+    fallback = "ca-app-pub-2086359936541081/4799390284",
     required = false,
 )
 

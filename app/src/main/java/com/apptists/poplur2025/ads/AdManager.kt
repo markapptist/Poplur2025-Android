@@ -227,13 +227,19 @@ object AdManager {
         adView.loadAd(AdRequest.Builder().build())
     }
 
+    /**
+     * Returns whether a request was actually issued. It used to return Unit and
+     * simply fall out on a rejected id, so a caller holding a slot open for the
+     * load had no way to learn that neither callback would ever come — one bad
+     * id would strand that slot for the life of the process.
+     */
     fun loadNativeAd(
         context: Context,
         adUnitId: String,
         onLoaded: (NativeAd) -> Unit,
         onFailed: (LoadAdError) -> Unit = {}
-    ) {
-        if (!adsAllowed || !isProductionUnitId(adUnitId)) return
+    ): Boolean {
+        if (!adsAllowed || !isProductionUnitId(adUnitId)) return false
         AdLoader.Builder(context, adUnitId)
             .forNativeAd(onLoaded)
             .withNativeAdOptions(
@@ -246,6 +252,7 @@ object AdManager {
             })
             .build()
             .loadAd(AdRequest.Builder().build())
+        return true
     }
 
     private fun isProductionUnitId(value: String): Boolean =

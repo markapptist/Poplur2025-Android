@@ -3372,8 +3372,18 @@ internal fun bindFullScreenNativeAd(adView: NativeAdView, nativeAd: NativeAd) {
     headlineText.text = nativeAd.headline.orEmpty()
     bodyText.text = nativeAd.body.orEmpty()
     bodyText.visibility = if (nativeAd.body.isNullOrBlank()) View.GONE else View.VISIBLE
-    advertiserText.text = nativeAd.advertiser ?: nativeAd.store ?: "Sponsored"
-    ctaText.text = nativeAd.callToAction ?: "Learn More"
+    // Registered asset views carry the ADVERTISER's words or nothing. Writing
+    // our own "Sponsored" / "Learn More" into them put app-authored text inside
+    // views Google has registered as that ad's assets, which is a native-policy
+    // violation and makes a call-to-action button that promises an action the
+    // ad never supplied. Hide the view instead; the unregistered SPONSORED
+    // badge above still labels the card as an ad, which is what policy requires.
+    val advertiserName = nativeAd.advertiser ?: nativeAd.store
+    advertiserText.text = advertiserName.orEmpty()
+    advertiserText.visibility = if (advertiserName.isNullOrBlank()) View.GONE else View.VISIBLE
+    val callToAction = nativeAd.callToAction
+    ctaText.text = callToAction.orEmpty()
+    ctaText.visibility = if (callToAction.isNullOrBlank()) View.GONE else View.VISIBLE
 
     val iconDrawable = nativeAd.icon?.drawable
     if (iconDrawable != null) {

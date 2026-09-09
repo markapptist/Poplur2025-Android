@@ -34,6 +34,7 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
@@ -137,6 +138,11 @@ class PostLoginWebActivity : ComponentActivity() {
     // feed while the web hides its own chrome — so nothing of the home is buried
     // under it and it reads as the next post rather than an interruption.
     private var feedAdContainer: FrameLayout? = null
+    /** A native load is in the air. `feedAdContainer` only says a card is ON
+     *  SCREEN, so without this every second feed advance fired another
+     *  AdLoader request while the first was still loading — several paid
+     *  requests per break, and whichever landed first won. */
+    private var feedAdLoading = false
     private var feedAd: NativeAd? = null
     private lateinit var nativeLoadingView: ComposeView
     private lateinit var performanceController: com.apptists.poplur2025.performance.PoplurWebViewPerformanceController
@@ -815,7 +821,7 @@ class PostLoginWebActivity : ComponentActivity() {
      * for the duration, so the cube and HUD are never buried under an ad.
      */
     private fun showFeedNativeAd() {
-        if (feedAdContainer != null) return // one slot at a time
+        if (feedAdContainer != null || feedAdLoading) return // one slot at a time, in flight included
         val nativeUnitId = BuildConfig.ADMOB_FEED_NATIVE_UNIT_ID
         if (nativeUnitId.isBlank()) {
             // A production Native unit is intentionally separate from the
@@ -827,12 +833,18 @@ class PostLoginWebActivity : ComponentActivity() {
             }
             return
         }
-        AdManager.loadNativeAd(
+        // Stamped BEFORE the request. Taken inside onLoaded it was the ARRIVAL
+        // time, so the age below was always ~0 and the lease never expired: a
+        // card ordered on the feed could still open over whatever surface the
+        // user had reached, which is the exact failure the lease exists to stop.
+        val requestedAtMs = android.os.SystemClock.elapsedRealtime()
+        feedAdLoading = true
+        val issued = AdManager.loadNativeAd(
             context = this,
             adUnitId = nativeUnitId,
             onLoaded = { ad ->
-                val requestedAtMs = android.os.SystemClock.elapsedRealtime()
                 runOnUiThread {
+                    feedAdLoading = false
                     // A slot that arrives after the screen is gone, or after another
                     // already opened, is dropped rather than leaked.
                     if (isFinishing || isDestroyed || feedAdContainer != null) {
@@ -856,9 +868,18 @@ class PostLoginWebActivity : ComponentActivity() {
                 }
             },
             onFailed = { error ->
+                // Release the slot, or one failed load would block every later
+                // break for the life of the process.
+                runOnUiThread { feedAdLoading = false }
                 Log.w(TAG, "Feed Google ad failed: ${error.code} ${error.message}")
             },
         )
+        // A rejected unit id issues nothing and calls neither callback; without
+        // this the slot would stay held open forever.
+        if (!issued) {
+            feedAdLoading = false
+            Log.w(TAG, "Feed native ad not requested: unit id rejected ($nativeUnitId)")
+        }
     }
 
     private fun presentFeedNativeAd(ad: NativeAd) {
@@ -867,13 +888,72 @@ class PostLoginWebActivity : ComponentActivity() {
         val container = FrameLayout(this).apply {
             addView(adView, matchParentParams())
             isClickable = true
-            // You leave a feed post by moving on, so the whole card takes the tap.
-            setOnClickListener { dismissFeedNativeAd() }
+            addView(feedAdCloseControl())
         }
         feedAd = ad
         feedAdContainer = container
         rootLayout.addView(container, matchParentParams())
         setWebFeedAdSlotOpen(true)
+    }
+
+    /**
+     * The ad's own way out.
+     *
+     * This used to be `container.setOnClickListener { dismissFeedNativeAd() }`,
+     * with the reasoning that "you leave a feed post by moving on, so the whole
+     * card takes the tap". Neither half of that survives contact with the SDK.
+     *
+     * Every pixel of the card is a Google-REGISTERED asset view — the MediaView
+     * is MATCH_PARENT and `NativeAdView.dispatchTouchEvent` hands the raw event
+     * to the SDK's delegate, whose overlay `addView` keeps above our children.
+     * A parent's OnClickListener fires only when no descendant consumes the
+     * touch, so that listener could not reliably run at all: the card was either
+     * undismissable, or dismissed by a tap that Google had already recorded as a
+     * click on the ad.
+     *
+     * The second half is worse than the first. The feed's primary gesture IS a
+     * tap — FeedTwin draws invisible "Previous post"/"Next post" lanes across
+     * roughly half the width and two thirds of the height — so a viewer
+     * habituated to tapping to advance would have sent themselves to the
+     * advertiser on essentially every tap. Google calls that accidental clicks
+     * and invalid traffic, and it is the fastest way to get a brand-new unit
+     * disabled.
+     *
+     * So: one explicit control, a sibling of the NativeAdView rather than a
+     * child, therefore never a registered asset and never attributable as a
+     * click. Added after the ad view, so it sits above it in the container.
+     */
+    private fun feedAdCloseControl(): View {
+        val size = (48 * resources.displayMetrics.density).toInt()
+        val inset = (12 * resources.displayMetrics.density).toInt()
+        return TextView(this).apply {
+            text = "\u2715"
+            contentDescription = getString(R.string.feed_ad_close)
+            textSize = 20f
+            setTextColor(android.graphics.Color.WHITE)
+            gravity = android.view.Gravity.CENTER
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(android.graphics.Color.argb(140, 0, 0, 0))
+            }
+            isClickable = true
+            isFocusable = true
+            layoutParams = FrameLayout.LayoutParams(size, size).apply {
+                gravity = android.view.Gravity.TOP or android.view.Gravity.END
+                topMargin = inset
+                marginEnd = inset
+                // Edge-to-edge (targetSdk 35) puts the status bar over us.
+                topMargin += statusBarInsetPx()
+            }
+            setOnClickListener { dismissFeedNativeAd() }
+        }
+    }
+
+    /** Top system-bar inset, so the close control is never under the status bar. */
+    private fun statusBarInsetPx(): Int {
+        val insets = androidx.core.view.ViewCompat.getRootWindowInsets(rootLayout)
+            ?: return (24 * resources.displayMetrics.density).toInt()
+        return insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top
     }
 
     private fun dismissFeedNativeAd() {
