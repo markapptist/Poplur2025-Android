@@ -52,6 +52,12 @@ android { namespace = "com.apptists.poplur2025"
         buildConfigField("String", "MAPILLARY_ACCESS_TOKEN", "\"$mapillaryAccessToken\"")
         buildConfigField("String", "ADMOB_INTERSTITIAL_UNIT_ID", "\"$admobInterstitialUnitId\"")
         buildConfigField("String", "ADMOB_FEED_NATIVE_UNIT_ID", "\"$admobFeedNativeUnitId\"")
+        // App Check attests with Play Integrity, which needs the app distributed
+        // through Play. A sideloaded QA handset can never satisfy that, so the qa
+        // build type below swaps in the debug provider. OFF here so release can
+        // never carry the bypass: a debug token in a shipped APK would let anyone
+        // forge attestation against verifyCardPurchase, which grants paid credits.
+        buildConfigField("boolean", "APPCHECK_DEBUG_PROVIDER", "false")
     }
 
     buildFeatures {
@@ -77,6 +83,18 @@ android { namespace = "com.apptists.poplur2025"
             isCrunchPngs = false
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        debug {
+            buildConfigField("boolean", "APPCHECK_DEBUG_PROVIDER", "true")
+        }
+        // QA: release in every respect that matters — same applicationId, same
+        // release signing, same minify — so it installs IN PLACE over the handset's
+        // existing release build without the uninstall that would wipe its state.
+        // The single difference is the App Check provider.
+        create("qa") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "APPCHECK_DEBUG_PROVIDER", "true")
         }
     }
 

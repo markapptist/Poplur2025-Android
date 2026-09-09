@@ -17,8 +17,14 @@ class PoplurApp : Application() {
         super.onCreate()
         PoplurPerformanceManager.getInstance(this)
         FirebaseApp.initializeApp(this)
+        // Play Integrity is the real provider and the only one release ships. It
+        // needs the app distributed through Play, so a sideloaded QA handset can
+        // never get a verdict — hence the qa build type, which is release in all
+        // but this. Keyed off APPCHECK_DEBUG_PROVIDER rather than BuildConfig.DEBUG
+        // so the bypass is a deliberate build choice, false in release, and a debug
+        // build still behaves as before.
         FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
-            if (BuildConfig.DEBUG) {
+            if (BuildConfig.APPCHECK_DEBUG_PROVIDER) {
                 DebugAppCheckProviderFactory.getInstance()
             } else {
                 PlayIntegrityAppCheckProviderFactory.getInstance()
