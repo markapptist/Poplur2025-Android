@@ -94,6 +94,7 @@ class NativeMapRenderer(private val context: Context, private val root: NativeMa
     }
     private fun create(options: JSONObject, owner: String) {
         close(); session = owner
+        synchronized(pendingEvents) { pendingEvents.clear(); pendingWake = false }
         options.optString("accessToken").takeIf { it.isNotEmpty() }?.let { MapboxOptions.accessToken = it }
         viewportWidth = options.optDouble("width",393.0); viewportHeight = options.optDouble("height",852.0)
         val view = MapView(context,MapInitOptions(context,cameraOptions=cameraOptions(options.optJSONObject("camera") ?: JSONObject()),styleUri=null))
@@ -149,15 +150,58 @@ class NativeMapRenderer(private val context: Context, private val root: NativeMa
         }
         emit("camera",JSONObject().put("camera",JSONObject().put("center",JSONArray(listOf(camera.center.longitude(),camera.center.latitude()))).put("zoom",camera.zoom).put("pitch",camera.pitch).put("bearing",camera.bearing)).put("projection",samples).put("gesture",gestureActive))
     }
+    private val pendingEvents = mutableListOf<JSONObject>()
+    private var pendingWake = false
+    private var flushScheduled = false
+    /**
+     * Events go out in BATCHES, one per main-loop turn.
+     *
+     * Every evaluateJavascript is an IPC hop plus a cold parse: the payload is
+     * inlined, so V8 can never code-cache the source. A single settle emits
+     * several events (modelReady..., render, idle) and each one used to pay
+     * that separately, and to walk the whole iframe tree separately. Queuing
+     * them and flushing on the next turn collapses a settle to ONE call and one
+     * walk, with order preserved.
+     *
+     * A finger-down also used to spend a SECOND call purely to dispatch the
+     * shell's wake event; it now rides in the same batch.
+     */
     private fun emit(event: String, fields: JSONObject = JSONObject()) {
         if (session.isEmpty()) return
         fields.put("type","poplur-native-map-event").put("session",session).put("event",event)
-        // A finger-down used to cost TWO evaluateJavascript calls - this one and
-        // a second that only dispatched the shell's wake event. Each call is an
-        // IPC hop plus a cold parse of a brand-new source string, so the wake
-        // rides along in the script that was already going out.
-        val wake = if (event == "touchstart") "window.dispatchEvent(new CustomEvent('poplur-native-map-tap'));" else ""
-        web.evaluateJavascript("(()=>{const p=$fields;${wake}function send(w){try{w.dispatchEvent(new CustomEvent('poplur-native-map-event',{detail:p}));for(const f of w.document.querySelectorAll('iframe'))send(f.contentWindow)}catch{}}send(window)})();true;",null)
+        synchronized(pendingEvents) {
+            pendingEvents += fields
+            if (event == "touchstart") pendingWake = true
+            if (flushScheduled) return
+            flushScheduled = true
+        }
+        // WebView.post lands on the UI thread, which is where evaluateJavascript
+        // must be called from; emit() itself is reached from map callbacks.
+        web.post { flushEvents() }
+    }
+    private fun flushEvents() {
+        val batch: String
+        val wake: Boolean
+        synchronized(pendingEvents) {
+            flushScheduled = false
+            if (pendingEvents.isEmpty()) return
+            batch = JSONArray(pendingEvents.toList()).toString()
+            wake = pendingWake
+            pendingEvents.clear()
+            pendingWake = false
+        }
+        // The session can end between queueing and this turn.
+        if (session.isEmpty()) return
+        val wakeJs = if (wake) "window.dispatchEvent(new CustomEvent('poplur-native-map-tap'));" else ""
+        // Walk the frame tree ONCE, then dispatch event by event with a yield
+        // between them. That yield matters: each emit used to be its own
+        // evaluateJavascript and therefore its own JS task, so a promise
+        // continuation awaiting one event (the shim's own once(), the command
+        // queue's microtask flush) ran BEFORE the next event arrived. Dispatching
+        // a whole batch synchronously would deliver 'load' and 'styledata' back
+        // to back with nothing draining in between, which is a behaviour change
+        // the batching was never meant to make.
+        web.evaluateJavascript("(()=>{const b=$batch;${wakeJs}const ws=[];(function scan(w){try{ws.push(w);for(const f of w.document.querySelectorAll('iframe'))scan(f.contentWindow)}catch{}})(window);(async()=>{for(const p of b){for(const w of ws){try{w.dispatchEvent(new CustomEvent('poplur-native-map-event',{detail:p}))}catch{}}await null}})()})();true;",null)
     }
     /** A feature id that is genuinely present. Null (or JSON null) means the
      *  command cannot address anything, so it is dropped rather than aimed at a

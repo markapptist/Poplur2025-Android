@@ -143,6 +143,9 @@ class PostLoginWebActivity : ComponentActivity() {
      *  AdLoader request while the first was still loading — several paid
      *  requests per break, and whichever landed first won. */
     private var feedAdLoading = false
+    /** Earliest the next full-screen feed ad may open. Matches AdManager's
+     *  MIN_INTERSTITIAL_GAP_MS so both full-screen formats obey one rhythm. */
+    private var nextFeedAdAllowedAtMs: Long = 0L
     private var feedAd: NativeAd? = null
     private lateinit var nativeLoadingView: ComposeView
     private lateinit var performanceController: com.apptists.poplur2025.performance.PoplurWebViewPerformanceController
@@ -822,6 +825,14 @@ class PostLoginWebActivity : ComponentActivity() {
      */
     private fun showFeedNativeAd() {
         if (feedAdContainer != null || feedAdLoading) return // one slot at a time, in flight included
+        // A floor in TIME, which the per-post cadence cannot express. Since
+        // 8c4294d this path shows a full-bleed in-feed card rather than an
+        // interstitial Activity, so AdManager's own cooldown - which guards
+        // presentInterstitial - never sees it, and "one at a time" alone still
+        // allowed a full-screen ad every second clip. Measured on the A03: four
+        // full-screen ads in about six minutes of ordinary navigation.
+        val nowMs = android.os.SystemClock.elapsedRealtime()
+        if (nowMs < nextFeedAdAllowedAtMs) return
         val nativeUnitId = BuildConfig.ADMOB_FEED_NATIVE_UNIT_ID
         if (nativeUnitId.isBlank()) {
             // A production Native unit is intentionally separate from the
@@ -883,6 +894,10 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     private fun presentFeedNativeAd(ad: NativeAd) {
+        // Armed on the ad the user actually SEES: a request that never fills,
+        // or a card dropped on arrival because the surface changed, must not
+        // spend the next three minutes of inventory.
+        nextFeedAdAllowedAtMs = android.os.SystemClock.elapsedRealtime() + 180_000L
         val adView = createFullScreenNativeAdView(this)
         bindFullScreenNativeAd(adView, ad)
         val container = FrameLayout(this).apply {

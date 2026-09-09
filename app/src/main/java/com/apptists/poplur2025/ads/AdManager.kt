@@ -15,6 +15,7 @@ import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.FullScreenContentCallback
 import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.RequestConfiguration
 import com.google.android.gms.ads.interstitial.InterstitialAd
 import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
 import com.google.android.gms.ads.nativead.NativeAd
@@ -41,6 +42,13 @@ object AdManager {
      *  `UIApplication.shared.applicationState == .active`; Android has no
      *  equivalent global, so the hosting Activity reports it. */
     private var appActive = true
+    /// The earliest an interstitial may show again. The per-post cadence alone
+    /// put one on screen every second advance, which on a feed of short clips
+    /// is relentless - four in six minutes of ordinary navigation, measured.
+    /// A floor in TIME is what the cadence cannot express, and it is the
+    /// standard control for full-screen inventory.
+    private var nextInterstitialAllowedAtMs: Long = 0L
+    private const val MIN_INTERSTITIAL_GAP_MS = 180_000L
     private val pendingHandler = Handler(Looper.getMainLooper())
     private var pendingExpiry: Runnable? = null
     /** When the cached interstitial arrived. AdMob expires an unshown ad after
@@ -55,7 +63,36 @@ object AdManager {
      *  this app meant a full-screen ad over the map. Matches iOS's 2 seconds. */
     private const val PENDING_MAX_WAIT_MS = 2_000L
 
+    private var requestConfigurationApplied = false
+    /**
+     * Cap the creative's Digital Content Label.
+     *
+     * Be precise about what this does: the labels are ordered MA < T < PG < G,
+     * so "T" excludes ONLY the MA bucket. It is NOT a category filter and does
+     * NOT reliably keep gambling out - social-casino and betting creatives are
+     * routinely labelled T, so the 19+ gambling ad seen on this device could
+     * still serve with this in place. The control that actually governs that
+     * category is console-side: AdMob -> Blocking controls -> Sensitive
+     * categories -> "Gambling & betting". This narrows the ceiling; it does not
+     * close the category, and must not be reported as if it had.
+     *
+     * Applied from every request path rather than only initialize(): initialize
+     * runs only once a user is signed in, while the load paths are not gated on
+     * it, so a signed-out session would otherwise request with the default
+     * (unspecified) rating.
+     */
+    private fun applyRequestConfiguration() {
+        if (requestConfigurationApplied) return
+        requestConfigurationApplied = true
+        MobileAds.setRequestConfiguration(
+            RequestConfiguration.Builder()
+                .setMaxAdContentRating(RequestConfiguration.MAX_AD_CONTENT_RATING_T)
+                .build()
+        )
+    }
+
     fun initialize(context: Context) {
+        applyRequestConfiguration()
         if (initialized) return
         if (!adsAllowed) {
             Log.i("Ads", "Ads disabled on emulator or because the production unit is invalid")
@@ -70,6 +107,7 @@ object AdManager {
      *  and a fresh one is requested as soon as the current one is consumed. */
     fun loadInterstitial(context: Context) {
         if (!adsAllowed || isLoadingInterstitial || interstitial != null) return
+        applyRequestConfiguration()
         isLoadingInterstitial = true
         InterstitialAd.load(
             context.applicationContext,
@@ -103,6 +141,12 @@ object AdManager {
             onVisibilityChanged(false)
             return
         }
+        // Too soon since the last one: this break is spent, not saved.
+        if (android.os.SystemClock.elapsedRealtime() < nextInterstitialAllowedAtMs) {
+            onVisibilityChanged(false)
+            cancelPendingPresentation()
+            return
+        }
         // Backgrounded, or an ad is already up: this break is spent, not saved.
         if (!appActive || isPresenting || activity.isFinishing || activity.isDestroyed) {
             onVisibilityChanged(false)
@@ -134,6 +178,7 @@ object AdManager {
         pendingActivity = null
         pendingVisibilityChanged = null
         isPresenting = true
+        nextInterstitialAllowedAtMs = android.os.SystemClock.elapsedRealtime() + MIN_INTERSTITIAL_GAP_MS
         ad.fullScreenContentCallback = object : FullScreenContentCallback() {
             override fun onAdShowedFullScreenContent() = onVisibilityChanged(true)
 
@@ -145,6 +190,8 @@ object AdManager {
 
             override fun onAdFailedToShowFullScreenContent(error: com.google.android.gms.ads.AdError) {
                 isPresenting = false
+                // Nothing was shown, so the floor has nothing to space out.
+                nextInterstitialAllowedAtMs = 0L
                 onVisibilityChanged(false)
                 loadInterstitial(activity)
             }
@@ -224,6 +271,7 @@ object AdManager {
 
     fun loadBanner(adView: AdView) {
         if (!adsAllowed) return
+        applyRequestConfiguration()
         adView.loadAd(AdRequest.Builder().build())
     }
 
@@ -240,6 +288,7 @@ object AdManager {
         onFailed: (LoadAdError) -> Unit = {}
     ): Boolean {
         if (!adsAllowed || !isProductionUnitId(adUnitId)) return false
+        applyRequestConfiguration()
         AdLoader.Builder(context, adUnitId)
             .forNativeAd(onLoaded)
             .withNativeAdOptions(
