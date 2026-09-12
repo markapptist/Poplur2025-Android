@@ -162,7 +162,27 @@ internal class PoplurInAppBrowserDialog(
                 override fun shouldOverrideUrlLoading(
                     view: WebView,
                     request: WebResourceRequest,
-                ): Boolean = normalizePoplurInAppBrowserUrl(request.url.toString()) == null
+                ): Boolean {
+                    val url = request.url
+                    if (request.isForMainFrame && url.host in listOf("google.com", "www.google.com") && url.path == "/url") {
+                        val target = normalizePoplurInAppBrowserUrl(url.getQueryParameter("q") ?: url.getQueryParameter("url") ?: "")
+                        if (target != null && android.net.Uri.parse(target).host !in listOf("google.com", "www.google.com")) {
+                            view.loadUrl(target)
+                            return true
+                        }
+                    }
+                    return normalizePoplurInAppBrowserUrl(url.toString()) == null
+                }
+
+                override fun onPageFinished(view: WebView, url: String?) {
+                    if (android.net.Uri.parse(url ?: "").host !in listOf("google.com", "www.google.com")) return
+                    view.evaluateJavascript("document.body.innerText.includes('Redirect Notice') ? document.querySelector('a[href^=\"https://\"]')?.href : null") { value ->
+                        if (Uri.parse(view.url ?: "").host !in listOf("google.com", "www.google.com")) return@evaluateJavascript
+                        val raw = runCatching { org.json.JSONArray("[$value]").optString(0) }.getOrNull() ?: return@evaluateJavascript
+                        val target = normalizePoplurInAppBrowserUrl(raw) ?: return@evaluateJavascript
+                        if (android.net.Uri.parse(target).host !in listOf("google.com", "www.google.com")) view.loadUrl(target)
+                    }
+                }
 
                 override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
                     super.onPageStarted(view, url, favicon)
