@@ -1456,6 +1456,8 @@ class PostLoginWebActivity : ComponentActivity() {
                 "playbackURL" to mediaUrl,
                 "mediaStoragePath" to mediaStoragePath,
                 "mediaType" to kind,
+                "contentType" to if (body.optString("contentType") == "message") "message" else "post",
+                "messageCard" to (body.optString("contentType") == "message" && body.optBoolean("messageCard")),
                 "viewCount" to 0,
                 "radius" to seedRadiusMeters,
                 // The creation radius is all seed (spent reach, never earned):
@@ -3063,6 +3065,8 @@ class PostLoginWebActivity : ComponentActivity() {
                             put("mediaURL", mediaURL)
                             put("mediaType", document.getString("mediaType") ?: inferredType)
                             document.getDouble("photoViewSeconds")?.let { put("photoViewSeconds", it) }
+                            put("contentType", document.getString("contentType") ?: "post")
+                            put("messageCard", document.getBoolean("messageCard") == true)
                             document.getString("posterURL")?.takeIf { it.isNotBlank() }
                                 ?.let { put("posterURL", it) }
                             document.getString("caption")?.takeIf { it.isNotBlank() }
@@ -3174,6 +3178,8 @@ class PostLoginWebActivity : ComponentActivity() {
                     put("mediaURL", mediaURL)
                     put("mediaType", document.getString("mediaType") ?: inferredType)
                     document.getDouble("photoViewSeconds")?.let { put("photoViewSeconds", it) }
+                    put("contentType", document.getString("contentType") ?: "post")
+                    put("messageCard", document.getBoolean("messageCard") == true)
                     put("username", document.getString("username") ?: "Poplur user")
                     put("channelId", document.getString("channelId") ?: "live")
                     val ownerId = (document.getString("userID")

@@ -9,6 +9,16 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class AuthoredPostsBridgeTest {
+    @Test fun preservesPopMessageClassificationWithOrWithoutAttachments() {
+        for (card in listOf(true, false)) {
+            val row = AuthoredPostsBridge.publicRow(mapOf("contentType" to "message", "messageCard" to card,
+                "caption" to "Hello #Toronto", "mediaType" to if (card) "photo" else "video"))!!
+            assertEquals("message", row.getString("contentType"))
+            assertEquals(card, row.getBoolean("messageCard"))
+            assertEquals("Hello #Toronto", row.getString("caption"))
+        }
+    }
+
     @Test fun excludesNonpublicAndDeletedPostsBeforeSendingToWebView() {
         for (status in listOf("draft", "expired", "deleted")) {
             assertNull(AuthoredPostsBridge.publicRow(mapOf("visibilityStatus" to status, "mediaURL" to "https://example.test/photo.jpg")))
