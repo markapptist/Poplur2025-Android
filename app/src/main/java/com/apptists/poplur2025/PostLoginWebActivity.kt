@@ -197,6 +197,14 @@ class PostLoginWebActivity : ComponentActivity() {
     private val feedSnapshot = WebFeedSnapshot<com.google.firebase.firestore.DocumentSnapshot>(
         id = { it.id },
         owner = { it.getString("userID") ?: it.getString("userId") ?: it.getString("ownerId") },
+        // Which population a row belongs to, so simulation volume can never push
+        // a person's post off the phone. See WebFeedSnapshot.windowByPopulation.
+        synthetic = { document ->
+            WebFeedSnapshot.isSyntheticPost(
+                document.id,
+                document.getString("userID") ?: document.getString("userId") ?: document.getString("ownerId"),
+            ) { key -> document.get(key) }
+        },
     )
     private var feedGeneration = 0L
     private var notificationObservedUid: String? = null
@@ -3128,7 +3136,12 @@ class PostLoginWebActivity : ComponentActivity() {
                 forwardWebAccountRadius()
                 forwardWebFeedPosts()
             }
-        feedPostsRegistration = posts.orderBy("createdAt", Query.Direction.DESCENDING).limit(96)
+        // Fetch wide, then window each population separately. Firestore cannot
+        // select the absence of a synthetic marker, so people's posts are only
+        // reachable by reading PAST the simulation's — at ~460 synthetic pops/day
+        // the old limit(96) window spanned barely four hours.
+        feedPostsRegistration = posts.orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(WebFeedSnapshot.FEED_POOL_FETCH_LIMIT)
             .addSnapshotListener { snapshot, error ->
                 if (isDestroyed || isFinishing || generation != feedGeneration) return@addSnapshotListener
                 if (snapshot == null) {
