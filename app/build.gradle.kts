@@ -4,6 +4,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
     id("com.github.triplet.play")
     id("io.github.takahirom.roborazzi")
 }
@@ -161,6 +162,10 @@ dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
 
     implementation(platform("com.google.firebase:firebase-bom:33.9.0"))
+    // Crash reporting. Without it a student who hits a crash simply stops
+    // opening the app, and the retention curve cannot tell that apart from
+    // boredom — which is the one thing the beta exists to measure.
+    implementation("com.google.firebase:firebase-crashlytics-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-appcheck-debug")
     implementation("com.google.firebase:firebase-appcheck-playintegrity")
