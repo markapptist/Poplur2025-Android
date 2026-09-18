@@ -70,7 +70,7 @@ private val BarberCream = Color(0xFFFFE1F1)
 private val BarberLightPink = Color(0xFFFF86C4)
 private val BarberPink = Color(0xFFF53C99)
 
-private val SplashMessages = listOf(
+internal val SplashMessages = listOf(
     "Warming up the pinetrees",
     "Rolling out the clay roads",
     "Teaching the pin to drop",
@@ -181,7 +181,7 @@ fun PoplurClaySplashOverlay(
 }
 
 @Composable
-private fun SheenLoadingText(
+internal fun SheenLoadingText(
     text: String,
     alpha: Float,
     modifier: Modifier = Modifier
@@ -233,7 +233,7 @@ private fun SheenLoadingText(
 }
 
 @Composable
-private fun BarberProgress(
+internal fun BarberProgress(
     progress: Float,
     modifier: Modifier = Modifier
 ) {
