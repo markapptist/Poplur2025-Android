@@ -53,11 +53,11 @@ val admobFeedNativeUnitId = productionAdUnitId(
 )
 
 android { namespace = "com.apptists.poplur2025"
-    compileSdk = 35;
+    compileSdk = 36;
     testBuildType = providers.gradleProperty("poplurInstrumentRelease").map { if (it == "true") "release" else "debug" }.getOrElse("debug")
     defaultConfig {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 35; versionCode = 3; versionName = "1.0.2"
+        applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 36; versionCode = 3; versionName = "1.0.2"
         buildConfigField("String", "MAPILLARY_ACCESS_TOKEN", "\"$mapillaryAccessToken\"")
         buildConfigField("String", "ADMOB_INTERSTITIAL_UNIT_ID", "\"$admobInterstitialUnitId\"")
         buildConfigField("String", "ADMOB_FEED_NATIVE_UNIT_ID", "\"$admobFeedNativeUnitId\"")
@@ -107,7 +107,16 @@ android { namespace = "com.apptists.poplur2025"
         }
     }
 
+    // The heavy asset folders ship in the install-time pack :claymap_assets
+    // (see claymap_assets/build.gradle.kts): Play caps the base module's
+    // compressed download at 500 MB. The files still live here for every
+    // sync script; aapt2 skips them by directory name so they are packaged
+    // once, by the pack. The list after the defaults mirrors the pack's links.
+    assetPacks += listOf(":claymap_assets")
+
     androidResources {
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~" +
+            ":!claymap:!mark_game:!Poplur2025-iOS:!cube_models:!logo:!theme_banners:!popular_objects:!mark_head:!store_cards:!cube:!poplur-clay-map"
         noCompress += listOf(
             "tflite", "pb", "emd", "tfl",
             "glb", "gltf",
@@ -199,7 +208,7 @@ dependencies {
     implementation("com.google.mlkit:object-detection:17.0.2")
     implementation("com.google.mlkit:face-detection:16.1.7")
 
-    implementation("com.android.billingclient:billing-ktx:7.1.1")
+    implementation("com.android.billingclient:billing-ktx:8.0.0")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")

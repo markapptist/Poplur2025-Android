@@ -9,6 +9,7 @@ import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
 import com.android.billingclient.api.ConsumeParams
+import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
@@ -197,7 +198,9 @@ class PoplurBillingManager private constructor(context: Context) : PurchasesUpda
 
     private val billingClient: BillingClient = BillingClient.newBuilder(context)
         .setListener(this)
-        .enablePendingPurchases()
+        // Billing 8 dropped the no-argument form; one-time products are the
+        // only kind Poplur sells.
+        .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
         .build()
 
     @Volatile private var isConnecting = false
@@ -233,7 +236,10 @@ class PoplurBillingManager private constructor(context: Context) : PurchasesUpda
                 .build()
         }
         val params = QueryProductDetailsParams.newBuilder().setProductList(products).build()
-        billingClient.queryProductDetailsAsync(params) { result, detailsList ->
+        billingClient.queryProductDetailsAsync(params) { result, queryResult ->
+            // Billing 8 hands back a result object; unfetched ids are listed
+            // separately and are simply absent from the map, as before.
+            val detailsList = queryResult.productDetailsList
             if (result.responseCode == BillingClient.BillingResponseCode.OK) {
                 _productDetails.value = detailsList.associateBy { it.productId }
                 if (detailsList.isEmpty()) {
