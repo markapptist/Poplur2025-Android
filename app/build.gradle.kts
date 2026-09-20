@@ -57,7 +57,7 @@ android { namespace = "com.apptists.poplur2025"
     testBuildType = providers.gradleProperty("poplurInstrumentRelease").map { if (it == "true") "release" else "debug" }.getOrElse("debug")
     defaultConfig {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 36; versionCode = 3; versionName = "1.0.2"
+        applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 36; versionCode = 4; versionName = "1.0.3"
         buildConfigField("String", "MAPILLARY_ACCESS_TOKEN", "\"$mapillaryAccessToken\"")
         buildConfigField("String", "ADMOB_INTERSTITIAL_UNIT_ID", "\"$admobInterstitialUnitId\"")
         buildConfigField("String", "ADMOB_FEED_NATIVE_UNIT_ID", "\"$admobFeedNativeUnitId\"")

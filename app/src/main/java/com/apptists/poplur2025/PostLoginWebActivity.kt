@@ -176,6 +176,11 @@ class PostLoginWebActivity : ComponentActivity() {
     // getUserMedia. Retain one request while Android shows its normal OS
     // camera/microphone sheet, then answer the original WebView request.
     private var pendingWebMediaPermissionRequest: PermissionRequest? = null
+    /** The page posts requestLocation from its primer's Allow AND from every
+     *  surface that needs a fix (feed, map, composer). One automatic system
+     *  prompt per activity is enough; an explicit Allow on the primer
+     *  (permissionHandled) re-arms it. */
+    private var locationPromptRaised = false
     private var hideVolumeRunnable: Runnable? = null
     private var revealRunnable: Runnable? = null
     private var pendingDMThreadId: String? = null
@@ -2255,17 +2260,41 @@ class PostLoginWebActivity : ComponentActivity() {
                 runOnUiThread {
                     if (PoplurWebLocation.hasPermission(this@PostLoginWebActivity)) {
                         PoplurWebLocation.pushLastKnown(homeWebView)
+                    } else if (!locationPromptRaised) {
+                        // 20 Sep 2026: this branch used to log "system prompt
+                        // deferred" and nothing ever raised Android's dialog, so
+                        // a tester could never grant location and the composer
+                        // stayed at "Waiting for your location". On Android the
+                        // page's own primer IS the rationale, so its Allow (and a
+                        // feature that needs a fix) is exactly when the runtime
+                        // prompt belongs. The grant lands in
+                        // onRequestPermissionsResult, which pushes the fix.
+                        locationPromptRaised = true
+                        Log.i(TAG, "location primer accepted in-app; raising the system prompt")
+                        PoplurWebLocation.requestPermission(this@PostLoginWebActivity)
                     } else {
-                        Log.i(TAG, "location primer accepted in-app; system prompt deferred")
+                        Log.i(TAG, "location still not granted; system prompt already raised this session")
                     }
                 }
             }
+            if (type == "requestNotifications") {
+                // The NOTIFICATIONS tile's Allow in the profile hold menu. iOS
+                // raises Apple's sheet here; Android had no handler at all, so
+                // POST_NOTIFICATIONS was never granted on 13+ and every push was
+                // dropped by PoplurNotifications.post's permission check.
+                runOnUiThread { PoplurNotifications.requestPermission(this@PostLoginWebActivity) }
+            }
             if (type == "permissionHandled") {
                 when (body.optString("permission")) {
-                    "location" -> PoplurPermissionPrimer.markHandled(
-                        this@PostLoginWebActivity,
-                        PoplurPermissionPrimer.LOCATION
-                    )
+                    "location" -> {
+                        PoplurPermissionPrimer.markHandled(
+                            this@PostLoginWebActivity,
+                            PoplurPermissionPrimer.LOCATION
+                        )
+                        // An explicit Allow on the primer may raise the prompt
+                        // again even if a surface already asked this session.
+                        if (body.optBoolean("granted", false)) locationPromptRaised = false
+                    }
                     "photos", "camera" -> PoplurPermissionPrimer.markHandled(
                         this@PostLoginWebActivity,
                         PoplurPermissionPrimer.PHOTOS
@@ -3660,6 +3689,16 @@ class PostLoginWebActivity : ComponentActivity() {
         ) {
             homeWebView.evaluateJavascript(
                 "window.dispatchEvent(new Event('poplur-camera-permission-granted')); true;",
+                null
+            )
+        }
+        if (requestCode == PoplurNotifications.PERMISSION_REQUEST_CODE) {
+            val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
+            Log.i(TAG, "notification permission " + if (granted) "granted" else "denied")
+            // The FCM token is registered at sign-in regardless; the grant only
+            // lets PoplurNotifications.post show what arrives.
+            homeWebView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('poplur-notifications-permission', { detail: { granted: $granted } })); true;",
                 null
             )
         }

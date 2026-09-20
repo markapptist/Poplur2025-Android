@@ -31,6 +31,27 @@ import org.json.JSONObject
  */
 object PoplurNotifications {
     const val CHANNEL_ID = "poplur_alerts"
+    const val PERMISSION_REQUEST_CODE = 7405
+
+    /** Android 13+ gates the shade behind a runtime grant; earlier releases
+     *  need nothing beyond the manifest entry. */
+    fun hasPermission(context: Context): Boolean =
+        android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+
+    /** Raise the system prompt. Only the page's explicit Allow calls this
+     *  (PostLoginWebActivity "requestNotifications"), never a cold launch, which
+     *  is the iOS rule for the same sheet. The result lands in the activity's
+     *  onRequestPermissionsResult under PERMISSION_REQUEST_CODE. */
+    fun requestPermission(activity: android.app.Activity) {
+        if (hasPermission(activity)) return
+        androidx.core.app.ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            PERMISSION_REQUEST_CODE,
+        )
+    }
     private const val CHANNEL_NAME = "Poplur Alerts"
     private const val CHANNEL_DESC = "Posts, trends, and activity in your radius"
 
