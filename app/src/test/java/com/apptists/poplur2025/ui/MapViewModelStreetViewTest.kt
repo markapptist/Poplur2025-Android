@@ -1,5 +1,6 @@
 package com.apptists.poplur2025.ui
 
+import android.app.Application
 import com.apptists.poplur2025.data.mapillary.MapillaryError
 import com.apptists.poplur2025.data.mapillary.MapillaryImage
 import com.apptists.poplur2025.data.mapillary.MapillaryImageProvider
@@ -17,7 +18,7 @@ import org.robolectric.shadows.ShadowLooper
  * idle -> checking -> (available | unavailable | error), and reset back to idle.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
+@Config(application = Application::class, sdk = [35])
 class MapViewModelStreetViewTest {
 
     private fun idle() {

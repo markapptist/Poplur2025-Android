@@ -1,5 +1,6 @@
 package com.apptists.poplur2025.screenshots
 
+import android.app.Application
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -18,7 +19,8 @@ import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [35], qualifiers = "w360dp-h640dp-xhdpi") // Standard Phone
+// Rendering this screen does not need the production Firebase/Wear startup.
+@Config(application = Application::class, sdk = [35], qualifiers = "w360dp-h640dp-xhdpi")
 class ScreenshotGenerator {
 
     @get:Rule
