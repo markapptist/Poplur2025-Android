@@ -610,6 +610,9 @@ class PostLoginWebActivity : ComponentActivity() {
         }
         // Cube sensors are resumed above only when Home, rather than the
         // isolated external browser, is the visible heavy surface.
+        // A deletion that finished while Poplur was in the background reports
+        // and signs out here, once the screen can show it.
+        PoplurAccountDeletion.bind(this)
     }
 
     override fun onStart() {
@@ -646,6 +649,7 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        PoplurAccountDeletion.unbind(this)
         activityResumed = false
         AdManager.setAppActive(false)
         PoplurNotifications.appInForeground = false
@@ -2433,6 +2437,12 @@ class PostLoginWebActivity : ComponentActivity() {
                     )
                     finish()
                 }
+            }
+            // Play's account-deletion policy: the web Settings row posts this; the
+            // password check, the server call, the sign-out and the confirmation
+            // stay native (PoplurAccountDeletion, mirroring the iOS shell).
+            if (type == "deleteAccount") {
+                runOnUiThread { PoplurAccountDeletion.present(this@PostLoginWebActivity) }
             }
             if (type == "cameraLiveVisibilityChanged") {
                 cameraLiveVisible = body.optBoolean("visible", false)

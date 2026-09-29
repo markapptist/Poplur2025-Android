@@ -63,8 +63,10 @@ class NativePreloginActivity : ComponentActivity() {
             }
         }
     }
-    override fun onResume() { super.onResume(); foreground = true; music.start() }
-    override fun onPause() { foreground = false; music.stop(); super.onPause() }
+    // The "Account deleted" confirmation is queued by PoplurAccountDeletion and
+    // shown here, on the signed-out screen the deleted session lands on.
+    override fun onResume() { super.onResume(); foreground = true; music.start(); PoplurAccountDeletion.bind(this) }
+    override fun onPause() { PoplurAccountDeletion.unbind(this); foreground = false; music.stop(); super.onPause() }
     override fun onDestroy() { biometric.cancel(); music.dispose(); volumeJob?.cancel(); super.onDestroy() }
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
