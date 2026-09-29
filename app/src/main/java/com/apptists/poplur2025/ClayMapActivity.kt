@@ -120,8 +120,8 @@ class ClayMapActivity : ComponentActivity() {
             val type = runCatching { JSONObject(json).optString("type") }.getOrNull()
             when (type) {
                 "pop" -> runOnUiThread {
+                    // WebAudio owns UI sound; the bridge only adds vibration.
                     webView.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-                    playPopSound()
                 }
                 "poiTap" -> Unit // Phase 1.5: route to channel/post
             }
