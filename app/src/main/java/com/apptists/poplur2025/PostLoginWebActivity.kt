@@ -629,6 +629,8 @@ class PostLoginWebActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        // A line must not keep talking once Poplur leaves the screen.
+        PoplurWebSpeech.cancel()
         authoredPostsBridge.stopAll()
         activityStarted = false
         feedGeneration += 1
@@ -1992,6 +1994,21 @@ class PostLoginWebActivity : ComponentActivity() {
                         .addOnFailureListener { Log.w(TAG, "[PoplurSafety] report write FAILED", it) }
                 }
             }
+            // Tour narration and radio hosts: the page hands its lines to native
+            // text-to-speech, as on iOS. Android used to drop them, so it never spoke.
+            if (type == "speak") {
+                val text = body.optString("text")
+                val rate = body.optDouble("rate", 1.0).toFloat()
+                val pitch = body.optDouble("pitch", 1.0).toFloat()
+                runOnUiThread { PoplurWebSpeech.speak(this@PostLoginWebActivity, text, rate, pitch) }
+            }
+            if (type == "cancelSpeak") runOnUiThread { PoplurWebSpeech.cancel() }
+            // A profile selfie recorded in the page. iOS stores the same object and
+            // field; Android used to keep the clip on this phone only.
+            if (type == "saveProfileSelfieVideo") {
+                val video = body.optString("video")
+                runOnUiThread { persistWebProfileSelfieVideo(video) }
+            }
             if (type == "requestProfileTracks") {
                 deliverWebProfileTracks()
             }
@@ -2776,6 +2793,35 @@ class PostLoginWebActivity : ComponentActivity() {
                 .put("type", "poplurOpenDM")
                 .put("threadId", threadId)
         )
+    }
+
+    /**
+     * Store a page-recorded profile selfie where iOS does,
+     * profile_selfies/{uid}.{ext}, and point the account at it, so the selfie
+     * shows on other phones. ProfileSelfieVideo does the parsing and the limits.
+     */
+    private fun persistWebProfileSelfieVideo(dataUrl: String) {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        val video = ProfileSelfieVideo.parse(dataUrl)
+        if (video == null) {
+            Log.w(TAG, "persistWebProfileSelfieVideo: rejected invalid, empty or oversized video")
+            return
+        }
+        val reference = FirebaseStorage.getInstance().reference.child("profile_selfies/${user.uid}.${video.extension}")
+        val metadata = StorageMetadata.Builder().setContentType(video.mimeType).build()
+        reference.putBytes(video.bytes, metadata)
+            .continueWithTask { upload ->
+                if (!upload.isSuccessful) throw upload.exception ?: IllegalStateException("selfie upload failed")
+                reference.downloadUrl
+            }
+            .addOnSuccessListener { url ->
+                if (FirebaseAuth.getInstance().currentUser?.uid != user.uid) return@addOnSuccessListener
+                FirebaseFirestore.getInstance().collection("users").document(user.uid)
+                    .set(mapOf("profileSelfieVideoURL" to url.toString(), "profileMediaRemoved" to false), SetOptions.merge())
+                    .addOnSuccessListener { Log.i(TAG, "persistWebProfileSelfieVideo: selfie saved to the account") }
+                    .addOnFailureListener { Log.w(TAG, "persistWebProfileSelfieVideo: profile update failed", it) }
+            }
+            .addOnFailureListener { Log.w(TAG, "persistWebProfileSelfieVideo: upload failed", it) }
     }
 
     override fun onNewIntent(intent: Intent) {
