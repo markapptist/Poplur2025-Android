@@ -2229,14 +2229,11 @@ class PostLoginWebActivity : ComponentActivity() {
                     uri?.scheme.equals("https", ignoreCase = true) &&
                         !uri?.host.isNullOrBlank() && uri?.userInfo.isNullOrBlank()
                 }
+                // The page's own profilePostShareUrl: poplur.ca with the id as
+                // ?pop= (poplur.com has no DNS). Uri.encode escapes exactly what
+                // encodeURIComponent escapes, so the two links match.
                 val postLink = body.optString("postId").trim().takeIf { it.isNotEmpty() }?.let { postId ->
-                    Uri.Builder()
-                        .scheme("https")
-                        .authority("poplur.com")
-                        .appendPath("p")
-                        .appendPath(postId)
-                        .build()
-                        .toString()
+                    "https://www.poplur.ca/?pop=${Uri.encode(postId)}"
                 }
                 // postId is the immutable identity. Prefer its canonical URL
                 // over any generic/channel link supplied by the web caller.
@@ -2254,7 +2251,11 @@ class PostLoginWebActivity : ComponentActivity() {
             }
             if (type == "shareReferral") {
                 val code = body.optString("code", "")
-                val link = body.optString("link", "https://poplur.com")
+                // A page that sends no link gets the one referral.ts builds.
+                val link = body.optString(
+                    "link",
+                    if (code.isEmpty()) "https://www.poplur.ca/" else "https://www.poplur.ca/?ref=${Uri.encode(code)}"
+                )
                 // The page writes the invite (it knows where the friend enters the code);
                 // older pages send none.
                 val text = body.optString("text", "").take(400).ifBlank {
