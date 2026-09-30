@@ -1,20 +1,11 @@
 package com.apptists.poplur2025
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
-import android.text.InputType
 import android.util.Log
-import android.view.View
-import android.view.ViewGroup
-import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.WebStorage
-import android.widget.EditText
-import android.widget.FrameLayout
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleOwner
 import com.apptists.poplur2025.analytics.AnalyticsRelay
 import com.apptists.poplur2025.prelogin.NativePreloginDraft
 import com.google.firebase.FirebaseNetworkException
@@ -42,100 +33,125 @@ import java.util.concurrent.TimeUnit
  * confirmation stay native — the same shape as iOS PoplurAccountDeletion.swift,
  * against the same server function (functions/src/accountDeletion.ts, us-east1).
  *
+ * One dialog, PoplurDeletionDialog, carries the whole flow as on iOS: the password
+ * step turns into the progress state in place, a refused password returns to the
+ * password step with an inline message, and the outcome is shown with one OK.
+ *
  * The work runs in a process-wide scope, not an activity scope: the server call
  * may take minutes, the person may background Poplur meanwhile, and the outcome
- * must still be applied and reported once an activity is back on screen. Success
- * is reported only after the server answered `deleted: true`; anything else is
- * an explicit retry message, never a success.
+ * must still be applied and reported once an activity is back on screen. The
+ * coordinator owns the dialog's phase, so the card is rebuilt on whichever
+ * activity binds next. Success is reported only after the server answered
+ * `deleted: true`; anything else is an explicit retry message, never a success.
  */
 object PoplurAccountDeletion {
     private const val TAG = "PoplurAccountDeletion"
     private const val REGION = "us-east1"
     private const val CALL_TIMEOUT_SECONDS = 540L
+    private const val FAILURE_TITLE = "Account deletion"
+    private const val WRONG_PASSWORD = "That password wasn't accepted. Your account has not been deleted. Try again."
     private const val RETRY_MESSAGE = "Deletion could not be confirmed. Some data may already have been removed. " +
         "Check your connection and retry Delete account to finish."
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var host: WeakReference<Activity>? = null
-    /** One of our dialogs is on screen or queued; further Settings taps are ignored meanwhile. */
-    private var presenting = false
-    /** Re-authentication or the server call is running. */
-    private var inFlight = false
-    private var progress: AlertDialog? = null
-    private var pendingResult: Pair<String, String>? = null
+    /** What the dialog shows. Null when no deletion dialog is open or queued. */
+    private var phase: DeletionPhase? = null
+    /** The account the open password step is about. */
+    private var target: Target? = null
+    /** The card currently on screen, attached to one activity's window. */
+    private var dialog: PoplurDeletionDialog? = null
     /** The deleted session is signed out; the signed-in surface must leave the screen. */
     private var pendingSignedOutRoute = false
 
-    /** Activities that may show deletion dialogs call this from onResume. */
+    private class Target(val user: FirebaseUser, val email: String)
+
+    /** Activities that may show the deletion dialog call this from onResume. */
     fun bind(activity: Activity) {
         host = WeakReference(activity)
-        if (inFlight) showProgress(activity)
         if (pendingSignedOutRoute && routeToPrelogin(activity)) return
-        presentPendingResult(activity)
+        render(activity)
     }
 
-    /** From onPause: a dialog must not outlive the window that owns it. */
+    /** From onPause: the card must not outlive the window that owns it. Its phase is kept. */
     fun unbind(activity: Activity) {
         if (host?.get() === activity) host = null
-        dismissProgress()
+        if (dialog?.activity === activity) {
+            dialog?.dismiss()
+            dialog = null
+        }
     }
 
-    /** The web Settings row was tapped. Ask for the password in a native dialog. */
+    /** The web Settings row was tapped. Ask for the password in the native dialog. */
     fun present(activity: Activity) {
-        if (presenting || inFlight || activity.isFinishing || activity.isDestroyed) return
+        if (phase != null || activity.isFinishing || activity.isDestroyed) return
         val user = FirebaseAuth.getInstance().currentUser ?: return
         val email = user.email
-        if (email.isNullOrBlank()) {
-            showResult("Account deletion", "This account has no email and password to verify, so it cannot be deleted from this screen.")
-            return
+        phase = if (email.isNullOrBlank()) {
+            DeletionPhase.Result(FAILURE_TITLE, "This account has no email and password to verify, so it cannot be deleted from this screen.")
+        } else {
+            target = Target(user, email)
+            DeletionPhase.Confirm()
         }
-        presenting = true
-        val input = EditText(activity).apply {
-            hint = "Password"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            isSingleLine = true
-            setAutofillHints(View.AUTOFILL_HINT_PASSWORD)
-        }
-        val margin = (20 * activity.resources.displayMetrics.density).toInt()
-        val container = FrameLayout(activity).apply {
-            setPadding(margin, 0, margin, 0)
-            addView(input, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        }
-        val dialog = AlertDialog.Builder(activity)
-            .setTitle("Delete account?")
-            .setMessage("Permanently delete your Poplur account, profile, posts, uploaded media and messages you sent. " +
-                "This cannot be undone. Enter your password to confirm.")
-            .setView(container)
-            .setNegativeButton("Cancel") { _, _ -> presenting = false }
-            .setPositiveButton("Delete account") { _, _ ->
-                val password = input.text.toString()
-                input.text.clear()
-                delete(activity, user, email, password)
-            }
-            .setOnCancelListener { presenting = false }
-            .create()
-        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
-        dialog.show()
-        input.requestFocus()
+        host = WeakReference(activity)
+        render(activity)
     }
 
-    private fun delete(activity: Activity, user: FirebaseUser, email: String, password: String) {
-        if (password.isEmpty()) {
-            presenting = false
-            showResult("Password required", "Enter your password to verify that this is your account.")
+    /** Shows the current phase on [activity], reusing the card when it already lives there. */
+    private fun render(activity: Activity) {
+        val current = phase
+        if (current == null) {
+            close()
             return
         }
-        inFlight = true
-        showProgress(activity)
-        val app = activity.applicationContext
+        if (activity.isFinishing || activity.isDestroyed) return
+        val open = dialog
+        if (open != null && open.activity === activity) {
+            open.phase = current
+            return
+        }
+        open?.dismiss()
+        dialog = PoplurDeletionDialog(
+            activity = activity,
+            initial = current,
+            onConfirm = ::confirm,
+            onCancel = ::close,
+            onAcknowledge = ::close,
+        ).also { it.show() }
+    }
+
+    /** Cancel on the password step, or OK on the outcome. */
+    private fun close() {
+        phase = null
+        target = null
+        dialog?.dismiss()
+        dialog = null
+    }
+
+    private fun update(next: DeletionPhase) {
+        phase = next
+        host?.get()?.let(::render)
+    }
+
+    private fun confirm(password: String) {
+        if (phase !is DeletionPhase.Confirm) return
+        val account = target ?: return close()
+        if (password.isEmpty()) {
+            update(DeletionPhase.Confirm("Enter your password to verify that this is your account."))
+            return
+        }
+        val app = (dialog?.activity ?: host?.get())?.applicationContext ?: return
+        // The card stays up and turns into its progress state, which blocks
+        // settings/session changes while either authentication request is in
+        // flight, including a slow token refresh.
+        update(DeletionPhase.Working)
         scope.launch {
             var requestSent = false
-            try {
+            val user = account.user
+            val outcome = try {
                 val auth = FirebaseAuth.getInstance()
                 if (auth.currentUser?.uid != user.uid) throw AccountChanged()
-                // Block settings/session changes while either authentication
-                // request is in flight, including a slow token refresh.
-                user.reauthenticate(EmailAuthProvider.getCredential(email, password)).await()
+                user.reauthenticate(EmailAuthProvider.getCredential(account.email, password)).await()
                 if (auth.currentUser?.uid != user.uid) throw AccountChanged()
                 user.getIdToken(true).await()
                 if (auth.currentUser?.uid != user.uid) throw AccountChanged()
@@ -148,15 +164,20 @@ object PoplurAccountDeletion {
                     .call(mapOf("confirm" to true, "expectedUid" to user.uid))
                     .await()
                 if ((result.getData() as? Map<*, *>)?.get("deleted") != true) throw Incomplete()
-                endDeletedSession(app, user.uid, email)
-                pendingResult = "Account deleted" to "The Poplur account you confirmed and its personal data have been deleted."
+                endDeletedSession(app, user.uid, account.email)
+                target = null
+                DeletionPhase.Result(DELETION_DONE_TITLE, "The Poplur account you confirmed and its personal data have been deleted.")
             } catch (error: Exception) {
                 Log.w(TAG, "account deletion did not complete (requestSent=$requestSent)", error)
-                pendingResult = "Account deletion" to failureMessage(error, requestSent)
-            } finally {
-                inFlight = false
-                dismissProgress()
+                if (error is FirebaseAuthInvalidCredentialsException) {
+                    // Nothing reached the server: try again in place, as on iOS.
+                    DeletionPhase.Confirm(WRONG_PASSWORD)
+                } else {
+                    target = null
+                    DeletionPhase.Result(FAILURE_TITLE, failureMessage(error, requestSent))
+                }
             }
+            phase = outcome
             host?.get()?.let(::bind)
         }
     }
@@ -164,8 +185,6 @@ object PoplurAccountDeletion {
     private fun failureMessage(error: Exception, requestSent: Boolean): String = when {
         error is AccountChanged ->
             "The signed-in account changed. Start account deletion again for the account you want to remove."
-        error is FirebaseAuthInvalidCredentialsException ->
-            "The password was not accepted. Your account has not been deleted. Try again."
         error is FirebaseAuthInvalidUserException ->
             "This sign-in is no longer valid. Sign in again, then retry Delete account. No deletion request was sent."
         !requestSent && error is FirebaseNetworkException ->
@@ -203,54 +222,23 @@ object PoplurAccountDeletion {
         pendingSignedOutRoute = true
     }
 
-    /** Returns true when the caller is leaving the screen for the pre-login flow. */
+    /**
+     * Returns true when the caller is leaving the screen for the pre-login flow.
+     * The outcome card follows on the pre-login screen, which binds on resume.
+     */
     private fun routeToPrelogin(activity: Activity): Boolean {
         pendingSignedOutRoute = false
         if (activity is NativePreloginActivity || activity.isFinishing) return false
+        if (dialog?.activity === activity) {
+            dialog?.dismiss()
+            dialog = null
+        }
         activity.startActivity(
             Intent(activity, NativePreloginActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         )
         activity.finish()
         return true
-    }
-
-    private fun showProgress(activity: Activity) {
-        if (progress?.isShowing == true || activity.isFinishing || activity.isDestroyed) return
-        progress = AlertDialog.Builder(activity)
-            .setTitle("Deleting account…")
-            .setMessage("Removing your account and personal data. Please keep Poplur open.")
-            .setCancelable(false)
-            .create()
-            .also { it.show() }
-    }
-
-    private fun dismissProgress() {
-        progress?.let { dialog -> runCatching { if (dialog.isShowing) dialog.dismiss() } }
-        progress = null
-    }
-
-    private fun showResult(title: String, message: String) {
-        presenting = true
-        pendingResult = title to message
-        host?.get()?.let(::presentPendingResult)
-    }
-
-    private fun presentPendingResult(activity: Activity) {
-        val result = pendingResult ?: return
-        // bind() runs inside onResume, before the lifecycle reports RESUMED; a
-        // started activity can already own a dialog.
-        val started = (activity as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) ?: true
-        if (!started || activity.isFinishing || activity.isDestroyed) return
-        pendingResult = null
-        presenting = true
-        AlertDialog.Builder(activity)
-            .setTitle(result.first)
-            .setMessage(result.second)
-            .setPositiveButton("OK", null)
-            .setOnDismissListener { presenting = false }
-            .create()
-            .show()
     }
 
     private val REFUSED_BEFORE_DELETING = setOf(
