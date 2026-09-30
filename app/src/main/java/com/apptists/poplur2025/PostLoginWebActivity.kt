@@ -2255,7 +2255,11 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "shareReferral") {
                 val code = body.optString("code", "")
                 val link = body.optString("link", "https://poplur.com")
-                val text = "Join me on Poplur — use my code $code and we both get credits and the whole map.\n$link"
+                // The page writes the invite (it knows where the friend enters the code);
+                // older pages send none.
+                val text = body.optString("text", "").take(400).ifBlank {
+                    "Join me on Poplur — use my code $code and we both get credits and the whole map."
+                } + "\n$link"
                 runOnUiThread {
                     val intent = Intent(Intent.ACTION_SEND).apply {
                         this.type = "text/plain"
