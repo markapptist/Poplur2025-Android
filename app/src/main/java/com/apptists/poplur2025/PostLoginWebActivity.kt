@@ -1967,6 +1967,31 @@ class PostLoginWebActivity : ComponentActivity() {
                     }
                 }
             }
+            // Reports reach Poplur's moderators (functions notifyOnReport). iOS
+            // writes the same documents; Android used to drop both kinds while
+            // the page said the report was sent. A pop report also names the pop.
+            if (type == "reportUser" || type == "reportPost") {
+                val otherUid = body.optString("userId").trim()
+                val handle = body.optString("username").take(48)
+                val isPost = type == "reportPost"
+                val postId = body.optString("postId").trim().take(128)
+                val reason = body.optString("reason").ifBlank { if (isPost) "pop" else "profile" }.take(64)
+                val uid = FirebaseAuth.getInstance().currentUser?.uid
+                if (otherUid.isNotEmpty() && otherUid.length <= 128 && uid != null && uid != otherUid && (!isPost || postId.isNotEmpty())) {
+                    val report = hashMapOf<String, Any>(
+                        "reporterId" to uid,
+                        "userId" to otherUid,
+                        "username" to handle,
+                        "reason" to reason,
+                        "source" to if (isPost) "post" else "profile",
+                        "platform" to "android",
+                        "createdAt" to FieldValue.serverTimestamp(),
+                    )
+                    if (isPost) report["postId"] = postId
+                    FirebaseFirestore.getInstance().collection("reports").add(report)
+                        .addOnFailureListener { Log.w(TAG, "[PoplurSafety] report write FAILED", it) }
+                }
+            }
             if (type == "requestProfileTracks") {
                 deliverWebProfileTracks()
             }
