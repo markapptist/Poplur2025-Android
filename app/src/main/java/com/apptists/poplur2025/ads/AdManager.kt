@@ -20,10 +20,16 @@ import com.google.android.gms.ads.interstitial.InterstitialAd
 import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
 import com.google.android.gms.ads.nativead.NativeAd
 import com.google.android.gms.ads.nativead.NativeAdOptions
+import com.google.firebase.firestore.FirebaseFirestore
 
 object AdManager {
     private val interstitialUnitId = BuildConfig.ADMOB_INTERSTITIAL_UNIT_ID
-    private val adsAllowed = !isEmulator() && isProductionUnitId(interstitialUnitId)
+    private val deviceAllowed = !isEmulator() && isProductionUnitId(interstitialUnitId)
+    /** The server's ads switch, `public/ads` { enabled }. Ads are off for the beta
+     *  (owner decision, 30 Sep 2026): a missing, unreadable or false switch means no
+     *  ads, so they can be turned on later without shipping a new build. */
+    @Volatile private var remoteEnabled = false
+    private val adsAllowed: Boolean get() = deviceAllowed && remoteEnabled
 
     val isAvailable: Boolean
         get() = adsAllowed
@@ -94,13 +100,24 @@ object AdManager {
     fun initialize(context: Context) {
         applyRequestConfiguration()
         if (initialized) return
-        if (!adsAllowed) {
+        if (!deviceAllowed) {
             Log.i("Ads", "Ads disabled on emulator or because the production unit is invalid")
             return
         }
-        initialized = true
-        MobileAds.initialize(context.applicationContext)
-        loadInterstitial(context)
+        val app = context.applicationContext
+        FirebaseFirestore.getInstance().collection("public").document("ads").get()
+            .addOnSuccessListener { snapshot ->
+                remoteEnabled = snapshot.getBoolean("enabled") == true
+                if (!remoteEnabled) {
+                    Log.i("Ads", "Ads are switched off on the server (public/ads)")
+                    return@addOnSuccessListener
+                }
+                if (initialized) return@addOnSuccessListener
+                initialized = true
+                MobileAds.initialize(app)
+                loadInterstitial(app)
+            }
+            .addOnFailureListener { Log.w("Ads", "Ads switch unreadable; ads stay off", it) }
     }
 
     /** Preloaded like iOS: the ad is fetched ahead of the moment it is shown,
