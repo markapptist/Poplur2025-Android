@@ -1183,6 +1183,22 @@ class PostLoginWebActivity : ComponentActivity() {
             sendUploadResult(requestId, false, "You must be signed in before posting.")
             return
         }
+        // Check before touching Storage: a retry must not replace the media
+        // or download token belonging to an already-published post.
+        FirebaseFirestore.getInstance().collection("posts").document(postId)
+            .get(com.google.firebase.firestore.Source.SERVER)
+            .addOnSuccessListener { existing ->
+                if (existing.exists()) {
+                    val own = existing.getString("userID") == user.uid
+                    sendUploadResult(requestId, own, if (own) null else "This post ID is already in use.")
+                } else uploadClayPostMedia(body, requestId, postId, user)
+            }
+            .addOnFailureListener { error ->
+                sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be checked. Retry this saved draft.")
+            }
+    }
+
+    private fun uploadClayPostMedia(body: JSONObject, requestId: String, postId: String, user: com.google.firebase.auth.FirebaseUser) {
         val data = body.optString("data")
         val kind = if (body.optString("kind") == "video") "video" else "photo"
         if (data.isBlank()) {
@@ -1524,10 +1540,55 @@ class PostLoginWebActivity : ComponentActivity() {
                 post["mediaCount"] = mediaUrls.size
             }
 
-            val batch = database.batch()
-            batch.set(database.collection("posts").document(postId), post)
-            if (hasTarget) {
-                batch.set(
+            val postReference = database.collection("posts").document(postId)
+            val admissionReference = database.collection("postAdmissions").document(user.uid)
+            database.runTransaction { transaction ->
+                val existing = transaction.get(postReference)
+                if (existing.exists()) {
+                    require(existing.getString("userID") == user.uid
+                        && existing.getString("mediaStoragePath") == mediaStoragePath) {
+                        "This post ID is already in use. Please start a new post."
+                    }
+                    // A retry after a lost acknowledgement keeps its earned
+                    // reach and consumes no additional posting slot.
+                    return@runTransaction null
+                }
+                val account = transaction.get(userReference)
+                val admission = transaction.get(admissionReference)
+                val syntheticActor = user.uid.startsWith("sim-") || user.uid.startsWith("synthetic-")
+                val previousStart = admission.getTimestamp("windowStartedAt")
+                val plan = if (syntheticActor) null else nextPostAdmission(
+                    System.currentTimeMillis(),
+                    admission.getTimestamp("lastPostAt")?.toDate()?.time
+                        ?: account.getLong("lastPostAtMillis") ?: 0L,
+                    previousStart?.toDate()?.time ?: account.getLong("postWindowStartMillis"),
+                    (admission.getLong("postsInWindow") ?: account.getLong("postsInWindow") ?: 0L).toInt(),
+                )
+                val finalPost = HashMap(post)
+                // Refresh the existing server seed allowance in this same
+                // transaction; a stale draft cannot spend the profile sum.
+                val earned = (account.getLong("earnedClaimMeters") ?: 0L).coerceAtLeast(0)
+                val committed = (account.getLong("committedClaimMeters") ?: 0L).coerceAtLeast(0)
+                val allowed = ((earned - committed).coerceAtLeast(0) + 5_000).coerceAtMost(6_371_000).toInt()
+                val freshSeed = requestedRadiusMeters.coerceAtLeast(POST_DISCOVERY_SEED_METERS).coerceAtMost(allowed)
+                finalPost["radius"] = freshSeed
+                finalPost["seedRadiusMeters"] = freshSeed
+                if (account.getBoolean("privateAccount") == true || account.getBoolean("ghostMode") == true) {
+                    finalPost["locationVisibility"] = "hidden"
+                    listOf("latitude", "longitude", "latitudeCell", "longitudeCell").forEach(finalPost::remove)
+                }
+                transaction.set(postReference, finalPost)
+                if (plan != null) {
+                    transaction.set(admissionReference, mapOf(
+                        "postId" to postId,
+                        "lastPostAt" to FieldValue.serverTimestamp(),
+                        "windowStartedAt" to (plan.windowStartMillis?.let {
+                            previousStart ?: com.google.firebase.Timestamp(java.util.Date(it))
+                        } ?: FieldValue.serverTimestamp()),
+                        "postsInWindow" to plan.count,
+                    ))
+                }
+                if (hasTarget) transaction.set(
                     userReference.collection("postLocations").document(postId),
                     mapOf(
                         "latitude" to targetLatitude,
@@ -1537,18 +1598,31 @@ class PostLoginWebActivity : ComponentActivity() {
                     ),
                     SetOptions.merge(),
                 )
+                null
             }
-            batch.commit()
                 .addOnSuccessListener {
                     sendUploadProgress(requestId, 1.0, "POSTED")
                     sendUploadResult(requestId, true)
                 }
                 .addOnFailureListener { error ->
-                    // Do not leave paid Storage occupied by a post nobody can
-                    // discover or delete from the product.
-                    mediaReference.delete()
-                    posterReference?.delete()
-                    sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be saved.")
+                    // A lost commit response must not delete a successful
+                    // post's media. Clean up only after confirming absence.
+                    postReference.get(com.google.firebase.firestore.Source.SERVER)
+                        .addOnSuccessListener { saved ->
+                            if (saved.exists() && saved.getString("userID") == user.uid
+                                && saved.getString("mediaStoragePath") == mediaStoragePath) {
+                                sendUploadResult(requestId, true)
+                            } else {
+                                if (!saved.exists()) {
+                                    mediaReference.delete()
+                                    posterReference?.delete()
+                                }
+                                sendUploadResult(requestId, false, error.localizedMessage ?: "Your post could not be saved.")
+                            }
+                        }
+                        .addOnFailureListener {
+                            sendUploadResult(requestId, false, "The post could not be confirmed. Retry this saved draft.")
+                        }
                 }
         }
 
@@ -1907,9 +1981,13 @@ class PostLoginWebActivity : ComponentActivity() {
                     ghostMode = body.optBoolean("ghostMode", false),
                 )
             }
+            if (type == "removeProfileMedia") {
+                val requestId = body.optString("requestId")
+                if (requestId.isNotBlank()) runOnUiThread { removeWebProfileMedia(requestId) }
+            }
             if (type == "saveProfilePhoto") {
                 val payload = body.optJSONObject("detail") ?: body
-                persistWebProfilePhoto(payload.optString("photo"))
+                runOnUiThread { persistWebProfilePhoto(payload.optString("photo")) }
             }
             // The username had NO writer on the live path. The only one was the
             // native edit-profile screen, which the web home orphaned, so every
@@ -2934,7 +3012,49 @@ class PostLoginWebActivity : ComponentActivity() {
 
     private fun Color.toWebHex(): String = String.format("#%06X", toArgb() and 0x00FFFFFF)
 
+    @Volatile private var profileMediaGeneration = 0
+    @Volatile private var profileHydrationGeneration = 0
+    @Volatile private var profilePhotoUploads = 0
+    @Volatile private var removingProfileMedia = false
+
+    private fun removeWebProfileMedia(requestId: String) {
+        if (removingProfileMedia) return
+        val user = FirebaseAuth.getInstance().currentUser
+        fun reply(ok: Boolean) {
+            removingProfileMedia = false
+            val payload = JSONObject().put("requestId", requestId).put("ok", ok)
+            homeWebView.post {
+                homeWebView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('poplur-profile-media-removal',{detail:$payload}));true;", null,
+                )
+            }
+        }
+        if (user == null) { reply(false); return }
+        profileMediaGeneration += 1
+        profileHydrationGeneration += 1
+        removingProfileMedia = true
+        FirebaseFirestore.getInstance().collection("users").document(user.uid)
+            .set(mapOf(
+                "profilePictureURL" to null, "photoURL" to null,
+                "avatarUrl" to null, "avatarURL" to null,
+                "profileSelfieVideoURL" to null, "profileMediaRemoved" to true,
+            ), SetOptions.merge())
+            .addOnSuccessListener {
+                val payload = JSONObject().put("photo", JSONObject.NULL)
+                    .put("video", JSONObject.NULL).put("profileMediaRemoved", true)
+                homeWebView.post {
+                    homeWebView.evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('poplur-native-profile',{detail:$payload}));true;", null,
+                    )
+                }
+                reply(true)
+            }
+            .addOnFailureListener { reply(false) }
+    }
+
     private fun deliverWebProfile() {
+        if (removingProfileMedia || profilePhotoUploads > 0) return
+        val generation = profileHydrationGeneration
         // Diagnostic: on the A03 no profile payload EVER reached the web — not even
         // the username the pre-existing code sent — and every failure mode on this
         // path is silent. Each branch is logged so "no profile set" can be told
@@ -2956,6 +3076,7 @@ class PostLoginWebActivity : ComponentActivity() {
         val fallbackUsername = derivedUsername ?: "mark"
         FirebaseFirestore.getInstance().collection("users").document(user.uid).get()
             .addOnCompleteListener { task ->
+                if (generation != profileHydrationGeneration) return@addOnCompleteListener
                 Log.i(
                     TAG,
                     "deliverWebProfile: Firestore complete success=${task.isSuccessful} " +
@@ -3004,6 +3125,11 @@ class PostLoginWebActivity : ComponentActivity() {
                     // (PostLoginHomeWebView.swift:1276).
                     val video = document?.getString("profileSelfieVideoURL")
                     if (!video.isNullOrBlank()) put("video", video)
+                    if (document?.getBoolean("profileMediaRemoved") == true) {
+                        put("photo", JSONObject.NULL)
+                        put("video", JSONObject.NULL)
+                        put("profileMediaRemoved", true)
+                    }
                 }.toString()
                 Log.i(TAG, "deliverWebProfile: dispatching payload=$payload")
                 homeWebView.post {
@@ -3101,6 +3227,8 @@ class PostLoginWebActivity : ComponentActivity() {
      * empty, so a pull-to-refresh correctly fetched an account with no photo.
      */
     private fun persistWebProfilePhoto(dataUrl: String) {
+        if (removingProfileMedia) return
+        val generation = profileMediaGeneration
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
             Log.w(TAG, "persistWebProfilePhoto: no signed-in user")
@@ -3134,26 +3262,33 @@ class PostLoginWebActivity : ComponentActivity() {
             .setContentType("image/jpeg")
             .build()
 
+        profileHydrationGeneration += 1
+        profilePhotoUploads += 1
         photoRef.putBytes(bytes, metadata)
             .addOnFailureListener { error ->
+                profilePhotoUploads -= 1
                 Log.w(TAG, "persistWebProfilePhoto: upload failed", error)
             }
             .addOnSuccessListener {
                 photoRef.downloadUrl
                     .addOnFailureListener { error ->
+                        profilePhotoUploads -= 1
                         Log.w(TAG, "persistWebProfilePhoto: download URL failed", error)
                     }
                     .addOnSuccessListener { downloadUrl ->
+                        if (generation != profileMediaGeneration || FirebaseAuth.getInstance().currentUser?.uid != user.uid) { profilePhotoUploads -= 1; return@addOnSuccessListener }
                         FirebaseFirestore.getInstance()
                             .collection("users").document(user.uid)
                             .set(
-                                mapOf("profilePictureURL" to downloadUrl.toString()),
+                                mapOf("profilePictureURL" to downloadUrl.toString(), "profileMediaRemoved" to false),
                                 SetOptions.merge()
                             )
                             .addOnFailureListener { error ->
+                                profilePhotoUploads -= 1
                                 Log.w(TAG, "persistWebProfilePhoto: profile update failed", error)
                             }
                             .addOnSuccessListener {
+                                profilePhotoUploads -= 1
                                 Log.i(TAG, "persistWebProfilePhoto: account photo saved")
                                 // Reuse the exact response path pull-to-refresh
                                 // uses, so the visible profile updates from the
