@@ -308,6 +308,21 @@ class PostLoginWebActivity : ComponentActivity() {
                 .build()
         )
     }
+    /** A5: with an AR filter up, faces also carry eyes, nose and head pose for the costume.
+     *  A second client, so SCAN alone keeps the cheaper box-only pass. */
+    private val cameraLandmarkDetectorLazy = lazy {
+        FaceDetection.getClient(
+            FaceDetectorOptions.Builder()
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+                .setMinFaceSize(0.12f)
+                .enableTracking()
+                .build()
+        )
+    }
+    private val cameraLandmarkDetector by cameraLandmarkDetectorLazy
+    /** The page's AR filter (`cameraControl` filter) is something other than none. */
+    @Volatile private var cameraFilterOn = false
     /** A5: SCAN's whole-frame labels, Android's counterpart of iOS's VNClassifyImageRequest. */
     private val cameraImageLabelerLazy = lazy {
         com.google.mlkit.vision.label.ImageLabeling.getClient(
@@ -2618,6 +2633,9 @@ class PostLoginWebActivity : ComponentActivity() {
                     Log.w(TAG, "Ignoring camera shutter outside the live camera")
                 }
             }
+            if (type == "cameraControl" && body.optString("control") == "filter") {
+                cameraFilterOn = body.optString("id", "none").let { it.isNotBlank() && it != "none" }
+            }
             if (type == "cameraControl" && body.optString("control") == "detect") {
                 // A5: SCAN arms the scene labels, as it arms iOS's announcer.
                 cameraScanOn = body.optBoolean("on", false)
@@ -4101,6 +4119,7 @@ class PostLoginWebActivity : ComponentActivity() {
         nativeLoadingView.disposeComposition()
         cameraFaceDetector.close()
         if (cameraImageLabelerLazy.isInitialized()) cameraImageLabeler.close()
+        if (cameraLandmarkDetectorLazy.isInitialized()) cameraLandmarkDetector.close()
         super.onDestroy()
     }
 
@@ -4162,7 +4181,7 @@ class PostLoginWebActivity : ComponentActivity() {
         if (labelsDue) lastCameraLabelAt = now
         runCatching {
             val image = InputImage.fromBitmap(bitmap, 0)
-            val faceTask = cameraFaceDetector.process(image)
+            val faceTask = (if (cameraFilterOn) cameraLandmarkDetector else cameraFaceDetector).process(image)
             val labelTask = if (labelsDue) runCatching { cameraImageLabeler.process(image) }.getOrNull() else null
             com.google.android.gms.tasks.Tasks.whenAllComplete(listOfNotNull(faceTask, labelTask))
                 .addOnCompleteListener {
@@ -4189,6 +4208,21 @@ class PostLoginWebActivity : ComponentActivity() {
                                 put("h", (box.height() / height).coerceIn(0.0, 1.0))
                                 put("label", "person")
                                 put("confidence", 0.95)
+                                // A5: what FaceAR3D turns and anchors the costume with, in iOS's terms.
+                                put("roll", com.apptists.poplur2025.ml.CameraFacePose.roll(face.headEulerAngleZ, mirrored))
+                                put("yaw", com.apptists.poplur2025.ml.CameraFacePose.yaw(face.headEulerAngleY, mirrored))
+                                val landmarks = JSONObject()
+                                listOf(
+                                    "leftEye" to com.google.mlkit.vision.face.FaceLandmark.LEFT_EYE,
+                                    "rightEye" to com.google.mlkit.vision.face.FaceLandmark.RIGHT_EYE,
+                                    "nose" to com.google.mlkit.vision.face.FaceLandmark.NOSE_BASE,
+                                ).forEach { (name, type) ->
+                                    val position = face.getLandmark(type)?.position ?: return@forEach
+                                    com.apptists.poplur2025.ml.CameraFacePose
+                                        .point(position.x, position.y, width, height, mirrored)
+                                        ?.let { landmarks.put(name, it) }
+                                }
+                                if (landmarks.length() > 0) put("landmarks", landmarks)
                             })
                         }
                         com.apptists.poplur2025.ml.CameraSceneLabels
