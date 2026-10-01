@@ -9,6 +9,9 @@
     <!-- A7: the incoming-call notification opens its ringing screen over the lock screen.
          On Android 14+ Play grants this to calling apps through the Data safety / permissions declaration. -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <!-- A5: "Radio outside app" keeps Poplur in the foreground while a station plays. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED"/>
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
@@ -212,6 +215,13 @@
         <receiver
             android:name=".call.IncomingCallActionReceiver"
             android:exported="false" />
+
+        <!-- A5: holds the foreground while the radio plays outside the app; the station
+             itself plays in Home's WebView. -->
+        <service
+            android:name=".radio.RadioPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
     </application>
 </manifest>

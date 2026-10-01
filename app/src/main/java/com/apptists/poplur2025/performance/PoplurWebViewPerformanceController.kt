@@ -17,6 +17,7 @@ class PoplurWebViewPerformanceController(
     private val manager = PoplurPerformanceManager.getInstance(context)
     private val webViews = mutableListOf<WeakReference<WebView>>()
     private var active = false
+    private var mediaHeld = false
     private val registration = manager.registerRenderer(this, heavy = true)
 
     fun attach(vararg views: WebView) {
@@ -36,13 +37,25 @@ class PoplurWebViewPerformanceController(
         registration.setVisible(visible)
     }
 
+    /**
+     * "Radio outside app" (A5): while the page has a station on air for listening outside
+     * Poplur, going inactive must neither pause the primary view nor cancel its loads,
+     * since either can end the stream. The page is still told it is inactive and parks
+     * its own drawing; releasing the hold applies the pause it skipped.
+     */
+    fun holdMedia(held: Boolean) {
+        if (mediaHeld == held) return
+        mediaHeld = held
+        apply(manager.currentSnapshot(), active)
+    }
+
     override fun onPoplurPerformanceChanged(snapshot: PoplurPerformanceSnapshot, isActive: Boolean) {
         active = isActive
         apply(snapshot, isActive)
     }
 
     override fun releaseInactiveResources() {
-        if (!active) liveViews().forEach { it.stopLoading() }
+        if (!active && !mediaHeld) liveViews().forEach { it.stopLoading() }
     }
 
     override fun close() {
@@ -59,10 +72,11 @@ class PoplurWebViewPerformanceController(
             // The first attached view is the primary experience; any loading/decorative siblings
             // stay paused so this controller cannot bypass the process-wide one-heavy rule.
             val activeView = if (isActive) views.firstOrNull() else null
+            val heldView = if (mediaHeld) views.firstOrNull() else null
             views.forEach { view ->
                 runCatching {
                     val viewActive = view === activeView
-                    if (viewActive) view.onResume() else view.onPause()
+                    if (viewActive) view.onResume() else if (view !== heldView) view.onPause()
                     val detail = JSONObject().apply {
                         put("mode", snapshot.mode.name)
                         put("targetFps", snapshot.targetFps)

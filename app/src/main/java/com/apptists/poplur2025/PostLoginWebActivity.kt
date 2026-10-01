@@ -192,6 +192,15 @@ class PostLoginWebActivity : ComponentActivity() {
     private var homeParkedForInAppBrowser = false
     private var activityStarted = false
     private var activityResumed = false
+    /** A5, "Radio outside app": the page has a station on air for listening outside Poplur. */
+    private var radioOutsideOn = false
+    /** onStop skipped pauseTimers() for that station; applied if it stops while hidden. */
+    private var timersHeldForRadio = false
+    private val radioHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val releaseRadioRunnable = Runnable { releaseBackgroundRadio() }
+    private val stopRadioFromNotification: () -> Unit = {
+        if (::homeWebView.isInitialized) pushWebMessage(JSONObject().put("type", "poplurRadioStop"))
+    }
     private var notificationAuthListener: FirebaseAuth.AuthStateListener? = null
     private var notificationRegistration: ListenerRegistration? = null
     /** The live feed-posts forward. See deliverWebFeedPosts. */
@@ -348,6 +357,7 @@ class PostLoginWebActivity : ComponentActivity() {
         // splash <video> included) while home booted "active" underneath.
         // The cover is transient and destroyed at reveal; let it just play.
         performanceController.attach(homeWebView)
+        com.apptists.poplur2025.radio.RadioPlaybackService.onStopRequested = stopRadioFromNotification
 
         val root = com.apptists.poplur2025.map.NativeMapRoot(this)
         rootLayout = root
@@ -623,6 +633,7 @@ class PostLoginWebActivity : ComponentActivity() {
         activityStarted = true
         if (feedAuthListener != null) bindWebFeedPosts(FirebaseAuth.getInstance().currentUser?.uid)
         com.apptists.poplur2025.util.PoplurEQSync.noteActivityStarted()
+        timersHeldForRadio = false
         // Process-global and idempotent; undoes a pauseTimers() from a full
         // app-hide. WebView.onPause() alone never stops JS timers.
         if (::homeWebView.isInitialized) homeWebView.resumeTimers()
@@ -648,7 +659,9 @@ class PostLoginWebActivity : ComponentActivity() {
             // The whole app left the screen: stop the bundle's setInterval/
             // setTimeout wheels too, not just drawing. Chromium's own
             // background throttling in a WebView is weaker than in Chrome.
-            homeWebView.pauseTimers()
+            // Not while the radio plays outside Poplur: its stall and retune
+            // clocks are those timers. releaseBackgroundRadio pauses them later.
+            if (radioOutsideOn) timersHeldForRadio = true else homeWebView.pauseTimers()
         }
         super.onStop()
     }
@@ -2544,6 +2557,14 @@ class PostLoginWebActivity : ComponentActivity() {
                 deliverBackgroundAudioPreference()
                 return
             }
+            if (type == "radioPlayback") {
+                val on = com.apptists.poplur2025.radio.RadioPlaybackService.keepsPlayingOutside(
+                    body.optString("state"),
+                    body.optString("scope"),
+                )
+                runOnUiThread { updateBackgroundRadio(on) }
+                return
+            }
             if (type == "fetchProductImage") {
                 PoplurProductImage.handle(body.optString("url"), homeWebView)
             }
@@ -3024,6 +3045,37 @@ class PostLoginWebActivity : ComponentActivity() {
                 "window.dispatchEvent(new CustomEvent('poplur-native-app-icon',{detail:$payload}));true;",
                 null
             )
+        }
+    }
+
+    /**
+     * A5: Android ignored `radioPlayback`, so "Radio outside app" stopped the station the
+     * moment Poplur left the screen. While a station is on air with that scope, Home keeps
+     * its media and timers and the radio service holds the foreground. Off waits a moment,
+     * so a passing edge cannot drop the service and then need a background start Android
+     * refuses.
+     */
+    private fun updateBackgroundRadio(on: Boolean) {
+        radioHandler.removeCallbacks(releaseRadioRunnable)
+        if (!on) {
+            if (radioOutsideOn) radioHandler.postDelayed(releaseRadioRunnable, RADIO_RELEASE_DELAY_MS)
+            return
+        }
+        radioOutsideOn = true
+        if (::performanceController.isInitialized) performanceController.holdMedia(true)
+        if (!com.apptists.poplur2025.radio.RadioPlaybackService.running) {
+            com.apptists.poplur2025.radio.RadioPlaybackService.start(this)
+        }
+    }
+
+    private fun releaseBackgroundRadio() {
+        if (!radioOutsideOn) return
+        radioOutsideOn = false
+        com.apptists.poplur2025.radio.RadioPlaybackService.stop(this)
+        if (::performanceController.isInitialized) performanceController.holdMedia(false)
+        if (timersHeldForRadio && ::homeWebView.isInitialized) {
+            timersHeldForRadio = false
+            homeWebView.pauseTimers()
         }
     }
 
@@ -3988,6 +4040,13 @@ class PostLoginWebActivity : ComponentActivity() {
         // The WebRTC relay has its own incoming, description and candidate
         // listeners. It must not outlive the WebView it posts into.
         com.apptists.poplur2025.call.PoplurWebCallSignalling.stopAll()
+        // The station dies with this WebView; its notification must not outlive it.
+        radioHandler.removeCallbacks(releaseRadioRunnable)
+        radioOutsideOn = false
+        com.apptists.poplur2025.radio.RadioPlaybackService.stop(this)
+        if (com.apptists.poplur2025.radio.RadioPlaybackService.onStopRequested === stopRadioFromNotification) {
+            com.apptists.poplur2025.radio.RadioPlaybackService.onStopRequested = null
+        }
         pendingWebMediaPermissionRequest?.deny()
         pendingWebMediaPermissionRequest = null
         activityResumed = false
@@ -4115,6 +4174,7 @@ class PostLoginWebActivity : ComponentActivity() {
         const val HOME_READY_TIMEOUT_MS = 12000L
         const val REVEAL_DURATION_MS = 450L
         const val VOLUME_HIDE_MS = 1500L
+        const val RADIO_RELEASE_DELAY_MS = 1500L
         const val CAMERA_REQUEST_CODE = 7403
         const val WEB_MEDIA_CAPTURE_REQUEST_CODE = 7404
         const val MAX_WEB_CAPTURE_ROUTES = 16
