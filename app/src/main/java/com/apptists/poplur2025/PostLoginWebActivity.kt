@@ -308,6 +308,20 @@ class PostLoginWebActivity : ComponentActivity() {
                 .build()
         )
     }
+    /** A5: SCAN's whole-frame labels, Android's counterpart of iOS's VNClassifyImageRequest. */
+    private val cameraImageLabelerLazy = lazy {
+        com.google.mlkit.vision.label.ImageLabeling.getClient(
+            com.google.mlkit.vision.label.defaults.ImageLabelerOptions.Builder()
+                .setConfidenceThreshold(CAMERA_LABEL_MIN_CONFIDENCE)
+                .build()
+        )
+    }
+    private val cameraImageLabeler by cameraImageLabelerLazy
+    /** The page's SCAN switch (`cameraControl` detect); labels run only while it is on. */
+    @Volatile private var cameraScanOn = false
+    @Volatile private var lastCameraLabelAt = 0L
+    /** The latest labels, resent with every face pass as iOS resends its classifications. */
+    private var cameraLabels: List<com.apptists.poplur2025.ml.CameraSceneLabels.Label> = emptyList()
 
     private val takeWebPhoto = registerForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
         val uri = pendingPhotoUri
@@ -2604,6 +2618,14 @@ class PostLoginWebActivity : ComponentActivity() {
                     Log.w(TAG, "Ignoring camera shutter outside the live camera")
                 }
             }
+            if (type == "cameraControl" && body.optString("control") == "detect") {
+                // A5: SCAN arms the scene labels, as it arms iOS's announcer.
+                cameraScanOn = body.optBoolean("on", false)
+                if (!cameraScanOn) {
+                    lastCameraLabelAt = 0L
+                    runOnUiThread { cameraLabels = emptyList() }
+                }
+            }
             if (type == "cameraControl" && body.optString("control") == "record") {
                 if (cameraLiveVisible) {
                     runOnUiThread { launchWebVideoCapture() }
@@ -4078,6 +4100,7 @@ class PostLoginWebActivity : ComponentActivity() {
         // Dispose is idempotent if the native splash already retired at reveal.
         nativeLoadingView.disposeComposition()
         cameraFaceDetector.close()
+        if (cameraImageLabelerLazy.isInitialized()) cameraImageLabeler.close()
         super.onDestroy()
     }
 
@@ -4133,35 +4156,54 @@ class PostLoginWebActivity : ComponentActivity() {
             return
         }
 
+        // Faces keep the page's 4 fps relay; SCAN's labels run about once a second.
+        val now = android.os.SystemClock.elapsedRealtime()
+        val labelsDue = cameraScanOn && now - lastCameraLabelAt >= CAMERA_LABEL_INTERVAL_MS
+        if (labelsDue) lastCameraLabelAt = now
         runCatching {
-            cameraFaceDetector.process(InputImage.fromBitmap(bitmap, 0))
-                .addOnSuccessListener { faces ->
-                    val width = bitmap.width.toDouble().coerceAtLeast(1.0)
-                    val height = bitmap.height.toDouble().coerceAtLeast(1.0)
-                    val payload = JSONArray()
-                    faces.forEachIndexed { index, face ->
-                        val box = face.boundingBox
-                        val normalizedX = if (mirrored) 1.0 - (box.right / width) else box.left / width
-                        payload.put(JSONObject().apply {
-                            put("id", "face-${face.trackingId ?: index}")
-                            put("x", normalizedX.coerceIn(0.0, 1.0))
-                            put("y", (box.top / height).coerceIn(0.0, 1.0))
-                            put("w", (box.width() / width).coerceIn(0.0, 1.0))
-                            put("h", (box.height() / height).coerceIn(0.0, 1.0))
-                            put("label", "person")
-                            put("confidence", 0.95)
-                        })
-                    }
-                    homeWebView.post {
-                        homeWebView.evaluateJavascript(
-                            "window.dispatchEvent(new CustomEvent('poplur-native-detections',{detail:$payload}));true;",
-                            null
-                        )
-                    }
-                }
+            val image = InputImage.fromBitmap(bitmap, 0)
+            val faceTask = cameraFaceDetector.process(image)
+            val labelTask = if (labelsDue) runCatching { cameraImageLabeler.process(image) }.getOrNull() else null
+            com.google.android.gms.tasks.Tasks.whenAllComplete(listOfNotNull(faceTask, labelTask))
                 .addOnCompleteListener {
-                    bitmap.recycle()
-                    faceFrameBusy.set(false)
+                    try {
+                        if (labelTask?.isSuccessful == true) {
+                            cameraLabels = com.apptists.poplur2025.ml.CameraSceneLabels.from(
+                                labelTask.result.map { it.text to it.confidence },
+                            )
+                        }
+                        if (!cameraScanOn) cameraLabels = emptyList()
+                        if (!faceTask.isSuccessful) return@addOnCompleteListener
+                        val faces = faceTask.result
+                        val width = bitmap.width.toDouble().coerceAtLeast(1.0)
+                        val height = bitmap.height.toDouble().coerceAtLeast(1.0)
+                        val payload = JSONArray()
+                        faces.forEachIndexed { index, face ->
+                            val box = face.boundingBox
+                            val normalizedX = if (mirrored) 1.0 - (box.right / width) else box.left / width
+                            payload.put(JSONObject().apply {
+                                put("id", "face-${face.trackingId ?: index}")
+                                put("x", normalizedX.coerceIn(0.0, 1.0))
+                                put("y", (box.top / height).coerceIn(0.0, 1.0))
+                                put("w", (box.width() / width).coerceIn(0.0, 1.0))
+                                put("h", (box.height() / height).coerceIn(0.0, 1.0))
+                                put("label", "person")
+                                put("confidence", 0.95)
+                            })
+                        }
+                        com.apptists.poplur2025.ml.CameraSceneLabels
+                            .entries(cameraLabels, if (faces.isEmpty()) emptySet() else setOf("person"))
+                            .forEach { payload.put(it) }
+                        homeWebView.post {
+                            homeWebView.evaluateJavascript(
+                                "window.dispatchEvent(new CustomEvent('poplur-native-detections',{detail:$payload}));true;",
+                                null
+                            )
+                        }
+                    } finally {
+                        bitmap.recycle()
+                        faceFrameBusy.set(false)
+                    }
                 }
         }.onFailure {
             bitmap.recycle()
@@ -4175,6 +4217,9 @@ class PostLoginWebActivity : ComponentActivity() {
         const val REVEAL_DURATION_MS = 450L
         const val VOLUME_HIDE_MS = 1500L
         const val RADIO_RELEASE_DELAY_MS = 1500L
+        const val CAMERA_LABEL_INTERVAL_MS = 1_000L
+        // ML Kit's own default. Its scores run higher than Vision's, which iOS cuts at 0.15.
+        const val CAMERA_LABEL_MIN_CONFIDENCE = 0.5f
         const val CAMERA_REQUEST_CODE = 7403
         const val WEB_MEDIA_CAPTURE_REQUEST_CODE = 7404
         const val MAX_WEB_CAPTURE_ROUTES = 16

@@ -207,6 +207,8 @@ dependencies {
     implementation("androidx.camera:camera-video:1.4.1")
     implementation("com.google.mlkit:object-detection:17.0.2")
     implementation("com.google.mlkit:face-detection:16.1.7")
+    // A5: SCAN's scene labels (bundled model, like face detection).
+    implementation("com.google.mlkit:image-labeling:17.0.9")
 
     implementation("com.android.billingclient:billing-ktx:8.0.0")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
