@@ -184,6 +184,8 @@ class PostLoginWebActivity : ComponentActivity() {
     private var hideVolumeRunnable: Runnable? = null
     private var revealRunnable: Runnable? = null
     private var pendingDMThreadId: String? = null
+    /** A call answered on the phone's ringing screen, joined once Home is ready. */
+    private var pendingCallAnswer: com.apptists.poplur2025.call.IncomingCallNotifier.IncomingCall? = null
     private var pendingPostFocusId: String? = null
     private var pendingPostFocusDetails: JSONObject? = null
     private var inAppBrowserDialog: PoplurInAppBrowserDialog? = null
@@ -317,6 +319,7 @@ class PostLoginWebActivity : ComponentActivity() {
         pendingDMThreadId = intent.getStringExtra("threadId")
             ?.takeIf { it.isNotBlank() && it.length <= 200 }
         readPendingPostFocus(intent)
+        readPendingCallAnswer(intent)
 
         // With MainActivity routing straight to the web surfaces (USE_WEB_SURFACES),
         // PoplurRoot no longer runs to start this — keep incoming calls working.
@@ -1835,6 +1838,7 @@ class PostLoginWebActivity : ComponentActivity() {
                     homeReady.value = true
                     deliverPendingDMDeepLink()
                     deliverPendingPostFocus()
+                    deliverPendingCallAnswer()
                     revealIfReady()
                 }
             }
@@ -2913,8 +2917,46 @@ class PostLoginWebActivity : ComponentActivity() {
         pendingDMThreadId = intent.getStringExtra("threadId")
             ?.takeIf { it.isNotBlank() && it.length <= 200 }
         readPendingPostFocus(intent)
+        readPendingCallAnswer(intent)
         deliverPendingDMDeepLink()
         deliverPendingPostFocus()
+        deliverPendingCallAnswer()
+    }
+
+    /** Answer on the phone's ringing screen opens Poplur here (A7). The action is
+     *  consumed at once, so reopening Poplur later can never answer a stale call. */
+    private fun readPendingCallAnswer(intent: Intent) {
+        if (intent.action != com.apptists.poplur2025.call.IncomingCallNotifier.ACTION_ANSWER) return
+        intent.action = null
+        val call = com.apptists.poplur2025.call.IncomingCallNotifier.IncomingCall.fromIntent(intent) ?: return
+        com.apptists.poplur2025.call.IncomingCallNotifier.cancel(this, call.callId)
+        com.apptists.poplur2025.call.PoplurWebCallSignalling.answeringCallId = call.callId
+        pendingCallAnswer = call
+    }
+
+    /** The page joins the answered call once Home is ready, the way a tapped DM
+     *  waits. A cold start can outlast the ring, so it joins only a call that is
+     *  still ringing. */
+    private fun deliverPendingCallAnswer() {
+        if (!homeReady.value) return
+        val call = pendingCallAnswer ?: return
+        pendingCallAnswer = null
+        com.apptists.poplur2025.call.PoplurWebCallSignalling.isRinging(call.callId) { ringing ->
+            if (!ringing) {
+                com.apptists.poplur2025.call.PoplurWebCallSignalling.answeringCallId = null
+                android.widget.Toast.makeText(this, "The call ended before Poplur opened.", android.widget.Toast.LENGTH_SHORT).show()
+                return@isRinging
+            }
+            pushWebMessage(
+                JSONObject()
+                    .put("type", "poplurCallAnswer")
+                    .put("callId", call.callId)
+                    .put("callerId", call.callerId)
+                    .put("callerName", call.callerName)
+                    .put("video", call.video)
+                    .put("context", call.context)
+            )
+        }
     }
 
     /** A tapped engagement/radius notification lands on the post's pin. Held

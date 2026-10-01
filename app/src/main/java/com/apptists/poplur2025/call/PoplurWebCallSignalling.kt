@@ -30,6 +30,12 @@ object PoplurWebCallSignalling {
     /** Delivers the same payload shape used by the iOS WebView bridge. */
     var onEvent: ((JSONObject) -> Unit)? = null
 
+    /** A call answered on the phone's ringing screen while the page loads. The page
+     *  joins it from `poplurCallAnswer` (PostLoginWebActivity), so its ringing
+     *  document must not also arrive as a second, popup-raising incoming call. */
+    @Volatile
+    var answeringCallId: String? = null
+
     /** Open a call. `video` is an intent flag only; media remains WebRTC-in-page. */
     fun startCall(
         otherUid: String,
@@ -118,6 +124,26 @@ object PoplurWebCallSignalling {
             .update("status", "declined")
     }
 
+    /** Whether a call is still ringing, for an Answer that took a while to open. */
+    fun isRinging(callId: String, result: (Boolean) -> Unit) {
+        if (callId.isBlank()) { result(false); return }
+        db.collection("calls").document(callId).get()
+            .addOnSuccessListener { snapshot -> result(snapshot.getString("status") == "ringing") }
+            .addOnFailureListener { result(false) }
+    }
+
+    /** Decline from the ringing notification. Only a call that is still ringing:
+     *  a late tap must not end a call answered elsewhere or already hung up. */
+    fun declineIfRinging(callId: String, done: () -> Unit = {}) {
+        if (callId.isBlank()) { done(); return }
+        val ref = db.collection("calls").document(callId)
+        db.runTransaction { transaction ->
+            if (transaction.get(ref).getString("status") == "ringing") {
+                transaction.update(ref, "status", "declined")
+            }
+        }.addOnCompleteListener { done() }
+    }
+
     fun acceptCall(callId: String) {
         if (callId.isBlank()) return
         // Start both relays before the page publishes its answer; otherwise
@@ -192,17 +218,25 @@ object PoplurWebCallSignalling {
             .addSnapshotListener { snapshot, _ ->
                 snapshot?.documentChanges
                     ?.forEach { change ->
+                        val data = change.document.data
+                        // The query matches every ringing call this account is IN,
+                        // including the ones it placed. Only the callee rings: from
+                        // 4 Sep the caller's own page received its outgoing call as
+                        // incoming and declined it as busy.
+                        if (!IncomingCalls.isIncomingFor(data, uid)) return@forEach
+                        val callId = change.document.id
                         if (change.type == DocumentChange.Type.REMOVED) {
+                            if (callId == answeringCallId) answeringCallId = null
                             emit("poplurCallIncomingUnavailable") {
-                                put("callId", change.document.id)
+                                put("callId", callId)
                             }
                             return@forEach
                         }
                         if (change.type != DocumentChange.Type.ADDED) return@forEach
-                        val data = change.document.data
-                        if (data["provider"] as? String != WEBRTC_PROVIDER) return@forEach
+                        if (callId == answeringCallId) return@forEach
+                        if (!IncomingCalls.isFresh(data, System.currentTimeMillis())) return@forEach
                         emit("poplurCallIncoming") {
-                            put("callId", change.document.id)
+                            put("callId", callId)
                             put("callerId", data["callerId"] as? String ?: "")
                             put("callerName", data["callerName"] as? String ?: "Unknown")
                             put("video", data["video"] as? Boolean ?: false)
@@ -228,5 +262,30 @@ object PoplurWebCallSignalling {
             put("type", type)
             populate()
         })
+    }
+}
+
+/** Which ringing calls are this account's to answer. Free of Firebase so it can be
+ *  tested on its own. */
+internal object IncomingCalls {
+    private const val WEBRTC_PROVIDER = "webrtc"
+
+    /** A WebRTC rendezvous on which this account is the callee, not the caller.
+     *  The older Agora calls (CallSessionManager) share the collection and query. */
+    fun isIncomingFor(data: Map<String, Any?>, uid: String): Boolean =
+        uid.isNotEmpty() &&
+            data["provider"] as? String == WEBRTC_PROVIDER &&
+            data["calleeId"] as? String == uid &&
+            data["callerId"] as? String != uid
+
+    /** Nothing ages a call out on the server, so a caller killed mid-ring leaves a
+     *  document that would ring again on every launch. The caller gives up after
+     *  45 s; anything this old is stale. A document still waiting for its server
+     *  timestamp is new by definition. */
+    const val MAX_RING_AGE_MS = 90_000L
+
+    fun isFresh(data: Map<String, Any?>, nowMillis: Long): Boolean {
+        val created = data["createdAt"] as? com.google.firebase.Timestamp ?: return true
+        return nowMillis - created.toDate().time <= MAX_RING_AGE_MS
     }
 }

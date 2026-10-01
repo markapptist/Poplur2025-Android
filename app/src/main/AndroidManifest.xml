@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- A7: the incoming-call notification opens its ringing screen over the lock screen.
+         On Android 14+ Play grants this to calling apps through the Data safety / permissions declaration. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED"/>
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
@@ -192,6 +195,23 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <!-- A7: calls that ring while Poplur is closed. The ringing screen shows over the lock
+             screen in its own task; Decline is a broadcast so it never opens the app. -->
+        <activity
+            android:name=".call.IncomingCallActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Poplur"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:screenOrientation="portrait" />
+
+        <receiver
+            android:name=".call.IncomingCallActionReceiver"
+            android:exported="false" />
 
     </application>
 </manifest>

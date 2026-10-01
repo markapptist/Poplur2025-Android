@@ -1,6 +1,7 @@
 package com.apptists.poplur2025
 
 import android.util.Log
+import com.apptists.poplur2025.call.IncomingCallNotifier
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -116,6 +117,16 @@ class PoplurMessagingService : FirebaseMessagingService() {
         super.onMessageReceived(message)
         val data = message.data
         val kind = data["kind"].orEmpty()
+        // Calls are data-only messages (functions/src/callNotifications.ts), so
+        // they arrive here even with Poplur closed; they carry no title or body.
+        if (kind == "incoming_call") {
+            onIncomingCall(data)
+            return
+        }
+        if (kind == "call_cancel") {
+            IncomingCallNotifier.cancel(applicationContext, data["callId"].orEmpty())
+            return
+        }
         val postId = data["postId"].orEmpty()
         val threadId = data["threadId"].orEmpty()
         val title = message.notification?.title ?: data["title"].orEmpty()
@@ -176,6 +187,17 @@ class PoplurMessagingService : FirebaseMessagingService() {
             notificationKind = kind,
         )
         Log.i(TAG, "onMessageReceived: posted engagement notification for post=$postId")
+    }
+
+    /** Rings with the phone's incoming-call notification. With Poplur on screen
+     *  the page's own listener is already ringing with the in-app popup, and a
+     *  device nobody is signed in on has no call to answer. */
+    private fun onIncomingCall(data: Map<String, String>) {
+        val call = IncomingCallNotifier.IncomingCall.fromData(data) ?: return
+        if (PoplurNotifications.appInForeground) return
+        if (FirebaseAuth.getInstance().currentUser == null) return
+        val shown = IncomingCallNotifier.show(applicationContext, call)
+        Log.i(TAG, "onMessageReceived: incoming call ${call.callId.take(8)} rang=$shown")
     }
 
     /** The push as the web inbox row shape, so the banner and the Notifications

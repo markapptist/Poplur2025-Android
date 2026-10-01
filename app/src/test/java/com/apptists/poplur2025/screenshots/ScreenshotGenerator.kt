@@ -40,4 +40,18 @@ class ScreenshotGenerator {
         }
         composeTestRule.onRoot().captureRoboImage("screenshots/home_screen.png")
     }
+
+    /** A7: the ringing screen a locked phone shows for a Poplur call. */
+    @Test
+    fun captureIncomingCallScreen() {
+        composeTestRule.setContent {
+            com.apptists.poplur2025.call.IncomingCallScreen(
+                callerName = "Sam Rivera",
+                video = false,
+                onDecline = {},
+                onAnswer = {},
+            )
+        }
+        composeTestRule.onRoot().captureRoboImage("screenshots/incoming_call.png")
+    }
 }
