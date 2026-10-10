@@ -147,7 +147,7 @@ fun NativePreloginScreen(model: NativePreloginModel, music: PreLoginMusicPlayer,
                             ClayButton("Continue", "photoNext", editable) { if (model.photo == null) model.error = "Add a profile photo to continue." else model.go(PreloginStep.Gender) }
                         }
                         PreloginStep.Gender -> {
-                            Heading("Is your cube male or female?"); Subtitle("Pick the clay head your profile cube wears.")
+                            Heading("Are you male or female?"); Subtitle("Pick the clay head your profile cube wears.")
                             Choice("Male", "The original mark head", "poplur_mark_head_navigator", model.gender == "male", editable, foreground) { model.gender = "male"; model.submit() }
                             Choice("Female", "The female head", "poplur_female_head_navigator", model.gender == "female", editable, foreground) { model.gender = "female"; model.submit() }
                             Subtitle("You can change this any time in Settings · Profile.")
