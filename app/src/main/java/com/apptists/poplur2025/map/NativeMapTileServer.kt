@@ -8,16 +8,27 @@ import java.net.ServerSocket
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 
 /** Device-local transport for the native SDK, not a development server. The
  * random path and loopback binding keep the tile endpoint private to the app. */
 internal class NativeMapTileServer(cacheDirectory: File) : AutoCloseable {
+    private companion object {
+        // One bounded disk cache for the process. A retry must not open a new
+        // journal while the previous server is still closing the same cache.
+        private var sharedCache: Cache? = null
+        @Synchronized private fun tileCache(directory: File): Cache = sharedCache
+            ?: Cache(File(directory, "native-map-ranges"), 48L * 1024 * 1024).also { sharedCache = it }
+        private val cleanup = Executors.newSingleThreadExecutor { task ->
+            Thread(task, "PoplurMapCleanup").apply { isDaemon = true }
+        }
+    }
     private val socket = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
     private val nonce = UUID.randomUUID().toString()
     private val acceptor = Executors.newSingleThreadExecutor()
     private val workers = Executors.newFixedThreadPool(4)
-    private val client = OkHttpClient.Builder().cache(Cache(File(cacheDirectory, "native-map-ranges"), 48L * 1024 * 1024))
+    private val client = OkHttpClient.Builder().cache(tileCache(cacheDirectory))
         .connectTimeout(10, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
     private val archives = ConcurrentHashMap<String, PMTilesArchive>()
     @Volatile private var closed = false
@@ -26,7 +37,7 @@ internal class NativeMapTileServer(cacheDirectory: File) : AutoCloseable {
         acceptor.execute {
             while (!closed) {
                 val connection = try { socket.accept() } catch (_: Exception) { break }
-                workers.execute {
+                try { workers.execute {
                     connection.use { peer ->
                         peer.soTimeout = 5000
                         try {
@@ -49,6 +60,9 @@ internal class NativeMapTileServer(cacheDirectory: File) : AutoCloseable {
                             runCatching { peer.getOutputStream().write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray()) }
                         }
                     }
+                } } catch (_: RejectedExecutionException) {
+                    // Teardown can race the last accepted request.
+                    connection.close()
                 }
             }
         }
@@ -60,8 +74,18 @@ internal class NativeMapTileServer(cacheDirectory: File) : AutoCloseable {
         archives.computeIfAbsent(id) { PMTilesArchive(url, client) }
         return "http://127.0.0.1:${socket.localPort}/$nonce/$id/{z}/{x}/{y}/tile.mvt"
     }
-    override fun close() {
+    @Synchronized override fun close() {
+        if (closed) return
         closed = true; socket.close(); acceptor.shutdownNow(); workers.shutdownNow()
-        client.dispatcher.cancelAll(); client.connectionPool.evictAll(); client.cache?.close(); archives.clear()
+        archives.clear()
+        // TLS socket teardown can write to the network. Renderer teardown runs
+        // on Android's UI thread, where evictAll used to throw and abort every
+        // subsequent map create/retry. Each server owns its pool and dispatcher;
+        // the shared cache remains available to the replacement server.
+        cleanup.execute {
+            client.dispatcher.cancelAll()
+            client.connectionPool.evictAll()
+            client.dispatcher.executorService.shutdown()
+        }
     }
 }

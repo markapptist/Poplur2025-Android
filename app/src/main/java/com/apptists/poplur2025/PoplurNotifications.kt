@@ -10,6 +10,11 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.Ringtone
+import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.core.app.NotificationCompat
@@ -30,7 +35,8 @@ import org.json.JSONObject
  * not a Poplur choice.
  */
 object PoplurNotifications {
-    const val CHANNEL_ID = "poplur_alerts"
+    const val CHANNEL_ID = "poplur_alerts_pop_v2"
+    private const val LEGACY_CHANNEL_ID = "poplur_alerts"
     const val PERMISSION_REQUEST_CODE = 7405
 
     /** Android 13+ gates the shade behind a runtime grant; earlier releases
@@ -57,16 +63,56 @@ object PoplurNotifications {
 
     /** Clay pink — matches the app-icon border and the web HUD accents. */
     private val ACCENT = 0xFFF63B9A.toInt()
+    private val soundAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+    private fun popSound(context: Context) = Uri.parse("android.resource://${context.packageName}/raw/poplur_pop")
+    private var foregroundPop: Ringtone? = null
+    private var lastForegroundPopAt = 0L
+
+    /** A finite notification shot, independent of the WebView's idle-audio gate. */
+    fun playForegroundPop(context: Context) {
+        if (!appInForeground || !soundsEnabled(context)) return
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        if (audio.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
+        ensureChannel(context)
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = manager.getNotificationChannel(CHANNEL_ID) ?: return
+        if (channel.importance == NotificationManager.IMPORTANCE_NONE || channel.sound == null) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastForegroundPopAt < 1_000) return
+        lastForegroundPopAt = now
+        runCatching {
+            foregroundPop?.stop()
+            val ringtone = RingtoneManager.getRingtone(context, channel.sound) ?: return
+            ringtone.audioAttributes = soundAttributes
+            foregroundPop = ringtone
+            ringtone.play()
+            Handler(Looper.getMainLooper()).postDelayed({
+                ringtone.stop()
+                if (foregroundPop === ringtone) foregroundPop = null
+            }, 2_000)
+        }
+    }
 
     fun ensureChannel(context: Context) {
         val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (mgr.getNotificationChannel(CHANNEL_ID) == null) {
+            // Android channel sounds are immutable after creation. Preserve a
+            // person's blocked/silent/custom settings when moving to this sound.
+            val previous = mgr.getNotificationChannel(LEGACY_CHANNEL_ID)
+            val previousSound = previous?.sound
+            val keepSound = previous != null && (previous.sound == null ||
+                previousSound != RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION) ||
+                (android.os.Build.VERSION.SDK_INT >= 29 && previous.hasUserSetSound()))
             val channel = NotificationChannel(
-                CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH
+                CHANNEL_ID, CHANNEL_NAME, previous?.importance ?: NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = CHANNEL_DESC
-                enableVibration(true)
-                setShowBadge(true)
+                enableVibration(previous?.shouldVibrate() ?: true)
+                previous?.vibrationPattern?.let { vibrationPattern = it }
+                setShowBadge(previous?.canShowBadge() ?: true)
+                setSound(if (keepSound) previous?.sound else popSound(context), soundAttributes)
             }
             mgr.createNotificationChannel(channel)
         }
@@ -102,7 +148,7 @@ object PoplurNotifications {
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
-            .setSilent(silent)
+            .setSilent(silent || !soundsEnabled(context))
             .setPriority(if (silent) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
         if (!destinationThreadId.isNullOrBlank()) {
             val destination = Intent(context, PostLoginWebActivity::class.java).apply {

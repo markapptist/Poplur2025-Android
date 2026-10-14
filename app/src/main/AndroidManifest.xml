@@ -35,6 +35,7 @@
         android:roundIcon="@mipmap/ic_launcher_round">
         <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-2086359936541081~8222991945"/>
         <meta-data android:name="com.mapbox.maps.token" android:value="@string/mapbox_access_token"/>
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="poplur_alerts_pop_v2"/>
         <!-- Firebase Analytics: the web page owns screen_view (relayed over the bridge), so the SDK
              must not log one per Activity, and the Advertising ID is never collected. -->
         <meta-data android:name="google_analytics_automatic_screen_reporting_enabled" android:value="false"/>

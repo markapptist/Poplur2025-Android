@@ -15,6 +15,8 @@ import com.mapbox.common.Cancelable
 import com.mapbox.common.MapboxOptions
 import com.mapbox.geojson.Point
 import com.mapbox.maps.*
+import com.mapbox.maps.extension.style.layers.properties.generated.ProjectionName
+import com.mapbox.maps.extension.style.projection.generated.projection
 import com.mapbox.maps.plugin.animation.camera
 import com.mapbox.maps.plugin.animation.MapAnimationOptions
 import com.mapbox.maps.plugin.gestures.gestures
@@ -125,6 +127,9 @@ class NativeMapRenderer(private val context: Context, private val root: NativeMa
         view.gestures.addOnMapClickListener { coordinate -> tap(coordinate); true }
         view.mapboxMap.loadStyle(Style.DARK) { style ->
             if (session != owner) return@loadStyle
+            // Match iOS and the shared web map before publishing readiness.
+            // Android otherwise uses the SDK's globe at the world end of the rail.
+            projection(ProjectionName.MERCATOR).bindTo(style)
             style.setStyleLights(value(JSONArray("""[{"id":"poplur-ambient","type":"ambient","properties":{"intensity":0.55}},{"id":"poplur-sun","type":"directional","properties":{"intensity":0.75,"direction":[210,45],"cast-shadows":false}}]""")))
             presentation?.let { presentation(it) }
             val json = JSONObject(style.styleJSON)

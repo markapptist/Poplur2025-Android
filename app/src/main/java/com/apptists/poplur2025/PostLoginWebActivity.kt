@@ -1871,6 +1871,10 @@ class PostLoginWebActivity : ComponentActivity() {
         fun onEvent(json: String) {
             val body = runCatching { JSONObject(json) }.getOrNull() ?: return
             val type = body.optString("type")
+            if (type == "notificationPop") {
+                runOnUiThread { PoplurNotifications.playForegroundPop(this@PostLoginWebActivity) }
+                return
+            }
             if(type == "nativeMapRenderer") { runOnUiThread { nativeMapRenderer?.receive(body) }; return }
             if(type == "nativeMapPresentation" && body.optString("renderer") == "mapbox") {
                 runOnUiThread { nativeMapRenderer?.presentation(body) }; return
