@@ -13,8 +13,9 @@ import com.apptists.poplur2025.location.LocationProvider
  * Real device location for the web surfaces. The clay map already consumes a
  * native-pushed location (window message `poplur-location`, falling back to
  * Toronto when none arrives) — this supplies it: request the OS permission,
- * read the last known fix, and post it into the home page AND the map iframe
- * (which may mount later, so the injected script polls for it briefly).
+ * read the last known fix, and cache it in the home page before notifying
+ * Home/Feed AND the map iframe (which may mount later, so the injected script
+ * polls for it briefly).
  */
 object PoplurWebLocation {
     const val REQUEST_CODE = 7401
@@ -48,6 +49,10 @@ object PoplurWebLocation {
                     """
                     (function () {
                       var msg = { type: 'poplur-location', latitude: $latitude, longitude: $longitude };
+                      // Feed's shared viewerFix reader reads this cache, not
+                      // the event payload. Keep it available before listeners
+                      // run and for surfaces that mount after this delivery.
+                      window.__poplurNativeLocation = msg;
                       window.postMessage(msg, '*');
                       window.dispatchEvent(new CustomEvent('poplur-location', { detail: msg }));
                       var tries = 0;

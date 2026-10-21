@@ -454,12 +454,10 @@ class PostLoginWebActivity : ComponentActivity() {
                 permissionQuery
         )
 
-        // Push an existing fix without prompting. Missing permissions are
-        // surfaced by Home's custom clay primer; only its Allow action posts
-        // requestLocation/requestCameraRoll back through the bridge below.
-        if (PoplurWebLocation.hasPermission(this)) {
-            PoplurWebLocation.pushLastKnown(homeWebView)
-        }
+        // Replay an authorized fix at page/Home readiness below. A push here,
+        // immediately after loadUrl, can reach the old document and be lost.
+        // Passive replays never prompt; the explicit requestLocation bridge
+        // continues to own permission requests.
 
         // Match the approved iOS loading minimum. A bounded fallback avoids trapping a user
         // on Loading forever if Mapbox is unavailable and therefore cannot emit homeReady.
@@ -655,6 +653,9 @@ class PostLoginWebActivity : ComponentActivity() {
         // A deletion that finished while Poplur was in the background reports
         // and signs out here, once the screen can show it.
         PoplurAccountDeletion.bind(this)
+        if (homeReady.value && ::homeWebView.isInitialized) {
+            PoplurWebLocation.pushLastKnown(homeWebView)
+        }
     }
 
     override fun onStart() {
@@ -782,6 +783,11 @@ class PostLoginWebActivity : ComponentActivity() {
                 // The home bundle also self-detects via deviceMemory; injecting here
                 // covers the loading page too and is idempotent.
                 if (PoplurLiteTier.isLowTier(view.context)) PoplurLiteTier.injectLiteCss(view)
+                // Home starts on Feed, whose reach filter needs the fix even
+                // while Map has never mounted. Retain it in this new document.
+                if (receivesNativeEvents && url?.startsWith("$origin/claymap/") == true) {
+                    PoplurWebLocation.pushLastKnown(view)
+                }
             }
         }
     }
@@ -1882,6 +1888,7 @@ class PostLoginWebActivity : ComponentActivity() {
             if (type == "homeReady" || type == "mapReady") {
                 runOnUiThread {
                     homeReady.value = true
+                    if (type == "homeReady") PoplurWebLocation.pushLastKnown(homeWebView)
                     deliverPendingDMDeepLink()
                     deliverPendingPostFocus()
                     deliverPendingCallAnswer()
