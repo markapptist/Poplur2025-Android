@@ -299,7 +299,7 @@ class PostLoginWebActivity : ComponentActivity() {
     private var pendingPhotoUri: Uri? = null
     private var pendingVideoUri: Uri? = null
     private val faceFrameBusy = AtomicBoolean(false)
-    private val cameraFaceDetector by lazy {
+    private val cameraFaceDetectorLazy = lazy {
         FaceDetection.getClient(
             FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
@@ -308,6 +308,7 @@ class PostLoginWebActivity : ComponentActivity() {
                 .build()
         )
     }
+    private val cameraFaceDetector by cameraFaceDetectorLazy
     /** A5: with an AR filter up, faces also carry eyes, nose and head pose for the costume.
      *  A second client, so SCAN alone keeps the cheaper box-only pass. */
     private val cameraLandmarkDetectorLazy = lazy {
@@ -4128,7 +4129,9 @@ class PostLoginWebActivity : ComponentActivity() {
         homeWebView.destroy()
         // Dispose is idempotent if the native splash already retired at reveal.
         nativeLoadingView.disposeComposition()
-        cameraFaceDetector.close()
+        // Guarded like its siblings: touching the lazy here would first create the ML Kit
+        // client, and that throws in onDestroy, killing the app on every Back/finish.
+        if (cameraFaceDetectorLazy.isInitialized()) cameraFaceDetector.close()
         if (cameraImageLabelerLazy.isInitialized()) cameraImageLabeler.close()
         if (cameraLandmarkDetectorLazy.isInitialized()) cameraLandmarkDetector.close()
         super.onDestroy()
