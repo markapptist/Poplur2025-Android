@@ -13,3 +13,5 @@ local.properties
 Secrets.kt
 "* *.so"
 *\ *.so
+
+play-services-key.json
