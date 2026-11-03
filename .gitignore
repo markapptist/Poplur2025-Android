@@ -34,3 +34,5 @@ mapping.txt
 
 # Local machine config
 local.properties
+
+play-services-key.json
