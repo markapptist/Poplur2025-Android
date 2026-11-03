@@ -58,7 +58,7 @@ import kotlin.math.roundToInt
 
 /**
  * When true, MainActivity routes straight to the approved web surfaces
- * (NativePreloginActivity / PostLoginWebActivity) and never composes the native
+ * (PreloginWebActivity / PostLoginWebActivity) and never composes the native
  * PoplurRoot. Composing PoplurRoot boots the entire native stack — libGDX cube
  * fragments, Mapbox, ~50 states and their effects — just to sit unseen behind a
  * web screen, which is what made startup slow and the app laggy on Android/iPad.
@@ -186,7 +186,9 @@ class MainActivity : FragmentActivity(), AndroidFragmentApplication.Callbacks, P
                                     routed = true
                                     ctx.startActivity(
                                         if (isSignedIn == true && !com.apptists.poplur2025.prelogin.NativePreloginDraft.isPending(ctx)) Intent(ctx, PostLoginWebActivity::class.java)
-                                        else Intent(ctx, NativePreloginActivity::class.java)
+                                        // The native splash above has just played the approved
+                                        // clip, so the web pre-login opens on Welcome (iOS).
+                                        else PreloginWebActivity.intent(ctx, startAtWelcome = true)
                                     )
                                     this@MainActivity.finish()
                                 }

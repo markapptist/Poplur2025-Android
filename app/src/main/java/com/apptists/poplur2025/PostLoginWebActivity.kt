@@ -2622,7 +2622,7 @@ class PostLoginWebActivity : ComponentActivity() {
                 runOnUiThread {
                     FirebaseAuth.getInstance().signOut()
                     startActivity(
-                        Intent(this@PostLoginWebActivity, NativePreloginActivity::class.java)
+                        PreloginWebActivity.intent(this@PostLoginWebActivity)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
                     )
                     finish()

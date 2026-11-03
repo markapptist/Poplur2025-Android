@@ -109,7 +109,7 @@
             android:theme="@style/Theme.Poplur"
             android:screenOrientation="portrait" />
 
-        <!-- Native signed-out flow; no Expo or WebView runtime. -->
+        <!-- Native signed-out flow; fallback only behind PreloginWebActivity.intent (as on iOS). -->
         <activity android:name=".NativePreloginActivity" android:exported="false"
             android:theme="@style/Theme.Poplur.PreloginWeb" android:windowSoftInputMode="adjustResize"
             android:screenOrientation="portrait" />

@@ -228,13 +228,13 @@ object PoplurAccountDeletion {
      */
     private fun routeToPrelogin(activity: Activity): Boolean {
         pendingSignedOutRoute = false
-        if (activity is NativePreloginActivity || activity.isFinishing) return false
+        if (activity is NativePreloginActivity || activity is PreloginWebActivity || activity.isFinishing) return false
         if (dialog?.activity === activity) {
             dialog?.dismiss()
             dialog = null
         }
         activity.startActivity(
-            Intent(activity, NativePreloginActivity::class.java)
+            PreloginWebActivity.intent(activity)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         )
         activity.finish()
