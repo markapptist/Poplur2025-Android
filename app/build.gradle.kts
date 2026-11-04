@@ -59,7 +59,7 @@ android { namespace = "com.apptists.poplur2025"
         testInstrumentationRunner = providers.gradleProperty("poplurMapRecoveryTest")
             .map { if (it == "true") "com.apptists.poplur2025.map.MapRecoveryInstrumentation" else "androidx.test.runner.AndroidJUnitRunner" }
             .getOrElse("androidx.test.runner.AndroidJUnitRunner")
-        applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 36; versionCode = 5; versionName = "1.0.4"
+        applicationId = "com.apptists.poplur2025"; minSdk = 26; targetSdk = 36; versionCode = 6; versionName = "1.0.5"
         buildConfigField("String", "MAPILLARY_ACCESS_TOKEN", "\"$mapillaryAccessToken\"")
         buildConfigField("String", "ADMOB_INTERSTITIAL_UNIT_ID", "\"$admobInterstitialUnitId\"")
         buildConfigField("String", "ADMOB_FEED_NATIVE_UNIT_ID", "\"$admobFeedNativeUnitId\"")
