@@ -399,8 +399,10 @@ class PreloginWebActivity : ComponentActivity() {
                     } else {
                         AccountType.User
                     }
-                    val photo = if (accountType == AccountType.User) {
-                        decodeProfilePhoto(json?.optString("profilePhotoDataURI")) ?: run {
+                    val rawPhoto = json?.optString("profilePhotoDataURI").orEmpty()
+                    // The photo is optional (App Review 5.1.1(v), 18 Nov 2026).
+                    val photo = if (accountType == AccountType.User && rawPhoto.isNotEmpty()) {
+                        decodeProfilePhoto(rawPhoto) ?: run {
                             Log.w(TAG, "rejected invalid personal profile photo")
                             postAuthResult(false, "Choose your profile photo again, then create your account.")
                             return
