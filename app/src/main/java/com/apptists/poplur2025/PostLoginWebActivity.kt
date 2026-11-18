@@ -1148,12 +1148,17 @@ class PostLoginWebActivity : ComponentActivity() {
             sendUploadResult(requestId, false, "Poplur could not tell where you are, and a track has to be left somewhere.")
             return
         }
-        val lat = body.optDouble("latitude")
-        val lng = body.optDouble("longitude")
-        if (lat.isNaN() || lng.isNaN()) {
+        val exactLat = body.optDouble("latitude")
+        val exactLng = body.optDouble("longitude")
+        if (exactLat.isNaN() || exactLng.isNaN()) {
             sendUploadResult(requestId, false, "Poplur could not tell where you are, and a track has to be left somewhere.")
             return
         }
+        // Anyone can read a track row (firestore.rules), so it carries the same
+        // ~110 m cell a public pop does, never the spot the artist stood on.
+        // The rules refuse anything finer.
+        val lat = (exactLat * 1_000).roundToInt() / 1_000.0
+        val lng = (exactLng * 1_000).roundToInt() / 1_000.0
 
         val trackId = java.util.UUID.randomUUID().toString()
         val objectRef = FirebaseStorage.getInstance().reference.child("music/${user.uid}/$trackId.wav")
